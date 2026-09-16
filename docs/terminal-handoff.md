@@ -155,8 +155,9 @@ The prototype waits for child exit; a stopped child must be continued or termina
 externally. Processes that deliberately detach into another session are outside
 its process-group cleanup. Windows is outside the initial platform scope.
 
-The next implementation milestone is M0: configuration loading, the initial
-store/migration, and `diffbutler doctor` working without a forge configured.
+M0 now implements configuration loading, the initial store/migration, and local
+`diffbutler doctor` working without a forge configured; see
+[configuration and storage](configuration.md).
 Integrate this terminal experiment with real managed sessions at M2/M3; it is
 not a reason to add tmux to the base dependencies.
 

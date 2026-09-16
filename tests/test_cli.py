@@ -30,4 +30,4 @@ def test_unimplemented_commands_are_rejected(capsys: pytest.CaptureFixture[str])
     with pytest.raises(SystemExit) as error:
         main(["review", "1841"])
     assert error.value.code == 2
-    assert "unrecognized arguments" in capsys.readouterr().err
+    assert "invalid choice" in capsys.readouterr().err

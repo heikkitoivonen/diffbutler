@@ -32,6 +32,21 @@ def main() -> None:
             if result.stdout.strip() != f"diffbutler {version}":
                 raise SystemExit(f"Unexpected installed CLI output: {result.stdout!r}")
         subprocess.run([str(command), "--help"], cwd=directory, check=True)
+        doctor_env = {
+            key: value for key, value in os.environ.items() if not key.startswith("DIFFBUTLER_")
+        }
+        doctor_env["XDG_CONFIG_HOME"] = str(Path(directory) / "config")
+        doctor_env["XDG_DATA_HOME"] = str(Path(directory) / "data")
+        # Exercise packaged migration discovery, then reopen through the module entry point.
+        for args in (
+            [str(command), "doctor"],
+            [str(python), "-I", "-m", "diffbutler", "doctor", "--no-migrate"],
+        ):
+            result = subprocess.run(
+                args, cwd=directory, env=doctor_env, check=True, capture_output=True, text=True
+            )
+            if "Schema 0001 current" not in result.stdout or "FAIL" in result.stdout:
+                raise SystemExit(f"Unexpected installed doctor output: {result.stdout!r}")
         subprocess.run(
             [str(python), "-I", "-m", "diffbutler.ui.tui.handoff_probe", "--help"],
             cwd=directory,

@@ -19,8 +19,10 @@ tells you where to look.
 
 > **Name:** DiffButler. Python package and CLI command: `diffbutler`.
 
-**Status:** design spec with the project/tooling scaffold initialized and a runnable
-[terminal handoff experiment](docs/terminal-handoff.md). Review workflow features
+**Status:** M0 configuration loading, initial SQLite migration/ledger, and local
+`diffbutler doctor` are implemented, alongside a runnable
+[terminal handoff experiment](docs/terminal-handoff.md). See
+[current configuration/storage scope](docs/configuration.md). Review workflow features
 remain unimplemented; this document describes the target, not shipped behavior.
 
 ---
@@ -967,6 +969,9 @@ Portability rules, enforced by running the store test suite against all three in
 
 ### 9.4 Schema sketch
 
+M0 implements the account, repository, pull-request, review-task, and cleanup-job
+foundation below. Remaining tables arrive with their workflows; this is the target schema.
+
 ```
 account(id, forge, login, display_name)                      -- multi-user seam, §9.5
 repository(id, forge, namespace, name, default_branch, config_json, enabled)
@@ -1331,6 +1336,11 @@ checkout = "worktree"            # retain session-owned sources until cleanup
 
 ### 11.3 `diffbutler doctor`
 
+M0 currently validates configuration, initializes/checks SQLite, checks configured
+repository/prompt paths, and resolves the browser opener. It passes without a forge
+configured. Forge auth/rate limits and reviewer execution/session capabilities are
+reported as skipped until their adapters ship. The full target behavior follows.
+
 One command that verifies the whole chain and prints a pass/fail table: config
 parses; forge auth works and `whoami` matches; rate limit headroom; DB reachable and
 migrations current; each configured reviewer executes against a synthetic 20-line
@@ -1484,8 +1494,10 @@ GitHub Actions runs checks and wheel installation tests on Linux and macOS.
 The project is MIT-licensed; dependencies retain their own licenses (see
 [dependency licensing notes](docs/dependencies.md)).
 
-Runtime deps are added only as used: `textual` powers the handoff experiment. Remaining planned deps: `typer`, `httpx`, `sqlalchemy[asyncio]`, `alembic`,
-`aiosqlite`, `pydantic`, `pydantic-settings`, `jinja2`, `keyring`, `mcp`.
+Runtime deps are added only as used: `textual` powers the handoff experiment;
+`pydantic`, `pydantic-settings`, `sqlalchemy[asyncio]`, `alembic`, and `aiosqlite`
+power M0 configuration and storage. Remaining planned deps: `typer`, `httpx`,
+`jinja2`, `keyring`, `mcp`.
 Extras: `postgres`, `mysql`, `api`.
 
 Ship as `uv tool install diffbutler` / `pipx install diffbutler`.

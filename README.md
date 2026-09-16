@@ -7,10 +7,30 @@ AI review, your review, or author changes. You decide when an AI review starts,
 discuss findings in the agent's own terminal session, and do the human pass in
 your browser.
 
-**Status: project scaffold, not a working review dashboard yet.** The CLI currently
-provides help and version information. A separate [terminal handoff experiment](docs/terminal-handoff.md)
+**Status: M0 foundations, not a working review dashboard yet.** Configuration loading,
+the initial SQLite ledger/migration, and `diffbutler doctor` are implemented.
+A separate [terminal handoff experiment](docs/terminal-handoff.md)
 is runnable with `make handoff`. GitHub polling, managed agent sessions, SQLite
 history, and automatic cleanup are planned in [SPEC.md](SPEC.md).
+
+## Local setup and diagnostics
+
+```sh
+uv run diffbutler doctor
+uv run diffbutler doctor --no-migrate
+```
+
+No forge, credentials, or agent installation is required. Doctor validates configuration,
+initializes/checks SQLite, checks configured repository/prompt paths, and resolves the
+platform browser opener without launching it. Failed checks exit with status 1; invalid
+CLI arguments exit with status 2. Missing browser support is a warning. Forge auth and
+reviewer execution/resume/cleanup checks are explicitly skipped until M1/M2. Doctor makes
+no network or model calls.
+
+Configuration lives at `$XDG_CONFIG_HOME/diffbutler/config.toml` (default
+`~/.config/diffbutler/config.toml`); a missing default file uses safe defaults.
+`doctor --config FILE` requires that file to exist. For settings, examples, environment
+overrides, and database backup behavior, see [configuration and storage](docs/configuration.md).
 
 ## Planned workflow
 
@@ -45,6 +65,7 @@ Linux and macOS are the initial development targets; Windows users can use WSL.
 |---|---|
 | `make` | List available commands |
 | `make run ARGS="--version"` | Run the CLI |
+| `make run ARGS="doctor"` | Validate local configuration and initialize/check SQLite |
 | `make handoff` | Try dashboard → offline fake agent → dashboard in one terminal |
 | `make format` | Apply safe lint fixes and format code |
 | `make check` | Lint, formatting, strict typing, import boundaries, and tests |
@@ -78,9 +99,10 @@ tests/          Offline tests
 scripts/        Development and packaging checks
 ```
 
-Most layer packages are placeholders; the terminal handoff experiment lives in `ui/tui/`.
+The config, store, and core doctor service are implemented; workflow packages remain
+placeholders. The terminal handoff experiment lives in `ui/tui/`.
 Import-linter enforces their dependency direction from the start. Textual is used by
-the experiment; other runtime dependencies will be added with the features that need them.
+the experiment; Pydantic validates configuration and SQLAlchemy/Alembic manage SQLite.
 
 ## Contributing
 
