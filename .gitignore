@@ -29,6 +29,8 @@ dist/
 *.sqlite3.*.bak
 
 # Editors and operating systems
+.project
+.pydevproject
 .idea/
 .vscode/
 .DS_Store
