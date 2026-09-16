@@ -1,0 +1,97 @@
+[project]
+name = "diffbutler"
+version = "0.1.0a0"
+description = "A terminal dashboard for human-directed AI code reviews."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["code-review", "github", "terminal", "ai"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.scripts]
+diffbutler = "diffbutler.ui.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.14",
+    "pip-audit>=2.10.1",
+    "pyright[nodejs]>=1.1.411",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.5",
+]
+
+[tool.uv]
+required-version = ">=0.12.13,<0.13"
+# Give new dependency releases time to settle before routine upgrades.
+exclude-newer = "15 days"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests", "scripts"]
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
+filterwarnings = ["error"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+source = ["diffbutler"]
+omit = ["src/diffbutler/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[tool.importlinter]
+root_package = "diffbutler"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "diffbutler.ui",
+    "diffbutler.core",
+    "diffbutler.forges | diffbutler.reviewers | diffbutler.store",
+    "diffbutler.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Terminal rendering stays out of the core and adapters"
+type = "forbidden"
+source_modules = [
+    "diffbutler.core", "diffbutler.domain", "diffbutler.forges",
+    "diffbutler.reviewers", "diffbutler.store", "diffbutler.config",
+]
+forbidden_modules = ["textual", "rich"]
