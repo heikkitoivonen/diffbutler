@@ -24,6 +24,9 @@ dist/
 *.db-wal
 *.sqlite
 *.sqlite3
+*.db.*.bak
+*.sqlite.*.bak
+*.sqlite3.*.bak
 
 # Editors and operating systems
 .idea/

@@ -4,6 +4,16 @@ DiffButler's own source is licensed under MIT. The terminal handoff experiment u
 Textual (MIT); development tools are not vendored into its wheel.
 There is no dependency in this scaffold that requires changing the project license.
 
+M0 adds Pydantic 2.13.5, pydantic-settings 2.15.0, SQLAlchemy 2.0.52,
+Alembic 1.19.1, and aiosqlite 0.22.1 (all MIT). Their installed license files were
+reviewed when added, along with new runtime transitive dependencies: pydantic-core
+2.46.5, annotated-types 0.8.0, typing-inspection 0.4.4, and Mako 1.4.1 (MIT);
+python-dotenv 1.2.3 and MarkupSafe 3.0.3 (BSD-3-Clause); and greenlet 3.5.5
+(MIT, with Stackless-derived platform files under PSF-2.0). Greenlet's bundled
+`LICENSE.PSF` was reviewed as well. These packages retain their installed notices;
+none requires relicensing DiffButler. python-dotenv is a pydantic-settings dependency;
+DiffButler does not load dotenv files.
+
 Textual 8.2.8's installed `licenses/LICENSE` was reviewed when added. Its runtime
 dependencies include Rich (MIT), markdown-it-py (MIT), mdit-py-plugins (MIT),
 mdurl (MIT), linkify-it-py (MIT), Pygments (BSD-2-Clause),

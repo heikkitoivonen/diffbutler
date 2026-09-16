@@ -17,6 +17,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "aiosqlite>=0.22.1",
+    "alembic>=1.19.1",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.0.52",
     "textual>=8.2.8",
 ]
 
