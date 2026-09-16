@@ -8,7 +8,8 @@ discuss findings in the agent's own terminal session, and do the human pass in
 your browser.
 
 **Status: project scaffold, not a working review dashboard yet.** The CLI currently
-provides help and version information. GitHub polling, agent sessions, SQLite
+provides help and version information. A separate [terminal handoff experiment](docs/terminal-handoff.md)
+is runnable with `make handoff`. GitHub polling, managed agent sessions, SQLite
 history, and automatic cleanup are planned in [SPEC.md](SPEC.md).
 
 ## Planned workflow
@@ -44,6 +45,7 @@ Linux and macOS are the initial development targets; Windows users can use WSL.
 |---|---|
 | `make` | List available commands |
 | `make run ARGS="--version"` | Run the CLI |
+| `make handoff` | Try dashboard → offline fake agent → dashboard in one terminal |
 | `make format` | Apply safe lint fixes and format code |
 | `make check` | Lint, formatting, strict typing, import boundaries, and tests |
 | `make coverage` | Test with branch coverage and HTML/XML reports |
@@ -76,8 +78,9 @@ tests/          Offline tests
 scripts/        Development and packaging checks
 ```
 
-The layer packages are placeholders. Import-linter enforces their dependency direction
-from the start. Runtime dependencies will be added with the features that need them.
+Most layer packages are placeholders; the terminal handoff experiment lives in `ui/tui/`.
+Import-linter enforces their dependency direction from the start. Textual is used by
+the experiment; other runtime dependencies will be added with the features that need them.
 
 ## Contributing
 

@@ -32,6 +32,12 @@ def main() -> None:
             if result.stdout.strip() != f"diffbutler {version}":
                 raise SystemExit(f"Unexpected installed CLI output: {result.stdout!r}")
         subprocess.run([str(command), "--help"], cwd=directory, check=True)
+        subprocess.run(
+            [str(python), "-I", "-m", "diffbutler.ui.tui.handoff_probe", "--help"],
+            cwd=directory,
+            check=True,
+            capture_output=True,
+        )
     print("Wheel installation and both entry points passed outside the source tree.")
 
 

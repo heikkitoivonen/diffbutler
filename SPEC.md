@@ -19,8 +19,9 @@ tells you where to look.
 
 > **Name:** DiffButler. Python package and CLI command: `diffbutler`.
 
-**Status:** design spec with the project/tooling scaffold initialized. Review workflow
-features remain unimplemented; this document describes the target, not shipped behavior.
+**Status:** design spec with the project/tooling scaffold initialized and a runnable
+[terminal handoff experiment](docs/terminal-handoff.md). Review workflow features
+remain unimplemented; this document describes the target, not shipped behavior.
 
 ---
 
@@ -1483,7 +1484,7 @@ GitHub Actions runs checks and wheel installation tests on Linux and macOS.
 The project is MIT-licensed; dependencies retain their own licenses (see
 [dependency licensing notes](docs/dependencies.md)).
 
-Planned runtime deps (added only as used; the scaffold has none): `textual`, `typer`, `httpx`, `sqlalchemy[asyncio]`, `alembic`,
+Runtime deps are added only as used: `textual` powers the handoff experiment. Remaining planned deps: `typer`, `httpx`, `sqlalchemy[asyncio]`, `alembic`,
 `aiosqlite`, `pydantic`, `pydantic-settings`, `jinja2`, `keyring`, `mcp`.
 Extras: `postgres`, `mysql`, `api`.
 
@@ -1499,6 +1500,7 @@ need a single line of posting code.
 
 | | Scope | Done when |
 |---|---|---|
+| **Pre-M0 experiment** | Same-terminal Textual handoff, foreground signals, background progress, native resume verification | Linux/macOS and Codex/Claude evidence supports the tmux decision; see [current results and remaining checks](docs/terminal-handoff.md) |
 | **M0** | Skeleton: layers, import-linter contract, config loading, store + first migration, `diffbutler doctor` | `diffbutler doctor` passes with no forge configured |
 | **M1** | GitHub read adapter + direct/team discovery + all-PR browsing + followed-PR sync + **the Typer CLI** | Direct and team requests appear once; any PR can be found; followed PRs remain tracked after request removal |
 | **M2** | Reviewer protocol + `cli` backend + source-only repository context + named/resumable sessions + parsing + `DiffIndex` | Source-only review returns orientation/findings; the named session resumes after restart and is cleaned up automatically on completion |
@@ -1506,8 +1508,9 @@ need a single line of posting code.
 | **M4** | Carry-over across pushes, MCP backend, optional tmux handoff; optional structured dashboard posting if needed | Follow-up preserves context and reliably reconciles revised feedback |
 | **M5** | GitLab adapter (proves §6.5), Postgres CI, optional MCP server, `api` backend, `diffbutler stats` | GitLab works with zero core changes |
 
-M1's CLI keeps the TUI dependent on the shared core. M2 must prototype same-terminal
-handoff and background-to-interactive resume before M3 commits to the interaction.
+M1's CLI keeps the TUI dependent on the shared core. The pre-M0 experiment validates
+same-terminal handoff early; M2 must integrate and revalidate background-to-interactive
+resume with managed sessions before M3 commits to the interaction.
 Native-agent posting is supported with M3; a separate dashboard write path is optional
 and deferred. Background AI analysis remains read-only at every milestone.
 

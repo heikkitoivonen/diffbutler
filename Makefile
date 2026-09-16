@@ -2,7 +2,7 @@
 UV ?= uv
 RUN := $(UV) run --locked
 
-.PHONY: help setup run format lint typecheck architecture test coverage check build smoke audit licenses lock upgrade
+.PHONY: help setup run handoff format lint typecheck architecture test coverage check build smoke audit licenses lock upgrade
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "DiffButler development commands\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -13,6 +13,9 @@ setup: ## Install Python 3.14 and the locked development environment
 
 run: ## Run the CLI (pass ARGS="--version" or ARGS="--help")
 	$(RUN) diffbutler $(ARGS)
+
+handoff: ## Run the offline terminal handoff prototype (v attach, q quit)
+	$(RUN) python -m diffbutler.ui.tui.handoff_probe $(ARGS)
 
 format: ## Apply safe Ruff fixes and format Python code
 	$(RUN) ruff check --fix .

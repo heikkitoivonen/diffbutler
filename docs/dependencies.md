@@ -1,8 +1,14 @@
 # Dependency licensing
 
-DiffButler's own source is licensed under MIT. The initial application has no
-third-party runtime dependencies and does not vendor development tools into its wheel.
+DiffButler's own source is licensed under MIT. The terminal handoff experiment uses
+Textual (MIT); development tools are not vendored into its wheel.
 There is no dependency in this scaffold that requires changing the project license.
+
+Textual 8.2.8's installed `licenses/LICENSE` was reviewed when added. Its runtime
+dependencies include Rich (MIT), markdown-it-py (MIT), mdit-py-plugins (MIT),
+mdurl (MIT), linkify-it-py (MIT), Pygments (BSD-2-Clause),
+platformdirs (MIT), and typing-extensions (PSF-2.0). These remain separate installed
+packages with their own license notices. See [Textual's license](https://github.com/Textualize/textual/blob/main/LICENSE).
 
 The direct development/build tools use permissive licenses:
 
