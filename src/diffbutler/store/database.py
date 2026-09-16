@@ -6,15 +6,15 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
+import aiosqlite
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, event, inspect
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import URL, AdaptedConnection, make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -56,14 +56,34 @@ def sqlite_url(value: str) -> URL:
     return url.set(database=str(Path(url.database).expanduser().absolute()))
 
 
-def _configure_sqlite(connection: Any, _record: Any) -> None:
-    cursor = connection.cursor()
+async def configure_sqlite(connection: aiosqlite.Connection) -> None:
+    """Enable WAL without blocking the event loop during startup contention."""
     try:
-        cursor.execute("PRAGMA busy_timeout=5000")
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA journal_mode=WAL")
-    finally:
-        cursor.close()
+        async with connection.cursor() as cursor:
+            await cursor.execute("PRAGMA busy_timeout=5000")
+            await cursor.execute("PRAGMA foreign_keys=ON")
+            deadline = asyncio.get_running_loop().time() + 5
+            while True:
+                try:
+                    await cursor.execute("PRAGMA journal_mode=WAL")
+                    break
+                except sqlite3.OperationalError as exc:
+                    # SQLite may return BUSY immediately on a journal-mode lock
+                    # upgrade, even with busy_timeout set. Retry after yielding.
+                    if (
+                        getattr(exc, "sqlite_errorcode", None) != sqlite3.SQLITE_BUSY
+                        or asyncio.get_running_loop().time() >= deadline
+                    ):
+                        raise
+                    await asyncio.sleep(0.05)
+    except BaseException:
+        # Connect-event failures can occur before SQLAlchemy owns a pool record.
+        await connection.close()
+        raise
+
+
+def _configure_sqlite(connection: AdaptedConnection, _record: object) -> None:
+    connection.run_async(configure_sqlite)
 
 
 def backup_sqlite(path: Path) -> Path:

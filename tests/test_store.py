@@ -13,7 +13,13 @@ from alembic.migration import MigrationContext
 from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
-from diffbutler.store.database import Database, DatabaseError, backup_sqlite, migration_config
+from diffbutler.store.database import (
+    Database,
+    DatabaseError,
+    DatabaseStatus,
+    backup_sqlite,
+    migration_config,
+)
 from diffbutler.store.models import (
     LOCAL_ACCOUNT_ID,
     Account,
@@ -148,12 +154,16 @@ async def test_backup_failure_prevents_migration(
 
 
 @pytest.mark.asyncio
-async def test_two_startups_share_one_migration(tmp_path: Path) -> None:
-    first = Database(f"sqlite+aiosqlite:///{tmp_path}/ledger.db")
+@pytest.mark.parametrize("iteration", range(10))
+async def test_two_startups_share_one_migration(tmp_path: Path, iteration: int) -> None:
+    first = Database(f"sqlite+aiosqlite:///{tmp_path}/ledger-{iteration}.db")
     second = Database(str(first.url))
     try:
-        results = await asyncio.gather(first.initialize(), second.initialize())
-        assert sum(result.migrated for result in results) == 1
+        results = await asyncio.gather(
+            first.initialize(), second.initialize(), return_exceptions=True
+        )
+        assert all(isinstance(result, DatabaseStatus) for result in results), results
+        assert sum(result.migrated for result in results if isinstance(result, DatabaseStatus)) == 1
     finally:
         await first.close()
         await second.close()
