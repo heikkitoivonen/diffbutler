@@ -10,7 +10,7 @@ from diffbutler.core.doctor import run_doctor
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Show package information or run local M0 diagnostics."""
+    """Show package information or run local and configured-forge diagnostics."""
     parser = argparse.ArgumentParser(
         prog="diffbutler",
         description="A terminal dashboard for human-directed AI code reviews.",
@@ -23,6 +23,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     doctor.add_argument("--config", type=Path, help="Explicit TOML file (must exist)")
     doctor.add_argument("--repo", help="Select per-repository review overrides")
+    doctor.add_argument(
+        "--offline", action="store_true", help="Skip forge authentication/network checks"
+    )
     doctor.add_argument("--db-url", help="Override db.url")
     doctor.add_argument(
         "--no-migrate", action="store_true", help="Check schema without applying migrations"
@@ -37,7 +40,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.no_migrate:
         db["auto_migrate"] = False
     report = asyncio.run(
-        run_doctor(args.config, repo=args.repo, overrides={"db": db} if db else None)
+        run_doctor(
+            args.config, repo=args.repo, overrides={"db": db} if db else None, offline=args.offline
+        )
     )
     for check in report.checks:
         print(f"{check.status:4}  {check.name:20}  {check.detail}")

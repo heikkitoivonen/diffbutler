@@ -19,8 +19,10 @@ tells you where to look.
 
 > **Name:** DiffButler. Python package and CLI command: `diffbutler`.
 
-**Status:** M0 configuration loading, initial SQLite migration/ledger, and local
-`diffbutler doctor` are implemented, alongside a runnable
+**Status:** M0 configuration loading, initial SQLite migration/ledger, and
+`diffbutler doctor` are implemented. M1's [GitHub read adapter](docs/github.md) adds
+discovery/search APIs and doctor account checks; persistent queue sync and workflow
+CLI commands are still pending. There is also a runnable
 [terminal handoff experiment](docs/terminal-handoff.md). See
 [current configuration/storage scope](docs/configuration.md). Review workflow features
 remain unimplemented; this document describes the target, not shipped behavior.
@@ -1338,8 +1340,9 @@ checkout = "worktree"            # retain session-owned sources until cleanup
 
 M0 currently validates configuration, initializes/checks SQLite, checks configured
 repository/prompt paths, and resolves the browser opener. It passes without a forge
-configured. Forge auth/rate limits and reviewer execution/session capabilities are
-reported as skipped until their adapters ship. The full target behavior follows.
+configured. The first M1 task adds GitHub auth, optional expected-login matching,
+core rate-limit headers, and team visibility checks. `--offline` skips forge access;
+reviewer execution/session capabilities remain deferred. The full target behavior follows.
 
 One command that verifies the whole chain and prints a pass/fail table: config
 parses; forge auth works and `whoami` matches; rate limit headroom; DB reachable and
@@ -1496,7 +1499,8 @@ The project is MIT-licensed; dependencies retain their own licenses (see
 
 Runtime deps are added only as used: `textual` powers the handoff experiment;
 `pydantic`, `pydantic-settings`, `sqlalchemy[asyncio]`, `alembic`, and `aiosqlite`
-power M0 configuration and storage. Remaining planned deps: `typer`, `httpx`,
+power M0 configuration and storage. `httpx` powers GitHub reads.
+Remaining planned deps: `typer`,
 `jinja2`, `keyring`, `mcp`.
 Extras: `postgres`, `mysql`, `api`.
 

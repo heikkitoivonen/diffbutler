@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add the GitHub read adapter: direct/team request discovery with provenance and
+  incomplete-coverage reporting, paginated search, and host-scoped PR lookup.
+- Add bounded async HTTP reads, conditional responses, quota/cooldown handling,
+  and synthetic offline tests for authentication and credential confinement.
+- Check configured GitHub accounts in doctor; add optional expected-login matching
+  and `--offline` for local-only diagnostics.
+
 - Load validated TOML/environment configuration with repository and CLI overrides.
 - Add the async SQLite ledger and packaged initial Alembic migration, local account,
   and consistent backups before upgrading existing databases.

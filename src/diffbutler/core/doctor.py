@@ -1,16 +1,18 @@
-"""Local M0 diagnostics shared by interfaces; no forge or AI calls."""
+"""Shared local and configured-forge diagnostics; never launches AI reviewers."""
 
 import asyncio
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from diffbutler.config.settings import ConfigError, load_settings
+from diffbutler.config.settings import ConfigError, Forge, load_settings
+from diffbutler.forges.base import ForgeError, ReadForge
+from diffbutler.forges.registry import open_forge
 from diffbutler.store.database import Database, DatabaseError, DatabaseStatus
 
 
@@ -41,6 +43,8 @@ async def run_doctor(
     repo: str | None = None,
     overrides: dict[str, Any] | None = None,
     store_factory: Callable[[str], DiagnosticStore] = Database,
+    forge_factory: Callable[[Forge], Awaitable[ReadForge]] = open_forge,
+    offline: bool = False,
 ) -> DoctorReport:
     try:
         settings = await asyncio.to_thread(load_settings, path, repo=repo, overrides=overrides)
@@ -118,15 +122,68 @@ async def run_doctor(
             else f"{opener} is not on PATH; browser launch unavailable",
         )
     )
-    checks.append(
-        Check(
-            "forges",
-            "SKIP",
-            "Authentication and rate-limit checks deferred to M1"
-            if settings.forges
-            else "No forge configured",
+    if not settings.forges or offline:
+        checks.append(
+            Check(
+                "forges",
+                "SKIP",
+                "Offline mode; forge checks skipped" if offline else "No forge configured",
+            )
         )
-    )
+    else:
+        for index, configured in enumerate(settings.forges, start=1):
+            name = f"forge:{index}:{configured.kind}"
+            forge: ReadForge | None = None
+            if configured.kind != "github":
+                checks.append(Check(name, "SKIP", "GitLab adapter deferred to M5"))
+                continue
+            try:
+                forge = await forge_factory(configured)
+                health = await forge.health()
+                matches = (
+                    configured.login is None
+                    or configured.login.lower() == health.account.login.lower()
+                )
+                checks.append(
+                    Check(
+                        name,
+                        "PASS" if matches else "FAIL",
+                        f"Authenticated as {health.account.login}"
+                        if matches
+                        else "Authenticated login does not match configured login",
+                    )
+                )
+                if not health.limits:
+                    checks.append(Check(f"{name}:quota", "WARN", "Rate-limit headers unavailable"))
+                for limit in health.limits:
+                    checks.append(
+                        Check(
+                            f"{name}:{limit.resource}",
+                            "PASS" if limit.remaining > 0 else "WARN",
+                            f"{limit.remaining}/{limit.limit} requests remaining",
+                        )
+                    )
+                if health.teams is not None:
+                    checks.append(
+                        Check(
+                            f"{name}:teams",
+                            "PASS" if health.teams.complete else "WARN",
+                            f"{len(health.teams.teams)} teams visible"
+                            + (
+                                "; " + "; ".join(health.teams.warnings)
+                                if health.teams.warnings
+                                else ""
+                            ),
+                        )
+                    )
+            except ForgeError as exc:
+                detail = str(exc)
+                if exc.retry_after is not None:
+                    detail += f"; retry in {exc.retry_after:.0f}s"
+                checks.append(Check(name, "FAIL", detail))
+            finally:
+                if forge is not None:
+                    await forge.close()
     checks.append(
         Check(
             "reviewers",

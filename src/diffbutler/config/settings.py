@@ -41,6 +41,7 @@ class Forge(Section):
     base_url: str
     token_env: str
     include_team_requests: bool = True
+    login: str | None = None
 
 
 class Review(Section):

@@ -1,10 +1,15 @@
-"""Local-only doctor behavior and public CLI failure handling."""
+"""Local and fake-forge doctor behavior and public CLI failure handling."""
 
 from pathlib import Path
 
+import httpx
 import pytest
 
+from diffbutler.config.settings import Forge
 from diffbutler.core.doctor import run_doctor
+from diffbutler.forges.base import ReadForge
+from diffbutler.forges.github.adapter import GitHubForge
+from diffbutler.forges.github.http import GitHubHTTP
 from diffbutler.store.database import DatabaseStatus
 from diffbutler.ui.cli import main
 
@@ -45,7 +50,7 @@ token_env = "DO_NOT_READ"
 [repos."acme/api"]
 path = "missing"
 """)
-    report = await run_doctor(path)
+    report = await run_doctor(path, offline=True)
     assert not report.passed
     assert any(check.name == "repo:acme/api" and check.status == "FAIL" for check in report.checks)
     assert any(check.name == "reviewers" and check.status == "SKIP" for check in report.checks)
@@ -100,3 +105,92 @@ def test_doctor_cli_overrides_and_check_only(
     assert "migrations applied" in capsys.readouterr().out
     main(["doctor", "--db-url", url, "--no-migrate"])
     assert "Schema 0001 current" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("login", "status", "passed"),
+    [("reader", 200, True), ("wrong-user", 200, False), ("reader", 401, False)],
+)
+async def test_doctor_configured_forge_identity_and_closure(
+    tmp_path: Path, login: str, status: int, passed: bool
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("""
+[[forges]]
+kind = "github"
+base_url = "https://api.github.com"
+token_env = "UNUSED"
+login = "reader"
+include_team_requests = false
+""")
+    calls: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        assert request.method == "GET" and request.url.path == "/user"
+        return httpx.Response(
+            status,
+            json={"login": login},
+            headers={
+                "X-RateLimit-Resource": "core",
+                "X-RateLimit-Remaining": "500",
+                "X-RateLimit-Limit": "5000",
+                "X-RateLimit-Reset": "2000000000",
+            },
+        )
+
+    client = GitHubHTTP(
+        "https://api.github.com", "synthetic-token", transport=httpx.MockTransport(handle)
+    )
+
+    async def factory(config: Forge) -> ReadForge:
+        assert config.token_env == "UNUSED"
+        return GitHubForge(client, include_team_requests=config.include_team_requests)
+
+    report = await run_doctor(path, forge_factory=factory)
+    assert report.passed is passed and client.client.is_closed
+    assert calls == ["/user"]
+    if status == 200:
+        assert any(check.detail == "500/5000 requests remaining" for check in report.checks)
+
+
+@pytest.mark.asyncio
+async def test_offline_doctor_never_opens_configured_forge(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[[forges]]\nkind="github"\nbase_url="https://api.github.com"\ntoken_env="UNUSED"'
+    )
+
+    async def forbidden(_: Forge) -> ReadForge:
+        pytest.fail("offline doctor must not resolve credentials or contact a forge")
+
+    report = await run_doctor(path, forge_factory=forbidden, offline=True)
+    assert report.passed
+    assert any(check.name == "forges" and check.status == "SKIP" for check in report.checks)
+
+
+@pytest.mark.asyncio
+async def test_doctor_marks_incomplete_team_visibility_as_warning(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[[forges]]\nkind="github"\nbase_url="https://api.github.com"\ntoken_env="UNUSED"'
+    )
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return (
+            httpx.Response(200, json={"login": "reader"})
+            if request.url.path == "/user"
+            else httpx.Response(403)
+        )
+
+    async def factory(_: Forge) -> ReadForge:
+        return GitHubForge(
+            GitHubHTTP(
+                "https://api.github.com", "synthetic-token", transport=httpx.MockTransport(handle)
+            )
+        )
+
+    report = await run_doctor(path, forge_factory=factory)
+    assert report.passed
+    assert any(check.name.endswith(":teams") and check.status == "WARN" for check in report.checks)

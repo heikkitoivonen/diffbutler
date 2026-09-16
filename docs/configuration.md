@@ -1,4 +1,4 @@
-# Configuration and local storage (M0)
+# Configuration and local storage
 
 Configuration loads through Pydantic Settings. Precedence is CLI overrides, environment,
 the selected repository's review options, user TOML, then defaults. The repository section
@@ -9,6 +9,10 @@ include keys and reasons without echoing input values or database credentials.
 The default file is `$XDG_CONFIG_HOME/diffbutler/config.toml`, falling back to
 `~/.config/diffbutler/config.toml`. `doctor --config FILE` chooses an explicit file.
 An empty file is valid. No forge or reviewer is configured by default.
+
+For GitHub configuration and doctor authentication checks, see the
+[GitHub adapter guide](github.md). `doctor --offline` skips forge checks and credential
+resolution while retaining local configuration, database, and path checks.
 
 ```toml
 [general]

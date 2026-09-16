@@ -40,7 +40,7 @@ def main() -> None:
         # Exercise packaged migration discovery, then reopen through the module entry point.
         for args in (
             [str(command), "doctor"],
-            [str(python), "-I", "-m", "diffbutler", "doctor", "--no-migrate"],
+            [str(python), "-I", "-m", "diffbutler", "doctor", "--no-migrate", "--offline"],
         ):
             result = subprocess.run(
                 args, cwd=directory, env=doctor_env, check=True, capture_output=True, text=True
