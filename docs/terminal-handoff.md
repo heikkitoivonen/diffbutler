@@ -1,11 +1,13 @@
 # Terminal handoff experiment
 
-## Decision: keep tmux optional, pending native and macOS checks
+## Decision: keep tmux optional; Codex continuity confirmed
 
 The Linux prototype demonstrates dashboard → interactive process → dashboard in
 one terminal, while async work continues. There is no demonstrated terminal-mechanics
-reason to require tmux. This is a provisional decision: real Codex/Claude conversation
-continuity and macOS execution remain acceptance gates before the full dashboard.
+reason to require tmux. The user also confirmed real Codex conversation continuity
+through repeated handoffs and a dashboard restart. Use same-terminal handoff as the
+default; Claude continuity and macOS execution remain acceptance gates before
+claiming support across both backends and platforms.
 
 This experiment implements no forge operations, reviewer sandbox, managed native
 sessions, or production cleanup. It does not establish the background privilege
@@ -79,9 +81,27 @@ Textual's headless driver. Tests run offline as part of `make check`.
 | Runner exception / worker cancellation while suspended | Passed; Textual input resumes |
 | Agent terminated with SIGTERM | Passed; dashboard can reattach |
 | Final dashboard exit | Passed; original terminal settings restored |
-| Native Codex session continuity | Not yet exercised; installed CLI help checked |
+| Native Codex session continuity | User-confirmed manual pass; details below |
 | Native Claude session continuity | Not exercised; Claude is not installed here |
 | macOS | Not run locally; tests included in the existing macOS CI job |
+
+## User-confirmed Codex check
+
+On 2026-09-15, the user reported success with this manual sequence:
+
+1. Run `codex exec --json --sandbox read-only` with an inline synthetic addition
+   function that incorrectly subtracts, a conversation marker (`BUTLER-739`), and
+   instructions to avoid tools and file inspection.
+2. Capture `thread_id` from `thread.started`, then run
+   `make handoff ARGS="-- codex resume --sandbox read-only SESSION_ID"`.
+3. Press `v` and ask Codex to recall the marker and bug without supplying the answers.
+4. Exit with Ctrl+D; confirm dashboard selection and background tick progress.
+5. Reattach, then quit/restart the dashboard and resume the same conversation again.
+
+All steps were reported working. This is user-reported native integration evidence,
+separate from the automated fake-agent tests. The user's OS and Codex version were
+not recorded, so this result does not establish macOS coverage. Native Ctrl+C,
+resize, and crash recovery were not part of this manual sequence.
 
 ## Native validation procedure
 
@@ -99,7 +119,8 @@ To check an existing synthetic Codex session interactively:
 make handoff ARGS="-- codex resume YOUR_SYNTHETIC_SESSION_ID"
 ```
 
-The remaining native acceptance test for **each** supported CLI is:
+The full native acceptance procedure for **each** supported CLI is below. The
+Codex check above covers the basic continuity path; the other cases remain open.
 
 1. Verify installed version, noninteractive invocation, session ID output, and
    interactive resume syntax. Claude syntax must be checked when it is installed.
