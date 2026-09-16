@@ -14,6 +14,12 @@ python-dotenv 1.2.3 and MarkupSafe 3.0.3 (BSD-3-Clause); and greenlet 3.5.5
 none requires relicensing DiffButler. python-dotenv is a pydantic-settings dependency;
 DiffButler does not load dotenv files.
 
+The GitHub adapter adds HTTPX 0.28.1 (BSD-3-Clause). Installed licenses were reviewed
+for HTTPX, HTTPcore 1.0.9 (BSD-3-Clause), AnyIO 4.14.2 (MIT), h11 0.16.0 (MIT),
+and the existing idna 3.19 dependency (BSD-3-Clause). HTTPX also makes the existing
+certifi dependency a runtime dependency; its certificate bundle and MPL-2.0 notice
+were reviewed. All packages remain separately installed with their own notices.
+
 Textual 8.2.8's installed `licenses/LICENSE` was reviewed when added. Its runtime
 dependencies include Rich (MIT), markdown-it-py (MIT), mdit-py-plugins (MIT),
 mdurl (MIT), linkify-it-py (MIT), Pygments (BSD-2-Clause),
@@ -38,8 +44,8 @@ development dependencies. Metadata can be incomplete and is an inventory, not an
 automatic compatibility verdict. Pyright's Node extra includes Node.js and its
 third-party notices; these remain with that dependency and are not copied into DiffButler.
 
-The audit tool transitively installs certifi, whose certificate bundle is MPL-2.0.
-It is a development dependency and is not bundled in DiffButler. Its file-level
+HTTPX and the audit tool transitively install certifi, whose certificate bundle is MPL-2.0.
+It is installed as a separate dependency and is not bundled in DiffButler's wheel. Its file-level
 requirements do not require relicensing DiffButler's separate source files; preserve
 its terms if redistributing it. See [certifi's license](https://github.com/certifi/python-certifi/blob/master/LICENSE)
 and [Mozilla's MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/).
