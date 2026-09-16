@@ -6,8 +6,9 @@ The Linux prototype demonstrates dashboard → interactive process → dashboard
 one terminal, while async work continues. There is no demonstrated terminal-mechanics
 reason to require tmux. The user also confirmed real Codex conversation continuity
 through repeated handoffs and a dashboard restart. Use same-terminal handoff as the
-default; Claude continuity and macOS execution remain acceptance gates before
-claiming support across both backends and platforms.
+default. The initial Linux/Codex experiment is sufficient to proceed with core
+development. At the user's request, Claude continuity and macOS validation are
+deferred; they are required before claiming support for those backends/platforms.
 
 This experiment implements no forge operations, reviewer sandbox, managed native
 sessions, or production cleanup. It does not establish the background privilege
@@ -33,9 +34,13 @@ In each case, the dashboard should return with its selected row intact. Its stat
 shows how many background ticks occurred while attached. Press `q` on the dashboard
 to quit; the temporary fake session and captured background log are removed.
 
+Resize the terminal while attached and type `size`: the fake prints the new
+dimensions. On return, the dashboard should redraw at the current size.
+
 An independent subprocess continuously writes to a log while the heartbeat task
 continues on the dashboard's asyncio loop. Neither should print over the agent.
-To retain diagnostic events (timestamps, counts, return codes; no agent transcript):
+To retain diagnostic events (OS/Python/Textual versions, dimensions, timestamps,
+counts, return codes; no agent transcript):
 
 ```sh
 make handoff ARGS="--events /tmp/diffbutler-handoff-events.jsonl"
@@ -81,9 +86,11 @@ Textual's headless driver. Tests run offline as part of `make check`.
 | Runner exception / worker cancellation while suspended | Passed; Textual input resumes |
 | Agent terminated with SIGTERM | Passed; dashboard can reattach |
 | Final dashboard exit | Passed; original terminal settings restored |
+| Shrink/grow while attached | Passed; fake and restored dashboard see current dimensions |
+| Full-screen Textual child | Passed; child resizes, exits, and dashboard redraws at current size |
 | Native Codex session continuity | User-confirmed manual pass; details below |
-| Native Claude session continuity | Not exercised; Claude is not installed here |
-| macOS | Not run locally; tests included in the existing macOS CI job |
+| Native Claude session continuity | Deferred by user; Claude is not installed here |
+| macOS | Deferred by user; tests included in the existing macOS CI job |
 
 ## User-confirmed Codex check
 
@@ -98,10 +105,11 @@ On 2026-09-15, the user reported success with this manual sequence:
 4. Exit with Ctrl+D; confirm dashboard selection and background tick progress.
 5. Reattach, then quit/restart the dashboard and resume the same conversation again.
 
-All steps were reported working. This is user-reported native integration evidence,
-separate from the automated fake-agent tests. The user's OS and Codex version were
-not recorded, so this result does not establish macOS coverage. Native Ctrl+C,
-resize, and crash recovery were not part of this manual sequence.
+All steps were reported working. The user subsequently confirmed this was on the
+same Linux machine with Codex **0.98.0**. This is user-reported native integration
+evidence, separate from the automated fake-agent tests. Native Ctrl+C, resize, and
+crash recovery were not part of this manual sequence. The full-screen child test
+uses a second Textual application, not Codex or Claude.
 
 ## Native validation procedure
 
@@ -141,11 +149,16 @@ tests; the ability to resume alone does not establish that boundary.
 
 ## Remaining terminal limits
 
-Resize behavior with native full-screen agents, SSH terminals, job-control
+Resize behavior with Codex/Claude specifically, SSH terminals, job-control
 suspension (Ctrl+Z), and abrupt dashboard termination have not been validated.
 The prototype waits for child exit; a stopped child must be continued or terminated
 externally. Processes that deliberately detach into another session are outside
 its process-group cleanup. Windows is outside the initial platform scope.
+
+The next implementation milestone is M0: configuration loading, the initial
+store/migration, and `diffbutler doctor` working without a forge configured.
+Integrate this terminal experiment with real managed sessions at M2/M3; it is
+not a reason to add tmux to the base dependencies.
 
 If a native terminal ownership/restoration problem cannot be resolved, compare tmux
 using the same acceptance cases. A backend's inability to resume the same conversation

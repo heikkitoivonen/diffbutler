@@ -23,7 +23,7 @@ def main() -> None:
     data["resumes"] = int(data["resumes"]) + 1
     session.write_text(json.dumps(data))
     print(f"FAKE_AGENT_READY session={data['id']} resumes={data['resumes']}", flush=True)
-    print("Commands: exit, crash, raw-crash. Ctrl+C returns to the dashboard.", flush=True)
+    print("Commands: exit, crash, raw-crash, size. Ctrl+C returns to the dashboard.", flush=True)
     try:
         while True:
             command = input("agent> ")
@@ -34,6 +34,10 @@ def main() -> None:
             if command == "raw-crash":
                 tty.setraw(sys.stdin.fileno())
                 os._exit(24)
+            if command == "size":
+                size = os.get_terminal_size()
+                print(f"AGENT_SIZE {size.columns}x{size.lines}", flush=True)
+                continue
             print(f"remembered={data['seed']}; received={command}", flush=True)
     except KeyboardInterrupt, EOFError:
         print("\nFAKE_AGENT_INTERRUPTED", flush=True)

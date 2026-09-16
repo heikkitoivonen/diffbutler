@@ -4,15 +4,18 @@ import argparse
 import asyncio
 import json
 import os
+import platform
 import sys
 import tempfile
 import time
 import uuid
+from importlib.metadata import version
 from pathlib import Path
 from typing import ClassVar
 
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
+from textual.events import Resize
 from textual.widgets import DataTable, Footer, Header, Static
 
 from diffbutler.ui.tui.foreground import run_foreground
@@ -64,7 +67,15 @@ class HandoffProbe(App[None]):
         table.focus()
         self.run_worker(self.heartbeat())
         self.run_worker(self.background_output())
-        self.record("ready")
+        self.record(
+            "ready",
+            system=platform.system(),
+            python=platform.python_version(),
+            textual=version("textual"),
+        )
+
+    def on_resize(self, event: Resize) -> None:
+        self.record("resize", width=event.size.width, height=event.size.height)
 
     async def heartbeat(self) -> None:
         while True:

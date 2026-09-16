@@ -93,6 +93,9 @@ class Terminal:
     def send(self, value: bytes) -> None:
         os.write(self.master, value)
 
+    def resize(self, width: int, height: int) -> None:
+        fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
+
     def quit(self) -> None:
         self.send(b"q")
         self.wait(lambda: self.process.poll() is not None)
@@ -208,3 +211,64 @@ def test_terminated_agent_restores_dashboard(terminal: Terminal) -> None:
     terminal.send(b"exit\n")
     terminal.wait(lambda: len(terminal.records("returned")) == 2)
     terminal.quit()
+
+
+def test_resize_during_handoff_reaches_agent_and_restored_dashboard(terminal: Terminal) -> None:
+    attach(terminal)
+    terminal.resize(85, 24)
+    terminal.send(b"size\n")
+    terminal.wait(lambda: b"AGENT_SIZE 85x24" in terminal.output)
+    terminal.send(b"exit\n")
+    terminal.wait(lambda: bool(terminal.records("returned")))
+    terminal.wait(lambda: terminal.records("resize")[-1]["width"] == 85)
+    assert terminal.records("resize")[-1]["height"] == 24
+    attach(terminal, 2)
+    terminal.resize(120, 35)
+    terminal.send(b"size\n")
+    terminal.wait(lambda: b"AGENT_SIZE 120x35" in terminal.output)
+    terminal.send(b"exit\n")
+    terminal.wait(lambda: len(terminal.records("returned")) == 2)
+    terminal.wait(lambda: terminal.records("resize")[-1]["width"] == 120)
+    terminal.quit()
+
+
+def test_full_screen_child_resizes_and_returns(tmp_path: Path) -> None:
+    child_events = tmp_path / "child-events.jsonl"
+    terminal = Terminal(
+        tmp_path,
+        command=[
+            sys.executable,
+            "-m",
+            "diffbutler.ui.tui.handoff_probe",
+            "--events",
+            str(child_events),
+        ],
+    )
+
+    def child_records() -> list[dict[str, Any]]:
+        if not child_events.exists():
+            return []
+        return [
+            json.loads(line)
+            for line in child_events.read_text().splitlines(keepends=True)
+            if line.endswith("\n")
+        ]
+
+    try:
+        terminal.wait(lambda: bool(terminal.records("ready")))
+        terminal.send(b"v")
+        terminal.wait(lambda: any(r["event"] == "ready" for r in child_records()))
+        terminal.resize(92, 26)
+        terminal.wait(
+            lambda: any(
+                r["event"] == "resize" and r["width"] == 92 and r["height"] == 26
+                for r in child_records()
+            )
+        )
+        terminal.send(b"q")
+        terminal.wait(lambda: bool(terminal.records("returned")))
+        assert terminal.records("returned")[0]["code"] == 0
+        terminal.wait(lambda: terminal.records("resize")[-1]["width"] == 92)
+        terminal.quit()
+    finally:
+        terminal.close()
