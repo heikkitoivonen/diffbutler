@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add internal captured review output parsing with required orientation, immutable
+  findings, tiered JSON recovery, bounded input, and safe failure diagnostics. Raw
+  output and all valid findings are retained in memory. Backend execution, anchor
+  validation, persistence, and result finalization remain deferred.
+
 - Add an internal offline Linux sandbox runner with a fixed Bubblewrap isolation
   profile, captured bounded I/O, and cancellation cleanup. Missing isolation fails
   closed. Fake lifecycle tests pass; real kernel confinement requires Bubblewrap

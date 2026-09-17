@@ -36,9 +36,10 @@ generation so an older refresh must retry instead of overwriting the action.
 `get_run` reads durable status; cancellation is idempotent. `release_review` requires
 the exact claim token and acknowledges that the worker has exited. A still-running
 attempt becomes failed and routes to human review; stale/cancelled attempts retain
-their state and cannot overwrite newer queue attention. Successful result parsing
-and finalization are deferred. Cancellation timestamps record invalidation, not
-proof of process exit.
+their state and cannot overwrite newer queue attention. An independent
+[captured-output parser](review-parsing.md) now validates review documents; persistent
+result storage and finalization are deferred. Cancellation timestamps record
+invalidation, not proof of process exit.
 
 Claims survive restart and do not expire automatically. There is no orphan-worker
 recovery, process termination, foreground workspace lease, or cleanup worker yet.
