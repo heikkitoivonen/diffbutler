@@ -5,6 +5,7 @@ from uuid import UUID
 
 from diffbutler.domain.forge import Account, PRRef
 from diffbutler.domain.lifecycle import CleanupClaim, ForegroundLease, HeldOperation
+from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import (
     AnalysisIdentity,
     ReviewPolicy,
@@ -34,6 +35,8 @@ class QueueStore(Protocol):
 
 
 class ReviewStore(Protocol):
+    async def register_resource(self, token: UUID, resource: OwnedDirectory) -> None: ...
+
     async def get_session(self, session_id: UUID) -> SessionRecord: ...
     async def bind_backend_session(self, token: UUID, backend_session_id: str) -> SessionRecord: ...
     async def suspend_session(self, session_id: UUID) -> SessionRecord: ...

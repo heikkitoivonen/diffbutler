@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add claim-protected resource registration before creation, private managed directories,
+  confined idempotent filesystem cleanup, and cancellation-safe filesystem operations.
+  Native backend deletion remains unsupported unless an adapter is supplied.
+
 - Add versioned local prompt serialization with precision-first source-only instructions,
   parser-derived schema, untrusted JSON framing, pre-escape redaction, and byte limits.
 

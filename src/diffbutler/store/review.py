@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import (
     AnalysisIdentity,
     ReviewConflict,
@@ -126,6 +127,22 @@ class SQLiteReviewStore:
     async def get_session(self, session_id: UUID) -> SessionRecord:
         async with self.database.sessions() as db:
             return session_record(await self._session(db, session_id))
+
+    async def register_resource(self, token: UUID, resource: OwnedDirectory) -> None:
+        """Persist ownership before creation; cancellation/completion still allow cleanup."""
+        async with self.database.sessions() as db:
+            await self._begin(db)
+            claim = await db.get(RunClaim, token)
+            if claim is None:
+                raise ReviewConflict("Worker claim does not exist")
+            run = await self._run(db, claim.run_id)
+            session = await self._session(db, run.review_session_id)
+            if session.id != resource.session_id or session.status == "cleaned":
+                raise ReviewConflict("Resource does not belong to an owned session")
+            entry = resource.manifest()
+            if entry not in session.resource_manifest_json:
+                session.resource_manifest_json = [*session.resource_manifest_json, entry]
+            await db.commit()
 
     async def bind_backend_session(self, token: UUID, backend_session_id: str) -> SessionRecord:
         async with self.database.sessions() as db:
