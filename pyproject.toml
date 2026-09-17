@@ -92,7 +92,7 @@ type = "layers"
 layers = [
     "diffbutler.ui",
     "diffbutler.core",
-    "diffbutler.forges | diffbutler.reviewers | diffbutler.store",
+    "diffbutler.forges | diffbutler.reviewers | diffbutler.sources | diffbutler.store",
     "diffbutler.domain",
 ]
 
@@ -101,6 +101,6 @@ name = "Terminal rendering stays out of the core and adapters"
 type = "forbidden"
 source_modules = [
     "diffbutler.core", "diffbutler.domain", "diffbutler.forges",
-    "diffbutler.reviewers", "diffbutler.store", "diffbutler.config",
+    "diffbutler.reviewers", "diffbutler.sources", "diffbutler.store", "diffbutler.config",
 ]
 forbidden_modules = ["textual", "rich"]

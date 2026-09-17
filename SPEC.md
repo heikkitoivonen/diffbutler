@@ -975,8 +975,11 @@ M0 implements the account, repository, pull-request, review-task, and cleanup-jo
 foundation below. M1 adds `forge_account` and `pr_monitor` for account-scoped
 monitoring, generation checks, and activity watermarks, plus completion SHA storage.
 M2 foundations add session/run records in revision `0003`, reviewer/source contracts,
-and immutable core DTOs. Dispatch, claims, isolation, and session operations remain
-unimplemented. Remaining tables arrive with their workflows; this is the target schema.
+and immutable core DTOs. Revision `0004` adds explicit requests and durable worker
+claims; see [review scheduling](docs/review-scheduling.md). An internal
+[local source reader](docs/source-context.md) serves pinned Git objects. Dispatch,
+reviewer process isolation, and managed session operations remain unimplemented.
+Remaining tables arrive with their workflows; this is the target schema.
 
 ```
 account(id, forge, login, display_name)                      -- multi-user seam, §9.5

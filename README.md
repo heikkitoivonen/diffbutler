@@ -28,6 +28,10 @@ post to a forge. Reviews, managed sessions, a history UI, and the cleanup worker
 arrive in later milestones. A separate [terminal handoff experiment](docs/terminal-handoff.md)
 is runnable with `make handoff`.
 
+M2 internal foundations include [explicit review scheduling](docs/review-scheduling.md)
+and [mediated local source reads](docs/source-context.md). Background reviewer
+execution remains disconnected pending enforced process isolation.
+
 ## Local setup and diagnostics
 
 ```sh
