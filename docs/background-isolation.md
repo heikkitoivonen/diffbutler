@@ -65,7 +65,20 @@ abstract Unix socket connections. All data and listeners are synthetic and local
 No forge, credential store, or paid model is used. The test skips explicitly when
 Bubblewrap or a compiler is missing; a present but unusable sandbox fails the test.
 
+The detached-descendant tests double-fork a synthetic child into a new session,
+close its standard streams, and observe its death through a host Linux pidfd.
+They cover successful exit, failed exit, timeout, cancellation, and output overflow.
+This checks process death independently of pipe EOF or initial process-group exit.
+The tests require a host `/proc` view that exposes the same user's descendants.
+
+Run `make test-isolation` on a Linux host with Bubblewrap, a C compiler, and static
+libc development files. This target fails on missing prerequisites, including a
+non-Linux host, rather than skipping. The dedicated Linux CI job installs these
+system packages and runs this target; it does not relax host namespace policy.
+The ordinary cross-platform `make check` continues to report explicit skips when
+prerequisites are absent. A configured CI job is not evidence of a passing run.
+
 On the current development host Bubblewrap is absent, so kernel confinement has
 **not been validated**. The integration test must pass on a supported Linux host,
-and descendant termination needs further adversarial validation, before this is
-treated as a verified execution boundary.
+including the detached-descendant cases, before this is treated as a verified
+execution boundary.

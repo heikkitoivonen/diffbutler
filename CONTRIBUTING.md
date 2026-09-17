@@ -22,6 +22,12 @@ CI runs the same checks and installation smoke test on Linux and macOS. Dependen
 audits additionally run against public vulnerability data. Tests must run without
 forge credentials, real GitHub requests, or paid model calls.
 
+Linux process-isolation changes also require `make test-isolation` on a host with
+Bubblewrap, a C compiler, and static libc development files. The dedicated Linux CI
+job runs this target without allowing missing prerequisites to skip the tests.
+See [isolation validation](docs/background-isolation.md#validation) for the current
+scope and limitations.
+
 ## Working conventions
 
 - Keep the core independent of the terminal UI; run `make architecture` when moving imports.

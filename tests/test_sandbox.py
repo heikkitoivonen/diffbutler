@@ -3,10 +3,14 @@
 import asyncio
 import json
 import os
+import select
 import shutil
+import signal
 import socket
 import sys
+from contextlib import suppress
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -236,20 +240,33 @@ def test_invalid_limits(timeout: float) -> None:
         SandboxLimits(timeout_s=timeout)
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(sys.platform != "linux", reason="Linux kernel isolation test")
-async def test_real_kernel_confinement(
-    runtime: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    if shutil.which("bwrap", path=os.defpath) is None:
-        pytest.skip("Bubblewrap is not installed; kernel confinement is unvalidated")
+@pytest.fixture
+def kernel_compiler(request: pytest.FixtureRequest) -> str:
     compiler = shutil.which("cc", path=os.defpath)
+    missing: list[str] = []
+    if sys.platform != "linux":
+        missing.append("Linux")
+    if shutil.which("bwrap", path=os.defpath) is None:
+        missing.append("Bubblewrap")
     if compiler is None:
-        pytest.skip("C compiler unavailable for the offline static probe")
+        missing.append("C compiler")
+    if missing:
+        reason = f"Kernel confinement unvalidated; missing {', '.join(missing)}"
+        if request.config.getoption("--require-kernel-sandbox"):
+            pytest.fail(reason)
+        pytest.skip(reason)
+    assert compiler is not None
+    return compiler
+
+
+async def compile_probe(compiler: str, runtime: Path, filename: str) -> None:
     child = await asyncio.create_subprocess_exec(
         compiler,
         "-static",
-        str(Path(__file__).parent / "fixtures" / "sandbox_probe.c"),
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        str(Path(__file__).parent / "fixtures" / filename),
         "-o",
         str(runtime / "probe"),
         stdout=asyncio.subprocess.PIPE,
@@ -257,6 +274,13 @@ async def test_real_kernel_confinement(
     )
     _, errors = await child.communicate()
     assert child.returncode == 0, errors.decode()
+
+
+@pytest.mark.asyncio
+async def test_real_kernel_confinement(
+    runtime: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kernel_compiler: str
+) -> None:
+    await compile_probe(kernel_compiler, runtime, "sandbox_probe.c")
     private = tmp_path / "synthetic-credential"
     private.write_text("synthetic-private-value")
     (runtime / "escape").symlink_to(private)
@@ -283,3 +307,66 @@ async def test_real_kernel_confinement(
                 )
                 assert output.stdout == b"isolated\n"
     assert private.read_text() == "synthetic-private-value"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["success", "failure", "timeout", "cancel", "overflow"])
+async def test_real_kernel_detached_descendant(
+    runtime: Path, kernel_compiler: str, mode: str
+) -> None:
+    await compile_probe(kernel_compiler, runtime, "sandbox_descendant.c")
+    # A unique kernel comm identifies our synthetic descendant in the host PID
+    # namespace. pidfd then lets us observe death without races from PID reuse.
+    name = "db-" + uuid4().hex[:12]
+    task = asyncio.create_task(
+        OfflineSandbox().run(
+            runtime,
+            ("/probe", name, mode),
+            limits=SandboxLimits(timeout_s=3, max_output_bytes=1024),
+        )
+    )
+    descriptor: int | None = None
+    try:
+        async with asyncio.timeout(10):
+            while descriptor is None:
+                for entry in Path("/proc").iterdir():
+                    if not entry.name.isdigit():
+                        continue
+                    try:
+                        if (entry / "comm").read_text().strip() == name:
+                            descriptor = os.pidfd_open(int(entry.name))
+                            break
+                    except FileNotFoundError, ProcessLookupError, PermissionError:
+                        continue
+                if descriptor is None:
+                    if task.done():
+                        await task  # Surface setup failures rather than a polling timeout.
+                        pytest.fail("Probe exited before its detached descendant was observed")
+                    await asyncio.sleep(0.01)
+            assert not select.select([descriptor], [], [], 0)[0]
+            if mode == "cancel":
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            elif mode == "success":
+                assert (await task).exit_code == 0
+            else:
+                message = {
+                    "failure": "execution failed",
+                    "timeout": "timed out",
+                    "overflow": "output exceeds",
+                }[mode]
+                with pytest.raises(SandboxError, match=message):
+                    await task
+            # The descendant closed all stdio and detached twice. EOF and initial
+            # process-group exit alone cannot establish that it was terminated.
+            while not select.select([descriptor], [], [], 0)[0]:
+                await asyncio.sleep(0.01)
+    finally:
+        if descriptor is not None:
+            if not select.select([descriptor], [], [], 0)[0]:
+                with suppress(ProcessLookupError):
+                    signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+            os.close(descriptor)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

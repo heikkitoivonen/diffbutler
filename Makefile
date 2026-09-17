@@ -2,7 +2,7 @@
 UV ?= uv
 RUN := $(UV) run --locked
 
-.PHONY: help setup run handoff format lint typecheck architecture test coverage check build smoke audit licenses lock upgrade
+.PHONY: help setup run handoff format lint typecheck architecture test test-isolation coverage check build smoke audit licenses lock upgrade
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "DiffButler development commands\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -33,6 +33,9 @@ architecture: ## Verify import boundaries
 
 test: ## Run tests (pass ARGS="-k name" to filter)
 	$(RUN) pytest $(ARGS)
+
+test-isolation: ## Require real Linux kernel confinement and descendant cleanup tests
+	$(RUN) pytest tests/test_sandbox.py -k real_kernel --require-kernel-sandbox
 
 coverage: ## Run tests with branch coverage and HTML/XML reports
 	$(RUN) pytest --cov --cov-report=term-missing --cov-report=html --cov-report=xml $(ARGS)

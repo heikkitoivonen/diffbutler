@@ -7,6 +7,14 @@ import httpx
 import pytest
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--require-kernel-sandbox",
+        action="store_true",
+        help="Fail instead of skipping when Linux sandbox prerequisites are missing",
+    )
+
+
 @pytest.fixture(autouse=True)
 def isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for key in os.environ:
