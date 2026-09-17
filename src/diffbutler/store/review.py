@@ -298,6 +298,41 @@ class SQLiteReviewStore:
             await db.commit()
             return result
 
+    async def claim_is_current(self, token: UUID, policy: ReviewPolicy) -> bool:
+        """Recheck ownership, live revisions and policy before/during execution."""
+        async with self.database.sessions() as db:
+            await self._begin(db)
+            claim = await db.get(RunClaim, token)
+            if claim is None:
+                raise ReviewConflict("Worker claim does not exist")
+            run = await self._run(db, claim.run_id)
+            if run.status != "running":
+                return False
+            task, monitor = await self._task(db, run.review_task_id)
+            if (monitor.snapshot_json["base_sha"], monitor.snapshot_json["head_sha"]) != (
+                run.base_sha,
+                run.head_sha,
+            ):
+                run.status = "stale"
+                run.finished_at = utc_now()
+                await transition(db, task, "PENDING_AI_REVIEW")
+                await db.commit()
+                return False
+            session = await self._session(db, run.review_session_id)
+            pr = await db.get(PullRequest, task.pull_request_id)
+            assert pr is not None
+            repo = await db.get(Repository, pr.repository_id)
+            assert repo is not None
+            await self._check_foreground(db, task.id)
+            return (
+                task.state == "AI_RUNNING"
+                and session.status != "cleaned"
+                and session.cleanup_status == "not_requested"
+                and repo.enabled
+                and f"{repo.namespace}/{repo.name}" not in policy.disabled_repositories
+                and run.reviewer_id in policy.reviewer_ids
+            )
+
     async def cancel_review(self, run_id: UUID) -> RunRecord:
         async with self.database.sessions() as db:
             await self._begin(db)

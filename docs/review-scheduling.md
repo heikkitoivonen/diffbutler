@@ -130,3 +130,30 @@ whether it succeeded. Concurrent finalizers cannot overwrite each other's result
 
 [Lifecycle services](session-lifecycle.md) now serialize foreground ownership with
 background work and defer completion cleanup until ownership is released.
+
+## Internal worker orchestration
+
+`ReviewWorker.execute_requested` consumes one explicitly requested run under the
+existing capacity/pause-aware claim. It does not discover/enqueue/retry work and
+has no production executable factory. Tests inject trusted in-memory executions.
+Context preparation is followed by identity/index checks and a transactional
+`claim_is_current` recheck of ownership, current base/head, session status and review
+policy. A moved base invalidates the attempt before launch, retaining its claim
+until exit acknowledgement; no replacement review is scheduled.
+
+During execution the worker checks validity periodically and enforces the context
+timeout. Backend identities can be checkpointed while the claim is held; a later
+explicit attempt receives the exact saved identity, including after database
+restart. Every exit path calls the execution adapter's `stop_and_wait`, even after
+successful output. Only after that establishes whole-process-tree exit may output
+be finalized or a failed/stale/cancelled run released. Repeated cancellation cannot
+interrupt that stop operation. Stop failure leaves ownership held for recovery.
+An uncertain finalization commit is never blindly retried or overwritten.
+
+This protocol is a trusted adapter obligation, not an isolation implementation or
+proof of OS process death. A real factory must enforce source/model mediation,
+capture limits, credential separation, and durable process ownership, including
+spawn races and foreground-to-background permission changes. No real CLI, local
+source reader, or unvalidated sandbox is connected as an execution shortcut.
+Automatic dispatch, process discovery/orphan verification, prompt rendering, and
+real reviewer presets remain pending.

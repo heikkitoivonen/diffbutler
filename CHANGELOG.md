@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add internal requested-run worker orchestration, live revision/policy checks,
+  backend-ID checkpoints, and exit-before-finalization ordering under cancellation.
+  Tests use offline executions; no production reviewer factory is connected.
+
 - Add durable foreground ownership and a completion-cleanup worker step with migration
   `0007`, bounded retries, cancellation-safe ownership, and retained analysis history.
   Native launch, process recovery, and deletion adapters remain disconnected.

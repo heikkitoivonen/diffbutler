@@ -122,6 +122,9 @@ class ReviewService:
             return None
         return await self.store.claim_review(run_id, capacity=capacity, policy=self.policy)
 
+    async def claim_is_current(self, token: UUID) -> bool:
+        return await self.store.claim_is_current(token, self.policy)
+
     async def cancel_review(self, run_id: UUID) -> AIRun:
         return AIRun.model_validate(await self.store.cancel_review(run_id), from_attributes=True)
 
