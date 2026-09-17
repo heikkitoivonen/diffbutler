@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add declarative offline envelope/JSONL extraction, strict completion/error handling,
+  raw-capture preservation, and transactional extracted-session checkpoints.
+
 - Add side-aware unified-diff indexing before redaction, conservative range snapping,
   and retained original/exact/snapped/demoted anchor outcomes in migration `0006`.
   Findings are never dropped because their anchors are invalid.

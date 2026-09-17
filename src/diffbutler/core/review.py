@@ -18,6 +18,7 @@ from diffbutler.domain.review import (
     Side,
 )
 from diffbutler.reviewers.base import ReviewOutput
+from diffbutler.reviewers.extraction import OutputFormat
 from diffbutler.reviewers.parsing import ReviewDocument, Severity, parse_review
 from diffbutler.store.base import ReviewStore
 
@@ -159,6 +160,7 @@ class ReviewService:
         output: ReviewOutput,
         *,
         diff_index: DiffIndex | None = None,
+        output_format: OutputFormat | None = None,
         min_confidence: float = 0.5,
         findings_threshold: Severity = "minor",
         max_output_bytes: int = 4_000_000,
@@ -178,7 +180,9 @@ class ReviewService:
             raise ValueError("output budget must be positive")
         if len(output.stdout) + len(output.stderr) > max_output_bytes:
             raise ValueError("output exceeds persistence byte budget")
-        parsed = parse_review(output, max_output_bytes=max_output_bytes)
+        parsed = parse_review(
+            output, max_output_bytes=max_output_bytes, output_format=output_format
+        )
         selected = (
             tuple(
                 index
@@ -225,7 +229,7 @@ class ReviewService:
             await self.store.finalize_review(
                 token,
                 result,
-                backend_session_id=output.backend_session_id,
+                backend_session_id=parsed.output.backend_session_id,
             ),
             from_attributes=True,
         )

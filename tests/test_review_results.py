@@ -406,3 +406,20 @@ async def test_wrong_revision_anchor_index_preserves_claim(database: Database) -
     await reviews.finalize_review(claim.token, captured())
     result = await reviews.get_result(run.id)
     assert result is not None and result.anchors is None
+
+
+async def test_envelope_finalization_retains_raw_bytes_and_session(database: Database) -> None:
+    from diffbutler.reviewers.extraction import EnvelopeFormat
+
+    _, identity = await seed(database)
+    reviews = service(database)
+    run = await reviews.request_review(identity)
+    claim = await reviews.claim_review(run.id)
+    assert claim is not None
+    raw = json.dumps({"result": json.dumps(payload()), "session_id": "envelope-id"}).encode()
+    await reviews.finalize_review(
+        claim.token, ReviewOutput(raw, b"", 0), output_format=EnvelopeFormat()
+    )
+    result = await reviews.get_result(run.id)
+    assert result is not None and result.document is not None and result.stdout == raw
+    assert (await reviews.get_session(run.session_id)).backend_session_id == "envelope-id"

@@ -1,13 +1,14 @@
 """Parse captured review text without executing a backend or changing queue state."""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from diffbutler.domain.review import Side, SourceFile
 from diffbutler.reviewers.base import ReviewOutput
+from diffbutler.reviewers.extraction import OutputFormat, extract_output
 
 Text = Annotated[str, Field(min_length=1, pattern=r"\S")]
 Line = Annotated[int, Field(gt=0)]
@@ -170,8 +171,13 @@ def _normalize(value: object) -> tuple[object, tuple[str, ...]]:
     return cast(object, value), tuple(notes)
 
 
-def parse_review(output: ReviewOutput, *, max_output_bytes: int = 4_000_000) -> ParsedReview:
-    """Parse already-extracted assistant text, not backend envelopes or JSONL.
+def parse_review(
+    output: ReviewOutput,
+    *,
+    max_output_bytes: int = 4_000_000,
+    output_format: OutputFormat | None = None,
+) -> ParsedReview:
+    """Parse assistant text or a declaratively selected backend envelope/stream.
 
     Syntax recovery follows SPEC §7.3. Once JSON is decoded, schema errors fail
     the entire result: an invalid finding must never turn into a clean review.
@@ -183,8 +189,15 @@ def parse_review(output: ReviewOutput, *, max_output_bytes: int = 4_000_000) -> 
         return ParsedReview(output, None, None, error="output exceeds byte budget")
     if output.exit_code != 0:
         return ParsedReview(output, None, None, error="reviewer exited unsuccessfully")
+    payload = output.stdout
+    if output_format is not None:
+        extracted = extract_output(output, output_format, max_output_bytes=max_output_bytes)
+        output = replace(output, backend_session_id=extracted.backend_session_id)
+        if extracted.error is not None or extracted.text is None:
+            return ParsedReview(output, None, None, error=extracted.error)
+        payload = extracted.text
     try:
-        text = output.stdout.decode("utf-8")
+        text = payload.decode("utf-8")
     except UnicodeDecodeError:
         return ParsedReview(output, None, None, error="output is not UTF-8")
     tier: Literal["json", "fence", "object"] = "json"

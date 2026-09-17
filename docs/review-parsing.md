@@ -1,8 +1,9 @@
 # Captured review output parsing (M2)
 
 `reviewers.parsing.parse_review` is an internal, offline parser for already-extracted
-assistant text in a `ReviewOutput`. It does not launch a process, unwrap a backend
-JSON envelope/JSONL stream, update the queue, or acknowledge worker exit.
+assistant text in a `ReviewOutput`. With an explicit `output_format`, it first
+extracts a backend JSON envelope or JSONL stream. It does not launch a process,
+update the queue, or acknowledge worker exit.
 
 It tries whole-document JSON, the last JSON fenced block, then the first balanced
 outer object. Object matching respects quoted braces and escapes. If a final fenced
@@ -32,6 +33,29 @@ The parser validates locations structurally. Context preparation now builds a
 anchor outcomes. Huge positive line numbers are demoted when outside the indexed hunks. Orientation quality and coverage are not
 proved by schema validity. Successful parsing neither approves a PR nor establishes
 forge publication, and does not release a worker claim. The shared core now persists
-results and routes queue attention through explicit finalization; backend extraction
-and a production executor remain unimplemented. Tests use synthetic output and make
+results and routes queue attention through explicit finalization; a production
+executor remains unimplemented. Tests use synthetic output and make
 no real reviewer calls.
+
+## Backend extraction
+
+`EnvelopeFormat` uses tuples of object keys to select assistant text, an optional
+opaque session ID, and an optional error flag. `StreamFormat` selects event types
+and nested fields; the last complete assistant message wins. Deltas and tool output
+are never interpreted as findings. A successful terminal event is required, and
+records after it are rejected. Any malformed event, duplicate key, nonfinite number,
+failure event, conflicting/invalid session ID, or truncated stream fails the capture
+without falling back to an earlier clean answer. Error diagnostics are fixed text.
+
+Raw stdout/stderr remain unchanged, including on extraction or schema failure.
+`finalize_review(output_format=...)` persists those raw bytes and checkpoints a
+valid extracted backend ID in the same transaction. An invalid final review document
+can still preserve its valid conversation identity. Extraction failure does not
+checkpoint partially trusted stream identities. No tool/progress text is emitted
+as a UI event by this parser. Byte limits apply to the whole captured stream.
+
+The formats are internal declarative contracts, not installed CLI presets. Defaults
+for streaming describe a synthetic test protocol. Actual Codex/Claude selectors and
+flags still require version verification; settings wiring and real execution remain
+disconnected. A terminal success event establishes only protocol completeness, not
+process-tree exit, authorization, publication, or approval.
