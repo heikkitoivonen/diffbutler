@@ -30,6 +30,8 @@ is runnable with `make handoff`.
 
 M2 internal foundations include [explicit review scheduling and durable backend session IDs](docs/review-scheduling.md)
 and [mediated local source reads, context assembly, and credential-pattern redaction](docs/source-context.md).
+A local prompt renderer adds precision-first instructions, untrusted JSON framing,
+and redaction before serialization; it sends no source.
 An offline [captured-output parser](docs/review-parsing.md) validates orientation and
 findings. Internal [result finalization](docs/review-scheduling.md#result-finalization)
 persists analysis and routes queue attention under worker ownership. [Side-aware anchor validation](docs/diff-anchors.md) retains original locations and

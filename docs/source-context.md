@@ -35,8 +35,8 @@ are caller-supplied trusted inputs; source and PR metadata remain untrusted data
 This is an internal assembly function, not a dispatcher or authorization check.
 The caller must load the PR belonging to the task and recheck durable worker
 ownership, freshness, and policy before execution. No reviewer is launched and no
-source leaves the machine. Prompt rendering and integrated isolation are still deferred;
-the assembled context is not yet suitable for sending to a real backend.
+source leaves the machine. Local prompt rendering is implemented below; integrated isolation remains deferred.
+The assembled context must not be sent to a real backend yet.
 
 Git runs asynchronously with argv execution, no terminal input, captured output,
 bounded byte counts, a timeout, and process-group termination on cancellation or
@@ -90,3 +90,24 @@ this source-only pass and need handling at the future serialization boundary.
 The context explicitly records the heuristic limitation. A Python wrapper does
 not confine an executable or prevent access to its underlying objects; an isolated
 runner must expose only mediated redacted data. No backend is connected yet.
+
+## Prompt serialization
+
+`reviewers.prompt.render_prompt` builds a bounded local UTF-8 payload with a versioned,
+precision-first source-only policy and the parser's generated `ReviewDocument` schema.
+It requires orientation even for empty findings, directs the reviewer to preserve
+limitations in `unverified`, and never treats a clean pass as approval. The legacy
+`ReviewContext.schema_json` field is not used by this renderer; the parser defines
+its output contract.
+
+PR metadata, changed paths, limitations, and diffs are JSON-quoted inside an explicitly
+untrusted data object. Repository content must not be passed as trusted instructions.
+Every dynamic string, including trusted instructions, is redacted before JSON escaping
+so multiline credential patterns remain recognizable. Host paths, callbacks, PR URLs,
+and backend identities are not serialized. A serialized byte limit rejects oversized
+prompts without truncation. No template engine, transmission, or reviewer is invoked.
+Repository descriptions/conventions and configurable templates remain future work.
+
+Framing does not enforce model behavior, and heuristic masking does not guarantee
+secret-free output. A future mediated source transport must apply the same pre-escape
+redaction to each reply. The original DiffIndex remains local and unchanged.

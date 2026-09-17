@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add versioned local prompt serialization with precision-first source-only instructions,
+  parser-derived schema, untrusted JSON framing, pre-escape redaction, and byte limits.
+
 - Add internal requested-run worker orchestration, live revision/policy checks,
   backend-ID checkpoints, and exit-before-finalization ordering under cancellation.
   Tests use offline executions; no production reviewer factory is connected.
