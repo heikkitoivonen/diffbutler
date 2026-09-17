@@ -34,7 +34,7 @@ are caller-supplied trusted inputs; source and PR metadata remain untrusted data
 This is an internal assembly function, not a dispatcher or authorization check.
 The caller must load the PR belonging to the task and recheck durable worker
 ownership, freshness, and policy before execution. No reviewer is launched and no
-source leaves the machine. Prompt rendering and enforced isolation are still deferred;
+source leaves the machine. Prompt rendering and integrated isolation are still deferred;
 the assembled context is not yet suitable for sending to a real backend.
 
 Git runs asynchronously with argv execution, no terminal input, captured output,
@@ -51,7 +51,9 @@ and object storage) are trusted. This is a source mediation boundary, **not an O
 sandbox for a reviewer process**. Do not pass the local repository or this in-process
 adapter as evidence that an arbitrary CLI agent is isolated. Enforced filesystem,
 credential, and network isolation is still required before any background reviewer
-launch. No reviewer executable is connected, including for previously foreground
+launch. An [offline sandbox primitive](background-isolation.md) exists separately;
+its kernel confinement is not yet validated here and it exposes no source RPC.
+No reviewer executable is connected, including for previously foreground
 conversations. Remote retrieval, owned snapshots, durable manifests,
 foreground leases, and cleanup remain future work.
 

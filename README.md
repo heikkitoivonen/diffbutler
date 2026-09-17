@@ -30,7 +30,9 @@ is runnable with `make handoff`.
 
 M2 internal foundations include [explicit review scheduling](docs/review-scheduling.md)
 and [mediated local source reads, context assembly, and credential-pattern redaction](docs/source-context.md).
-Background reviewer execution remains disconnected pending enforced process isolation.
+An internal [offline Linux sandbox primitive](docs/background-isolation.md) now
+defines a fail-closed Bubblewrap profile. Kernel confinement is not yet validated
+on the development host; background reviewer execution remains disconnected.
 
 ## Local setup and diagnostics
 
@@ -123,7 +125,8 @@ scripts/        Development and packaging checks
 The config, store, GitHub read adapter, doctor, and shared queue services are implemented;
 M2 now includes reviewer/source protocols, immutable session/run DTOs, and durable
 session/run tables, plus [explicit starts and transactional worker claims](docs/review-scheduling.md).
-Execution, isolation, and managed foreground session operations remain unimplemented.
+Real reviewer execution and managed foreground session operations remain unimplemented;
+the offline sandbox primitive is not yet an integrated, validated review boundary.
 The terminal handoff experiment lives in `ui/tui/`.
 Import-linter enforces their dependency direction from the start. Textual is used by
 the experiment; Pydantic validates configuration, SQLAlchemy/Alembic manage SQLite,

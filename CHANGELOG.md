@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add an internal offline Linux sandbox runner with a fixed Bubblewrap isolation
+  profile, captured bounded I/O, and cancellation cleanup. Missing isolation fails
+  closed. Fake lifecycle tests pass; real kernel confinement requires Bubblewrap
+  and remains unvalidated on the development host. Real reviewers stay disconnected.
+
 - Add internal review context assembly with revision checks, bounded pinned Git
   diffs, mediated surrounding source, and explicit context limitations. Unsupported
   binary/non-UTF-8 diffs fail preparation. Reviewer execution remains disconnected
