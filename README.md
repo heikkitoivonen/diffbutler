@@ -29,7 +29,7 @@ arrive in later milestones. A separate [terminal handoff experiment](docs/termin
 is runnable with `make handoff`.
 
 M2 internal foundations include [explicit review scheduling](docs/review-scheduling.md)
-and [mediated local source reads and context assembly](docs/source-context.md).
+and [mediated local source reads, context assembly, and credential-pattern redaction](docs/source-context.md).
 Background reviewer execution remains disconnected pending enforced process isolation.
 
 ## Local setup and diagnostics

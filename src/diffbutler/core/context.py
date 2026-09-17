@@ -5,6 +5,7 @@ import asyncio
 from diffbutler.domain.forge import PullRequest
 from diffbutler.domain.review import ReviewConflict, RunRecord, RunStatus
 from diffbutler.reviewers.base import ReviewBudget, ReviewContext, ReviewSources
+from diffbutler.reviewers.redaction import RedactingSourceReader, redact_and_report
 
 
 async def assemble_context(
@@ -36,15 +37,16 @@ async def assemble_context(
         pr=pr,
         session_id=run.session_id,
         run_id=run.id,
-        diff=diff,
+        diff=redact_and_report(diff.encode("utf-8")).decode("utf-8"),
         changed_files=sources.changed_files,
-        sources=sources,
+        sources=RedactingSourceReader(sources),
         instructions=instructions,
         schema_json=schema_json,
         budget=budget,
         limitations=(
             "Source is available through mediated reads only; no checkout is provided.",
             "Project tests, builds, and application code were not executed.",
+            "Source credential patterns are masked heuristically; undetected secrets may remain.",
             *sources.limitations,
         ),
     )

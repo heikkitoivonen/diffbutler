@@ -27,14 +27,14 @@ merge-base comparison remain future work.
 immutable `ReviewContext` for a running attempt and an open PR. Both source and PR
 base/head identities must match the run before any diff read. Assembly forwards the
 diff byte budget, independently checks its UTF-8 byte length, and propagates timeout
-and cancellation. It preserves mediated access to surrounding source and records
+and cancellation. It preserves redacted mediated access to surrounding source and records
 the absence of a checkout and of executed project checks. Instructions and schema
 are caller-supplied trusted inputs; source and PR metadata remain untrusted data.
 
 This is an internal assembly function, not a dispatcher or authorization check.
 The caller must load the PR belonging to the task and recheck durable worker
 ownership, freshness, and policy before execution. No reviewer is launched and no
-source leaves the machine. Source redaction and prompt rendering are still deferred;
+source leaves the machine. Prompt rendering and enforced isolation are still deferred;
 the assembled context is not yet suitable for sending to a real backend.
 
 Git runs asynchronously with argv execution, no terminal input, captured output,
@@ -52,10 +52,38 @@ sandbox for a reviewer process**. Do not pass the local repository or this in-pr
 adapter as evidence that an arbitrary CLI agent is isolated. Enforced filesystem,
 credential, and network isolation is still required before any background reviewer
 launch. No reviewer executable is connected, including for previously foreground
-conversations. Source redaction, remote retrieval, owned snapshots, durable manifests,
+conversations. Remote retrieval, owned snapshots, durable manifests,
 foreground leases, and cleanup remain future work.
 
 Offline tests use disposable Git repositories and synthetic executables. They cover
 pinned reads with a dirty index/worktree, surrounding files, links, binary and unusual
 filenames, mode changes, submodules, replacement refs, filters, missing promisor objects,
 environment filtering, safe diagnostics, output limits, timeout, and cancellation.
+
+## Source redaction
+
+Context assembly masks credential patterns in the diff and wraps all subsequent
+mediated file reads with the same redactor, including unchanged files on either
+side. The raw Git adapter continues to return original bytes for trusted internal
+use. Diff byte budgets apply before masking. Source bytes and local files are never
+modified in place.
+
+The initial heuristic recognizes GitHub-style tokens, AWS access key IDs,
+`sk-` and Slack-style tokens, complete PEM private-key blocks, and high-entropy
+values assigned to credential-like names (token, password, secret, API/access key).
+Assignment values require at least 16 characters and 3.5 bits of Shannon entropy
+per character; recognized token prefixes and PEM blocks do not use that threshold.
+Matches become same-length asterisks with CR/LF positions preserved, including
+non-UTF-8 file content. Overlapping matches count once; repeated occurrences count
+separately. Each diff/file pass emits an INFO log containing only the count, never
+values, hashes, paths, or snippets.
+
+This is heuristic masking, not proof that source is secret-free. Encoded, split,
+unknown-format, low-entropy, and partial private-key secrets can remain; false
+positives are possible. Masking multiline keys can also obscure diff prefixes
+inside the block, so the masked text must not be used to construct DiffIndex.
+PR metadata, paths, trusted instructions/schema, and future transcripts are outside
+this source-only pass and need handling at the future serialization boundary.
+The context explicitly records the heuristic limitation. A Python wrapper does
+not confine an executable or prevent access to its underlying objects; an isolated
+runner must expose only mediated redacted data. No backend is connected yet.
