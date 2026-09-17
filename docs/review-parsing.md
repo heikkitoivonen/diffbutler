@@ -27,9 +27,9 @@ cannot produce a successful document. This parser checks already-captured bytes;
 a future executor must also enforce limits while collecting output. Nothing is
 logged or persisted by parsing.
 
-Locations are structurally validated only: there is no DiffIndex, source existence
-check, line snapping, or commentability guarantee yet. Huge but positive line numbers
-remain untrusted until anchor validation. Orientation quality and coverage are not
+The parser validates locations structurally. Context preparation now builds a
+[DiffIndex](diff-anchors.md) before redaction; finalization can retain side-aware
+anchor outcomes. Huge positive line numbers are demoted when outside the indexed hunks. Orientation quality and coverage are not
 proved by schema validity. Successful parsing neither approves a PR nor establishes
 forge publication, and does not release a worker claim. The shared core now persists
 results and routes queue attention through explicit finalization; backend extraction

@@ -98,3 +98,6 @@ schema fails without applying migrations. This is a schema check, not a filesyst
 read-only mode: connections still configure SQLite pragmas and can create WAL sidecars.
 The migration round-trip and model/schema comparison tests run offline against SQLite.
 Other database backends and their CI matrix remain deferred.
+
+Revision `0006` retains [anchor validation outcomes](diff-anchors.md) independently
+of model findings; older results remain explicitly unvalidated.

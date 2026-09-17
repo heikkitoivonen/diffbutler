@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+from diffbutler.domain.diff import DiffIndex as DiffIndex
 from diffbutler.domain.forge import (
     Account,
     Discovery,

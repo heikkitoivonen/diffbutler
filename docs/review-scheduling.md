@@ -108,8 +108,9 @@ The defaults are confidence `0.5` and severity `minor`; severity order is
 wiring is still deferred. The full normalized document is retained, including every
 low-confidence/nit/question finding. Zero-based `selected_indices` record the subset
 that met both thresholds, alongside the applied thresholds and normalization notes.
-Anchors have structural validation only, so no selected finding is yet guaranteed
-commentable. DiffIndex and per-finding disposition records remain future work.
+Finalization accepts the pinned context DiffIndex and retains [anchor outcomes](diff-anchors.md)
+for every finding, including demoted file notes. Missing indexes remain explicitly
+unvalidated. Per-finding disposition records remain future work.
 
 Migration `0005` adds `review_result`, with one immutable-by-API result per run.
 Raw stdout/stderr and exit code occupy the existing `ai_run` fields. `get_result`

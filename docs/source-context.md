@@ -27,7 +27,8 @@ merge-base comparison remain future work.
 immutable `ReviewContext` for a running attempt and an open PR. Both source and PR
 base/head identities must match the run before any diff read. Assembly forwards the
 diff byte budget, independently checks its UTF-8 byte length, and propagates timeout
-and cancellation. It preserves redacted mediated access to surrounding source and records
+and cancellation. It builds a [DiffIndex](diff-anchors.md) from the original diff before masking,
+rejecting malformed or unsupported hunks. It preserves redacted mediated access to surrounding source and records
 the absence of a checkout and of executed project checks. Instructions and schema
 are caller-supplied trusted inputs; source and PR metadata remain untrusted data.
 

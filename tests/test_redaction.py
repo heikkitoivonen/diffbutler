@@ -68,7 +68,9 @@ async def test_context_redacts_diff_and_every_file_read_with_safe_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     run, pr = records()
-    sources = SecretSources("+token=" + TOKEN.decode())
+    sources = SecretSources(
+        "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -0,0 +1 @@\n+token=" + TOKEN.decode()
+    )
     caplog.set_level(logging.INFO, logger="diffbutler.reviewers.redaction")
     context = await assemble_context(
         run=run,

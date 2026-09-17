@@ -5,8 +5,9 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from diffbutler.domain.diff import AnchorValidation, DiffAnchor, DiffIndex
 from diffbutler.domain.review import (
     AnalysisIdentity,
     ReviewPolicy,
@@ -14,6 +15,7 @@ from diffbutler.domain.review import (
     RunClaim,
     RunStatus,
     SessionStatus,
+    Side,
 )
 from diffbutler.reviewers.base import ReviewOutput
 from diffbutler.reviewers.parsing import ReviewDocument, Severity, parse_review
@@ -52,6 +54,9 @@ class AIRun(BaseModel):
     finished_at: datetime | None
 
 
+_ANCHORS = TypeAdapter(tuple[AnchorValidation, ...])
+
+
 class ReviewResult(BaseModel):
     model_config = ConfigDict(frozen=True, ser_json_bytes="base64", val_json_bytes="base64")
 
@@ -66,6 +71,7 @@ class ReviewResult(BaseModel):
     selected_indices: tuple[int, ...]
     min_confidence: float
     findings_threshold: Severity
+    anchors: tuple[AnchorValidation, ...] | None = None
 
 
 class ReviewService:
@@ -142,6 +148,9 @@ class ReviewService:
             selected_indices=result.selected_indices,
             min_confidence=result.min_confidence,
             findings_threshold=cast(Severity, result.findings_threshold),
+            anchors=_ANCHORS.validate_json(result.anchors_json)
+            if result.anchors_json is not None
+            else None,
         )
 
     async def finalize_review(
@@ -149,6 +158,7 @@ class ReviewService:
         token: UUID,
         output: ReviewOutput,
         *,
+        diff_index: DiffIndex | None = None,
         min_confidence: float = 0.5,
         findings_threshold: Severity = "minor",
         max_output_bytes: int = 4_000_000,
@@ -156,7 +166,8 @@ class ReviewService:
         """Acknowledge verified worker exit and finalize already-extracted text.
 
         A future executor must establish process-tree death before calling this.
-        Parsed anchors are not yet validated for publication. No forge is contacted.
+        Supply the original pinned context index to retain anchor validation.
+        Missing indexes are explicitly unvalidated. No forge is contacted.
         """
         ranks = {"question": 0, "nit": 1, "minor": 2, "important": 3, "blocking": 4}
         if not math.isfinite(min_confidence) or not 0 <= min_confidence <= 1:
@@ -178,6 +189,23 @@ class ReviewService:
             if parsed.document is not None
             else ()
         )
+        anchors = (
+            tuple(
+                diff_index.validate(
+                    DiffAnchor(
+                        path=finding.path,
+                        line=finding.line,
+                        start_line=finding.start_line,
+                        side=Side.BASE if finding.side == "LEFT" else Side.HEAD,
+                        base_sha=diff_index.base_sha,
+                        head_sha=diff_index.head_sha,
+                    )
+                )
+                for finding in parsed.document.findings
+            )
+            if parsed.document is not None and diff_index is not None
+            else None
+        )
         result = ReviewResultRecord(
             output.exit_code,
             output.stdout,
@@ -189,6 +217,9 @@ class ReviewService:
             selected,
             min_confidence,
             findings_threshold,
+            _ANCHORS.dump_json(anchors).decode() if anchors is not None else None,
+            diff_index.base_sha if diff_index is not None else None,
+            diff_index.head_sha if diff_index is not None else None,
         )
         return AIRun.model_validate(
             await self.store.finalize_review(

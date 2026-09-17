@@ -151,3 +151,6 @@ class ReviewResultRecord:
     selected_indices: tuple[int, ...]
     min_confidence: float
     findings_threshold: str
+    anchors_json: str | None = None
+    anchor_base_sha: str | None = None
+    anchor_head_sha: str | None = None

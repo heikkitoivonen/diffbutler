@@ -337,6 +337,7 @@ class SQLiteReviewStore:
                 tuple(result.selected_indices),
                 result.min_confidence,
                 result.findings_threshold,
+                result.anchors_json,
             )
 
     async def finalize_review(
@@ -350,6 +351,11 @@ class SQLiteReviewStore:
                 raise ReviewConflict("Worker claim does not exist")
             run = await self._run(db, claim.run_id)
             session = await self._session(db, run.review_session_id)
+            if result.anchors_json is not None and (
+                result.anchor_base_sha,
+                result.anchor_head_sha,
+            ) != (run.base_sha, run.head_sha):
+                raise ReviewConflict("Anchor index revisions do not match the run")
             if session.status == "cleaned":
                 raise ReviewConflict("Review session was cleaned")
             if backend_session_id is not None:
@@ -364,6 +370,7 @@ class SQLiteReviewStore:
                 ReviewResult(
                     run_id=run.id,
                     document_json=result.document_json,
+                    anchors_json=result.anchors_json,
                     parse_tier=result.parse_tier,
                     error=result.error,
                     notes=list(result.notes),

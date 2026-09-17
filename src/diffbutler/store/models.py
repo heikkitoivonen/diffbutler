@@ -227,6 +227,7 @@ class ReviewResult(Base):
     __tablename__ = "review_result"
     run_id: Mapped[UUID] = mapped_column(ForeignKey("ai_run.id"), primary_key=True)
     document_json: Mapped[str | None] = mapped_column(Text)
+    anchors_json: Mapped[str | None] = mapped_column(Text)
     parse_tier: Mapped[str | None] = mapped_column(String(32))
     error: Mapped[str | None] = mapped_column(String(255))
     notes: Mapped[list[str]] = mapped_column(JSON)

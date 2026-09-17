@@ -26,7 +26,13 @@ class FakeSources:
     changed_files = (ChangedFile("changed.py"),)
     limitations = ("Synthetic source limitation.",)
 
-    def __init__(self, diff: str = "synthetic diff") -> None:
+    def __init__(
+        self,
+        diff: str = (
+            "diff --git a/changed.py b/changed.py\n--- a/changed.py\n"
+            "+++ b/changed.py\n@@ -1 +1 @@\n-old\n+new\n"
+        ),
+    ) -> None:
         self.diff = diff
         self.requested_limits: list[int] = []
         self.started = asyncio.Event()
@@ -88,7 +94,7 @@ def records() -> tuple[RunRecord, PullRequest]:
 async def test_context_preserves_identity_and_surrounding_source() -> None:
     run, pr = records()
     sources = FakeSources()
-    budget = ReviewBudget(max_diff_bytes=100)
+    budget = ReviewBudget(max_diff_bytes=1000)
     context = await assemble_context(
         run=run,
         pr=pr,
@@ -99,12 +105,12 @@ async def test_context_preserves_identity_and_surrounding_source() -> None:
     )
     assert context.run_id == run.id and context.session_id == run.session_id
     assert context.pr is pr and context.budget is budget
-    assert context.diff == "synthetic diff" and context.changed_files == sources.changed_files
+    assert context.diff == sources.diff and context.changed_files == sources.changed_files
     assert context.instructions == "trusted instructions"
     assert context.schema_json == '{"type":"object"}'
     assert context.checkout_path is None
     assert context.limitations[-1] == sources.limitations[0]
-    assert sources.requested_limits == [100]
+    assert sources.requested_limits == [1000]
     assert (
         await context.sources.read_file(SourceFile("unchanged.py", Side.HEAD))
         == b"surrounding source"

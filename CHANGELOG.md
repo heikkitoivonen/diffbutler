@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add side-aware unified-diff indexing before redaction, conservative range snapping,
+  and retained original/exact/snapped/demoted anchor outcomes in migration `0006`.
+  Findings are never dropped because their anchors are invalid.
+
 - Add claim-protected result finalization and migration `0005`: persist orientation,
   all findings, captured output, parse diagnostics, and threshold selection. Route
   current attempts to human review or triage without letting late results replace

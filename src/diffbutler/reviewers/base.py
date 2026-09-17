@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
+from diffbutler.domain.diff import DiffIndex
 from diffbutler.domain.forge import PullRequest
 from diffbutler.domain.review import ChangedFile, SourceFile
 
@@ -56,6 +57,7 @@ class ReviewContext:
     instructions: str
     schema_json: str
     budget: ReviewBudget
+    diff_index: DiffIndex | None = None
     checkout_path: Path | None = None
     limitations: tuple[str, ...] = ()
 

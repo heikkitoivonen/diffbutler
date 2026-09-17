@@ -299,7 +299,7 @@ async def test_upgrade_0004_preserves_worker_claim(database: Database) -> None:
     async with database.engine.begin() as connection:
         await connection.run_sync(lambda conn: command.downgrade(migration_config(conn), "0004"))
     status = await database.initialize()
-    assert status.revision == "0005" and status.backup is not None
+    assert status.revision == "0006" and status.backup is not None
     await reviews.finalize_review(claim.token, captured())
     async with database.sessions() as db:
         assert (await db.scalars(select(ReviewResult.run_id))).all() == [run.id]
@@ -357,3 +357,52 @@ async def test_old_cycle_result_cannot_overwrite_reopened_task(database: Databas
     after = await queue.snapshot(ACCOUNT)
     assert after == before
     assert await reviews.get_result(run.id) is not None
+
+
+async def test_anchor_results_survive_restart_and_keep_demoted_findings(database: Database) -> None:
+    from diffbutler.domain.diff import DiffIndex
+
+    _, identity = await seed(database)
+    reviews = service(database)
+    run = await reviews.request_review(identity)
+    claim = await reviews.claim_review(run.id)
+    assert claim is not None
+    index = DiffIndex.parse(
+        "diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n"
+        "@@ -10,2 +10,2 @@\n context\n-old\n+new\n",
+        base_sha=run.base_sha,
+        head_sha=run.head_sha,
+    )
+    first = finding() | {"path": "src/auth.py", "line": 11, "start_line": 10}
+    second = finding() | {"path": "src/auth.py", "line": 1000, "start_line": None}
+    await reviews.finalize_review(claim.token, captured(first, second), diff_index=index)
+    reopened = Database(str(database.url))
+    try:
+        await reopened.initialize(auto_migrate=False)
+        result = await service(reopened).get_result(run.id)
+        assert result is not None and result.document is not None and result.anchors is not None
+        assert [item.status for item in result.anchors] == ["exact", "demoted"]
+        assert result.anchors[1].original.line == 1000
+        assert result.anchors[1].anchor is None
+        assert len(result.document.findings) == 2 and result.selected_indices == (0, 1)
+        assert ResultDTO.model_validate_json(result.model_dump_json()) == result
+    finally:
+        await reopened.close()
+
+
+async def test_wrong_revision_anchor_index_preserves_claim(database: Database) -> None:
+    from diffbutler.domain.diff import DiffIndex
+
+    _, identity = await seed(database)
+    reviews = service(database)
+    run = await reviews.request_review(identity)
+    claim = await reviews.claim_review(run.id)
+    assert claim is not None
+    with pytest.raises(ReviewConflict, match="index revisions"):
+        await reviews.finalize_review(claim.token, captured(), diff_index=DiffIndex.parse(""))
+    assert await reviews.get_result(run.id) is None
+    async with database.sessions() as db:
+        assert await db.get(RunClaim, claim.token) is not None
+    await reviews.finalize_review(claim.token, captured())
+    result = await reviews.get_result(run.id)
+    assert result is not None and result.anchors is None

@@ -32,8 +32,8 @@ M2 internal foundations include [explicit review scheduling and durable backend 
 and [mediated local source reads, context assembly, and credential-pattern redaction](docs/source-context.md).
 An offline [captured-output parser](docs/review-parsing.md) validates orientation and
 findings. Internal [result finalization](docs/review-scheduling.md#result-finalization)
-persists analysis and routes queue attention under worker ownership. Anchor validation
-remains unimplemented.
+persists analysis and routes queue attention under worker ownership. [Side-aware anchor validation](docs/diff-anchors.md) retains original locations and
+demotes unanchorable findings to file notes.
 An internal [offline Linux sandbox primitive](docs/background-isolation.md) now
 defines a fail-closed Bubblewrap profile. Kernel confinement is not yet validated
 on the development host; background reviewer execution remains disconnected.
