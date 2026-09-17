@@ -78,9 +78,10 @@ and atomically schedules a cleanup job. Monitor state survives completed cycles 
 request removal. No cleanup worker or history interface is implemented. Revision `0003`
 adds session identity and analysis-attempt tables, including task/reviewer
 foreign-key consistency and unique analysis-key/attempt pairs. No sessions or runs
-are created by queue sync. Run claims, execution, resource ownership enforcement,
-and cleanup remain unimplemented; finding and posting tables are deferred. HTTP response
-validators remain in memory; restart reads are unconditional.
+are created by queue sync. Revision `0004` adds durable worker claims for the internal
+[explicit scheduling service](review-scheduling.md). Execution, foreground workspace
+ownership, and cleanup remain unimplemented; finding and posting tables are deferred.
+HTTP response validators remain in memory; restart reads are unconditional.
 
 Existing databases receive a consistent SQLite backup before a pending migration.
 Backups include committed WAL contents and live beside the database as

@@ -209,3 +209,11 @@ class AIRun(Base):
     exit_code: Mapped[int | None]
     stdout_blob: Mapped[bytes | None] = mapped_column(LargeBinary)
     stderr_blob: Mapped[bytes | None] = mapped_column(LargeBinary)
+
+
+class RunClaim(Base):
+    """Cancellation invalidates results without releasing a live worker's slot."""
+
+    __tablename__ = "run_claim"
+    token: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("ai_run.id"), unique=True)

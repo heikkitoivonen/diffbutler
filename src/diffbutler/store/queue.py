@@ -14,6 +14,7 @@ from diffbutler.store.base import SyncConflict
 from diffbutler.store.database import Database
 from diffbutler.store.models import (
     Account,
+    AIRun,
     CleanupJob,
     ForgeAccount,
     PRMonitor,
@@ -177,6 +178,22 @@ class SQLiteQueueStore:
             await session.flush()
         if task.account_id != identity.account_id or task.pull_request_id != pr.id:
             raise ValueError("Review task belongs to a different account or PR")
+        if monitor is not None and (
+            item.state == "DONE"
+            or remote.head_sha != monitor.snapshot_json.get("head_sha")
+            or item.request_key > monitor.request_key
+        ):
+            # Invalidate analysis in the same commit as the observed change. A
+            # worker's separate claim remains held until it acknowledges exit.
+            runs = await session.scalars(
+                select(AIRun).where(
+                    AIRun.review_task_id == monitor.task_id,
+                    AIRun.status.in_(["queued", "running"]),
+                )
+            )
+            for run in runs:
+                run.status = "cancelled" if item.state == "DONE" else "stale"
+                run.finished_at = utc_now()
         if task.completed_at is None:
             if task.state != item.state:
                 task.action_version += 1

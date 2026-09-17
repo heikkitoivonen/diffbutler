@@ -118,8 +118,9 @@ scripts/        Development and packaging checks
 
 The config, store, GitHub read adapter, doctor, and shared queue services are implemented;
 M2 now includes reviewer/source protocols, immutable session/run DTOs, and durable
-session/run tables. Execution, transactional claims, isolation, and managed session
-operations remain unimplemented. The terminal handoff experiment lives in `ui/tui/`.
+session/run tables, plus [explicit starts and transactional worker claims](docs/review-scheduling.md).
+Execution, isolation, and managed foreground session operations remain unimplemented.
+The terminal handoff experiment lives in `ui/tui/`.
 Import-linter enforces their dependency direction from the start. Textual is used by
 the experiment; Pydantic validates configuration, SQLAlchemy/Alembic manage SQLite,
 HTTPX provides async GitHub reads, and Typer powers the CLI.

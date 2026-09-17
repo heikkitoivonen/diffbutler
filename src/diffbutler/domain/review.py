@@ -3,6 +3,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
 from uuid import UUID
@@ -86,3 +87,39 @@ class AnalysisIdentity:
             ensure_ascii=True,
         )
         return hashlib.sha256(payload.encode()).hexdigest()
+
+
+class ReviewConflict(ValueError):
+    """The requested task or run no longer permits this action."""
+
+
+@dataclass(frozen=True)
+class RunRecord:
+    id: UUID
+    task_id: UUID
+    session_id: UUID
+    reviewer_id: str
+    head_sha: str
+    base_sha: str
+    prompt_version: str
+    config_hash: str
+    analysis_key: str
+    attempt: int
+    status: RunStatus
+    requested_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True)
+class RunClaim:
+    """Exclusive worker ownership, retained until the worker acknowledges exit."""
+
+    token: UUID
+    run: RunRecord
+
+
+@dataclass(frozen=True)
+class ReviewPolicy:
+    reviewer_ids: frozenset[str]
+    disabled_repositories: frozenset[str] = frozenset()

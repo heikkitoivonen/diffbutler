@@ -1,8 +1,10 @@
 """Persistence seam for account-scoped atomic queue updates."""
 
 from typing import Protocol
+from uuid import UUID
 
 from diffbutler.domain.forge import Account, PRRef
+from diffbutler.domain.review import AnalysisIdentity, ReviewPolicy, RunClaim, RunRecord
 from diffbutler.domain.sync import QueueSnapshot, TrackedPR
 
 
@@ -21,3 +23,15 @@ class QueueStore(Protocol):
         refreshed: frozenset[PRRef] = frozenset(),
     ) -> None: ...
     async def accounts(self) -> tuple[Account, ...]: ...
+
+
+class ReviewStore(Protocol):
+    async def get_run(self, run_id: UUID) -> RunRecord: ...
+    async def request_review(
+        self, identity: AnalysisIdentity, policy: ReviewPolicy
+    ) -> RunRecord: ...
+    async def claim_review(
+        self, run_id: UUID, *, capacity: int, policy: ReviewPolicy
+    ) -> RunClaim | None: ...
+    async def cancel_review(self, run_id: UUID) -> RunRecord: ...
+    async def release_review(self, token: UUID) -> RunRecord: ...

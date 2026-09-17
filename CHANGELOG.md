@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add internal explicit review requests and transactional worker claims, duplicate-start
+  suppression, deliberate retry attempts, and migration `0004`. Sync invalidates obsolete
+  runs atomically; cancelled workers retain ownership until exit is acknowledged.
+  Real reviewer execution and process isolation remain deferred.
+
 - Add M2 reviewer/source protocols, immutable session/run DTOs, and migration `0003`
   for durable conversation identity and unique analysis attempts. Execution and
   session management remain deferred; queue operations still never start AI.
