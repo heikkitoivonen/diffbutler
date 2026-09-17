@@ -28,7 +28,7 @@ post to a forge. Reviews, managed sessions, a history UI, and the cleanup worker
 arrive in later milestones. A separate [terminal handoff experiment](docs/terminal-handoff.md)
 is runnable with `make handoff`.
 
-M2 internal foundations include [explicit review scheduling](docs/review-scheduling.md)
+M2 internal foundations include [explicit review scheduling and durable backend session IDs](docs/review-scheduling.md)
 and [mediated local source reads, context assembly, and credential-pattern redaction](docs/source-context.md).
 An internal [offline Linux sandbox primitive](docs/background-isolation.md) now
 defines a fail-closed Bubblewrap profile. Kernel confinement is not yet validated

@@ -2,7 +2,9 @@
 
 The internal `core.review.ReviewService` supports explicit review requests, durable
 worker claims, cancellation, and failed-worker release through the `ReviewStore`
-protocol. `SQLiteReviewStore` implements these as short serialized transactions.
+protocol. It also reads durable sessions, checkpoints backend resume IDs under
+worker ownership, and marks idle sessions suspended. `SQLiteReviewStore` implements
+these as short serialized transactions.
 There is no CLI review command, dispatcher, or reviewer process yet. Existing queue
 commands never create sessions or attempts.
 
@@ -45,3 +47,36 @@ launch, observe cancellation, terminate its process tree, and establish exit bef
 releasing ownership. A future cleanup worker must honor outstanding ownership.
 These database foundations do not themselves enforce process isolation or delete
 session resources. No real backend or forge credentials are used in the tests.
+
+## Conversation identity checkpoints
+
+`get_session` returns an immutable DTO with the PR display name, task/reviewer,
+generation, status, and opaque backend resume ID. Reading this metadata never
+launches or resumes an agent. The display name is not the backend identity.
+
+`bind_backend_session` requires a held worker claim token and selects the session
+through that claim's run. The first ID is persisted; repeating the same ID is
+idempotent, but replacing it with a different ID is rejected. Released or unknown
+tokens cannot write. IDs must be nonblank, at most 1024 characters, and contain no
+C0/C1 control characters. They remain opaque data, never paths or shell templates.
+A backend adapter must validate its own ID format before use.
+
+A cancelled or stale worker can still checkpoint its conversation before releasing
+ownership, including after task completion. This preserves the identity needed by
+future cleanup without reviving the run, changing queue attention, or releasing its
+claim. A cleaned session rejects all such checkpoints. Future cleanup must continue
+to wait for held claims; writing a resume ID is not evidence that the worker exited.
+
+`suspend_session` marks an idle, current, open-task conversation suspended. It
+rejects queued/running attempts, held claims (even cancelled ones), completed tasks,
+and sessions that are cleaned or awaiting cleanup. It preserves the resume ID and
+queue state and performs no backend operation. A later explicit request can reuse
+the conversation; successfully claiming that request returns the session to ready.
+Claims reject sessions that have entered cleanup since the request was queued.
+
+Offline tests use a synthetic CLI to create a conversation, checkpoint its ID,
+close/reopen the database, and resume the same synthetic conversation on an explicit
+retry. The launcher lives only in the test harness. These tests do not establish
+Codex/Claude compatibility, real session storage ownership, isolated resume, or
+successful-result finalization. Those integrations remain future work; no production
+reviewer launcher or CLI session command is connected.

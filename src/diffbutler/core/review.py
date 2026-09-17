@@ -62,6 +62,24 @@ class ReviewService:
     async def get_run(self, run_id: UUID) -> AIRun:
         return AIRun.model_validate(await self.store.get_run(run_id), from_attributes=True)
 
+    async def get_session(self, session_id: UUID) -> ReviewSession:
+        """Read durable conversation metadata; does not resume or start a process."""
+        return ReviewSession.model_validate(
+            await self.store.get_session(session_id), from_attributes=True
+        )
+
+    async def bind_backend_session(self, token: UUID, backend_session_id: str) -> ReviewSession:
+        """Checkpoint a backend identity while the caller still owns its worker claim."""
+        return ReviewSession.model_validate(
+            await self.store.bind_backend_session(token, backend_session_id), from_attributes=True
+        )
+
+    async def suspend_session(self, session_id: UUID) -> ReviewSession:
+        """Mark an idle conversation suspended; never stop a process or delete data."""
+        return ReviewSession.model_validate(
+            await self.store.suspend_session(session_id), from_attributes=True
+        )
+
     async def request_review(self, identity: AnalysisIdentity) -> AIRun:
         return AIRun.model_validate(
             await self.store.request_review(identity, self.policy), from_attributes=True

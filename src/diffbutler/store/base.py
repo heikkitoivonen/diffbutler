@@ -4,7 +4,13 @@ from typing import Protocol
 from uuid import UUID
 
 from diffbutler.domain.forge import Account, PRRef
-from diffbutler.domain.review import AnalysisIdentity, ReviewPolicy, RunClaim, RunRecord
+from diffbutler.domain.review import (
+    AnalysisIdentity,
+    ReviewPolicy,
+    RunClaim,
+    RunRecord,
+    SessionRecord,
+)
 from diffbutler.domain.sync import QueueSnapshot, TrackedPR
 
 
@@ -26,6 +32,9 @@ class QueueStore(Protocol):
 
 
 class ReviewStore(Protocol):
+    async def get_session(self, session_id: UUID) -> SessionRecord: ...
+    async def bind_backend_session(self, token: UUID, backend_session_id: str) -> SessionRecord: ...
+    async def suspend_session(self, session_id: UUID) -> SessionRecord: ...
     async def get_run(self, run_id: UUID) -> RunRecord: ...
     async def request_review(
         self, identity: AnalysisIdentity, policy: ReviewPolicy

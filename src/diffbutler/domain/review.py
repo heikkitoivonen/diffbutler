@@ -24,6 +24,18 @@ class SessionStatus(StrEnum):
     CLEANED = "cleaned"
 
 
+@dataclass(frozen=True)
+class SessionRecord:
+    id: UUID
+    task_id: UUID
+    reviewer_id: str
+    generation: int
+    display_name: str
+    backend_session_id: str | None
+    status: SessionStatus
+    created_at: datetime
+
+
 class Side(StrEnum):
     BASE = "base"
     HEAD = "head"

@@ -11,6 +11,8 @@ from diffbutler.domain.review import (
     ReviewPolicy,
     RunRecord,
     RunStatus,
+    SessionRecord,
+    SessionStatus,
 )
 from diffbutler.domain.review import (
     RunClaim as Claim,
@@ -45,6 +47,19 @@ def record(run: AIRun) -> RunRecord:
         run.requested_at,
         run.started_at,
         run.finished_at,
+    )
+
+
+def session_record(session: ReviewSession) -> SessionRecord:
+    return SessionRecord(
+        session.id,
+        session.review_task_id,
+        session.reviewer_id,
+        session.generation,
+        session.display_name,
+        session.backend_session_id,
+        SessionStatus(session.status),
+        session.created_at,
     )
 
 
@@ -89,6 +104,68 @@ class SQLiteReviewStore:
     async def get_run(self, run_id: UUID) -> RunRecord:
         async with self.database.sessions() as db:
             return record(await self._run(db, run_id))
+
+    async def _session(self, db: AsyncSession, session_id: UUID) -> ReviewSession:
+        session = await db.get(ReviewSession, session_id)
+        if session is None:
+            raise ReviewConflict("Review session does not exist")
+        return session
+
+    async def get_session(self, session_id: UUID) -> SessionRecord:
+        async with self.database.sessions() as db:
+            return session_record(await self._session(db, session_id))
+
+    async def bind_backend_session(self, token: UUID, backend_session_id: str) -> SessionRecord:
+        # Opaque identifiers may contain spaces or shell metacharacters. They are
+        # data, never command templates or paths. Bound their stored size and reject
+        # terminal/control characters without including the value in diagnostics.
+        if (
+            not backend_session_id.strip()
+            or len(backend_session_id) > 1024
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in backend_session_id)
+        ):
+            raise ValueError("Backend session ID must be nonblank, bounded, and control-free")
+        async with self.database.sessions() as db:
+            await self._begin(db)
+            claim = await db.get(RunClaim, token)
+            if claim is None:
+                raise ReviewConflict("Worker claim does not exist")
+            run = await self._run(db, claim.run_id)
+            session = await self._session(db, run.review_session_id)
+            if session.status == "cleaned":
+                raise ReviewConflict("Review session was cleaned")
+            if session.backend_session_id not in {None, backend_session_id}:
+                raise ReviewConflict("Backend session identity cannot be replaced")
+            # An invalidated worker may still need to record the conversation it
+            # created so future cleanup can find it. Do not revive its run/task,
+            # release ownership, or treat this checkpoint as successful analysis.
+            session.backend_session_id = backend_session_id
+            result = session_record(session)
+            await db.commit()
+            return result
+
+    async def suspend_session(self, session_id: UUID) -> SessionRecord:
+        async with self.database.sessions() as db:
+            await self._begin(db)
+            session = await self._session(db, session_id)
+            await self._task(db, session.review_task_id)
+            if session.status == "cleaned" or session.cleanup_status != "not_requested":
+                raise ReviewConflict("Review session is cleaned or awaiting cleanup")
+            active = await db.scalar(
+                select(AIRun.id).where(
+                    AIRun.review_session_id == session.id,
+                    AIRun.status.in_(["queued", "running"]),
+                )
+            )
+            held = await db.scalar(
+                select(RunClaim.token).join(AIRun).where(AIRun.review_session_id == session.id)
+            )
+            if active is not None or held is not None:
+                raise ReviewConflict("Review session still has queued work or worker ownership")
+            session.status = "suspended"
+            result = session_record(session)
+            await db.commit()
+            return result
 
     async def request_review(self, identity: AnalysisIdentity, policy: ReviewPolicy) -> RunRecord:
         async with self.database.sessions() as db:
@@ -191,6 +268,10 @@ class SQLiteReviewStore:
             count = await db.scalar(select(func.count()).select_from(RunClaim))
             if (count or 0) >= capacity:
                 return None
+            session = await self._session(db, run.review_session_id)
+            if session.status == "cleaned" or session.cleanup_status != "not_requested":
+                raise ReviewConflict("Review session is cleaned or awaiting cleanup")
+            session.status = "ready"
             claim = RunClaim(run_id=run.id)
             db.add(claim)
             run.status = "running"
