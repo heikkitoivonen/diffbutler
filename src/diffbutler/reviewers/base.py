@@ -16,6 +16,24 @@ class SourceReader(Protocol):
     async def read_file(self, source: SourceFile) -> bytes | None: ...
 
 
+class ReviewSources(SourceReader, Protocol):
+    """Prepared, pinned sources; implementations bound diff output before returning."""
+
+    @property
+    def base_sha(self) -> str: ...
+
+    @property
+    def head_sha(self) -> str: ...
+
+    @property
+    def changed_files(self) -> tuple[ChangedFile, ...]: ...
+
+    @property
+    def limitations(self) -> tuple[str, ...]: ...
+
+    async def read_diff(self, *, max_bytes: int) -> str: ...
+
+
 @dataclass(frozen=True)
 class ReviewBudget:
     timeout_s: int = 900

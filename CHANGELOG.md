@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add internal review context assembly with revision checks, bounded pinned Git
+  diffs, mediated surrounding source, and explicit context limitations. Unsupported
+  binary/non-UTF-8 diffs fail preparation. Reviewer execution remains disconnected
+  pending redaction and enforced process isolation.
+
 - Add internal explicit review requests and transactional worker claims, duplicate-start
   suppression, deliberate retry attempts, and migration `0004`. Sync invalidates obsolete
   runs atomically; cancelled workers retain ownership until exit is acknowledged.

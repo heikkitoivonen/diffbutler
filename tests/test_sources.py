@@ -247,3 +247,65 @@ async def test_git_capture_limits_and_environment(
 def test_invalid_source_timeout(timeout: float) -> None:
     with pytest.raises(ValueError):
         SourceLimits(timeout_s=timeout)
+
+
+@pytest.mark.asyncio
+async def test_diff_is_pinned_bounded_and_disables_drivers(tmp_path: Path) -> None:
+    repo, base, _ = await repository_at_two_commits(tmp_path)
+    # Compare text-only commits, with hostile attributes/config and a dirty tree.
+    (repo / "odd\tname\n.py").unlink()
+    (repo / "changed.py").write_text("after without newline")
+    await git(repo, "add", ".")
+    await git(repo, "commit", "-m", "text head")
+    head = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    marker = tmp_path / "driver-executed"
+    await git(repo, "config", "diff.external", f"touch {marker}")
+    await git(repo, "config", "diff.hostile.textconv", f"touch {marker}")
+    (repo / ".gitattributes").write_text("* diff=hostile\n")
+    (repo / "changed.py").write_text("unrelated dirty source")
+    await git(repo, "add", "changed.py")
+    before = await git(repo, "status", "--porcelain=v1")
+    reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
+    diff = await reader.read_diff(max_bytes=10000)
+    assert reader.base_sha == base and reader.head_sha == head
+    assert "-before\n+after without newline\n" in diff
+    assert "\\ No newline at end of file" in diff
+    assert "deleted.py" in diff and "-deleted" in diff
+    assert "unrelated dirty source" not in diff
+    assert not marker.exists()
+    assert await git(repo, "status", "--porcelain=v1") == before
+    assert await reader.read_diff(max_bytes=len(diff.encode())) == diff
+    with pytest.raises(SourceError, match="byte limit"):
+        await reader.read_diff(max_bytes=len(diff.encode()) - 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", [b"\x00binary", b"invalid\xff"])
+async def test_unsupported_diff_content_fails_closed(tmp_path: Path, content: bytes) -> None:
+    repo, base, _ = await repository_at_two_commits(tmp_path)
+    (repo / "odd\tname\n.py").write_bytes(content)
+    await git(repo, "add", ".")
+    await git(repo, "commit", "-m", "unsupported diff")
+    head = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
+    with pytest.raises(SourceError, match="unsupported"):
+        await reader.read_diff(max_bytes=10000)
+
+
+@pytest.mark.asyncio
+async def test_diff_empty_mode_rename_and_submodule_changes(tmp_path: Path) -> None:
+    repo, base, head = await repository_at_two_commits(tmp_path)
+    unchanged = await GitSourceReader.open(repo, base_sha=head, head_sha=head)
+    assert await unchanged.read_diff(max_bytes=1) == ""
+    await git(repo, "mv", "surrounding.py", "renamed.py")
+    await git(repo, "update-index", "--chmod=+x", "changed.py")
+    await git(repo, "update-index", "--add", "--cacheinfo", f"160000,{base},submodule")
+    await git(repo, "commit", "-m", "mode rename and gitlink")
+    newer = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    reader = await GitSourceReader.open(repo, base_sha=head, head_sha=newer)
+    diff = await reader.read_diff(max_bytes=10000)
+    assert "old mode 100644\nnew mode 100755" in diff
+    assert "rename from" not in diff
+    assert "--- a/surrounding.py\n+++ /dev/null" in diff
+    assert "--- /dev/null\n+++ b/renamed.py" in diff
+    assert f"+Subproject commit {base}" in diff

@@ -57,6 +57,8 @@ class GitSourceReader:
         self._executable = executable
         self._limits = limits
         self._trees = trees
+        self._base_sha = ""
+        self._head_sha = ""
 
     @classmethod
     async def open(
@@ -114,7 +116,65 @@ class GitSourceReader:
                 raise SourceError("Source tree contains unsupported paths or entries") from None
             trees[side] = MappingProxyType(entries)
         reader._trees = MappingProxyType(trees)
+        reader._base_sha = base_sha
+        reader._head_sha = head_sha
         return reader
+
+    @property
+    def base_sha(self) -> str:
+        return self._base_sha
+
+    @property
+    def head_sha(self) -> str:
+        return self._head_sha
+
+    @property
+    def limitations(self) -> tuple[str, ...]:
+        return (
+            "Diff compares the recorded base and head directly, not their merge base.",
+            "Renames are represented as deletion and addition; submodule contents are unavailable.",
+        )
+
+    async def read_diff(self, *, max_bytes: int) -> str:
+        """Bounded endpoint diff; reject binary/non-UTF-8 content, never truncate.
+
+        Force text so working-tree attributes cannot hide changes as binary or
+        invoke custom drivers. No textconv, external diff, or project execution.
+        """
+        if max_bytes < 1:
+            raise ValueError("diff byte limit must be positive")
+        if not self.base_sha or not self.head_sha:
+            raise SourceError("Source reader has not been prepared")
+        raw = await self._git(
+            "diff-tree",
+            "-r",
+            "-p",
+            "--no-commit-id",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--text",
+            "--no-color",
+            "--no-relative",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--unified=3",
+            "--diff-algorithm=myers",
+            "--no-indent-heuristic",
+            "--ignore-submodules=none",
+            "--submodule=short",
+            self.base_sha,
+            self.head_sha,
+            "--",
+            limit=max_bytes,
+        )
+        try:
+            result = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SourceError("Source diff contains unsupported non-UTF-8 content") from None
+        if "\x00" in result:
+            raise SourceError("Source diff contains unsupported binary content")
+        return result
 
     def paths(self, side: Side) -> tuple[str, ...]:
         """All tracked paths, including unchanged surrounding sources."""
