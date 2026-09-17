@@ -266,4 +266,12 @@ class GitSourceReader:
             stdout.cancel()
             stderr.cancel()
             await asyncio.gather(stdout, stderr, return_exceptions=True)
+
+            async def discard(stream: asyncio.StreamReader) -> None:
+                while await stream.read(65536):
+                    pass
+
+            # Overflow can leave a paused pipe transport with buffered data.
+            # Drain after killing so EOF closes both transports before returning.
+            await asyncio.gather(discard(process.stdout), discard(process.stderr))
             await process.wait()

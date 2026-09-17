@@ -250,6 +250,39 @@ def test_invalid_source_timeout(timeout: float) -> None:
 
 
 @pytest.mark.asyncio
+async def test_output_overflow_drains_owned_pipes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "overflow-git"
+    executable.write_text(f"#!{sys.executable}\nimport os\nos.write(2, b'x' * 2_000_000)\n")
+    executable.chmod(0o700)
+    spawn = asyncio.create_subprocess_exec
+    children: list[asyncio.subprocess.Process] = []
+
+    async def capture(*args: str, **_kwargs: object) -> asyncio.subprocess.Process:
+        child = await spawn(
+            *args,
+            env={"PATH": os.defpath},
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture)
+    reader = GitSourceReader(tmp_path, str(executable), SourceLimits(), {})
+    async with asyncio.timeout(5):
+        with pytest.raises(SourceError, match="byte limit"):
+            await reader._git(limit=100)  # pyright: ignore[reportPrivateUsage]
+    child = children[0]
+    assert child.returncode is not None
+    assert child.stdout is not None and child.stdout.at_eof()
+    assert child.stderr is not None and child.stderr.at_eof()
+
+
+@pytest.mark.asyncio
 async def test_diff_is_pinned_bounded_and_disables_drivers(tmp_path: Path) -> None:
     repo, base, _ = await repository_at_two_commits(tmp_path)
     # Compare text-only commits, with hostile attributes/config and a dirty tree.
