@@ -9,6 +9,7 @@ from diffbutler.domain.review import (
     AnalysisIdentity,
     ReviewConflict,
     ReviewPolicy,
+    ReviewResultRecord,
     RunRecord,
     RunStatus,
     SessionRecord,
@@ -24,6 +25,7 @@ from diffbutler.store.models import (
     PRMonitor,
     PullRequest,
     Repository,
+    ReviewResult,
     ReviewSession,
     ReviewTask,
     RunClaim,
@@ -116,6 +118,20 @@ class SQLiteReviewStore:
             return session_record(await self._session(db, session_id))
 
     async def bind_backend_session(self, token: UUID, backend_session_id: str) -> SessionRecord:
+        async with self.database.sessions() as db:
+            await self._begin(db)
+            claim = await db.get(RunClaim, token)
+            if claim is None:
+                raise ReviewConflict("Worker claim does not exist")
+            run = await self._run(db, claim.run_id)
+            session = await self._session(db, run.review_session_id)
+            self._bind_backend_session(session, backend_session_id)
+            result = session_record(session)
+            await db.commit()
+            return result
+
+    @staticmethod
+    def _bind_backend_session(session: ReviewSession, backend_session_id: str) -> None:
         # Opaque identifiers may contain spaces or shell metacharacters. They are
         # data, never command templates or paths. Bound their stored size and reject
         # terminal/control characters without including the value in diagnostics.
@@ -125,24 +141,11 @@ class SQLiteReviewStore:
             or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in backend_session_id)
         ):
             raise ValueError("Backend session ID must be nonblank, bounded, and control-free")
-        async with self.database.sessions() as db:
-            await self._begin(db)
-            claim = await db.get(RunClaim, token)
-            if claim is None:
-                raise ReviewConflict("Worker claim does not exist")
-            run = await self._run(db, claim.run_id)
-            session = await self._session(db, run.review_session_id)
-            if session.status == "cleaned":
-                raise ReviewConflict("Review session was cleaned")
-            if session.backend_session_id not in {None, backend_session_id}:
-                raise ReviewConflict("Backend session identity cannot be replaced")
-            # An invalidated worker may still need to record the conversation it
-            # created so future cleanup can find it. Do not revive its run/task,
-            # release ownership, or treat this checkpoint as successful analysis.
-            session.backend_session_id = backend_session_id
-            result = session_record(session)
-            await db.commit()
-            return result
+        if session.status == "cleaned":
+            raise ReviewConflict("Review session was cleaned")
+        if session.backend_session_id not in {None, backend_session_id}:
+            raise ReviewConflict("Backend session identity cannot be replaced")
+        session.backend_session_id = backend_session_id
 
     async def suspend_session(self, session_id: UUID) -> SessionRecord:
         async with self.database.sessions() as db:
@@ -315,3 +318,85 @@ class SQLiteReviewStore:
             result = record(run)
             await db.commit()
             return result
+
+    async def get_result(self, run_id: UUID) -> ReviewResultRecord | None:
+        async with self.database.sessions() as db:
+            run = await self._run(db, run_id)
+            result = await db.get(ReviewResult, run_id)
+            if result is None:
+                return None
+            assert run.exit_code is not None
+            return ReviewResultRecord(
+                run.exit_code,
+                run.stdout_blob,
+                run.stderr_blob,
+                result.document_json,
+                result.parse_tier,
+                result.error,
+                tuple(result.notes),
+                tuple(result.selected_indices),
+                result.min_confidence,
+                result.findings_threshold,
+            )
+
+    async def finalize_review(
+        self, token: UUID, result: ReviewResultRecord, *, backend_session_id: str | None
+    ) -> RunRecord:
+        """Caller has established process-tree exit; persist and release atomically."""
+        async with self.database.sessions() as db:
+            await self._begin(db)
+            claim = await db.get(RunClaim, token)
+            if claim is None:
+                raise ReviewConflict("Worker claim does not exist")
+            run = await self._run(db, claim.run_id)
+            session = await self._session(db, run.review_session_id)
+            if session.status == "cleaned":
+                raise ReviewConflict("Review session was cleaned")
+            if backend_session_id is not None:
+                self._bind_backend_session(session, backend_session_id)
+            if await db.get(ReviewResult, run.id) is not None:
+                raise ReviewConflict("Review result already exists")
+            run.exit_code = result.exit_code
+            run.stdout_blob = result.stdout
+            run.stderr_blob = result.stderr
+            run.parse_status = "succeeded" if result.document_json is not None else "failed"
+            db.add(
+                ReviewResult(
+                    run_id=run.id,
+                    document_json=result.document_json,
+                    parse_tier=result.parse_tier,
+                    error=result.error,
+                    notes=list(result.notes),
+                    selected_indices=list(result.selected_indices),
+                    min_confidence=result.min_confidence,
+                    findings_threshold=result.findings_threshold,
+                )
+            )
+            if run.status == "running":
+                task = await db.get(ReviewTask, run.review_task_id)
+                assert task is not None
+                monitor = await db.get(PRMonitor, (task.account_id, task.pull_request_id))
+                current = (
+                    task.completed_at is None
+                    and task.state == "AI_RUNNING"
+                    and monitor is not None
+                    and monitor.task_id == task.id
+                    and monitor.snapshot_json["state"] == "open"
+                    and monitor.snapshot_json["head_sha"] == run.head_sha
+                    and monitor.snapshot_json["base_sha"] == run.base_sha
+                    and session.cleanup_status == "not_requested"
+                )
+                if current:
+                    run.status = "succeeded" if result.document_json is not None else "failed"
+                    state = "FINDINGS_TRIAGE" if result.selected_indices else "PENDING_HUMAN_REVIEW"
+                    await transition(db, task, state)
+                else:
+                    run.status = "cancelled" if task.completed_at is not None else "stale"
+                    # A changed base may not yet have invalidated queue attention.
+                    if task.completed_at is None and task.state == "AI_RUNNING":
+                        await transition(db, task, "PENDING_AI_REVIEW")
+                run.finished_at = utc_now()
+            await db.delete(claim)
+            saved = record(run)
+            await db.commit()
+            return saved

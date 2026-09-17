@@ -135,3 +135,19 @@ class RunClaim:
 class ReviewPolicy:
     reviewer_ids: frozenset[str]
     disabled_repositories: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class ReviewResultRecord:
+    """Captured result and retained analysis; no adapter or ORM objects cross stores."""
+
+    exit_code: int
+    stdout: bytes | None
+    stderr: bytes | None
+    document_json: str | None
+    parse_tier: str | None
+    error: str | None
+    notes: tuple[str, ...]
+    selected_indices: tuple[int, ...]
+    min_confidence: float
+    findings_threshold: str

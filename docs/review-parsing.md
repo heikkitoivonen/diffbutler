@@ -17,7 +17,8 @@ are supported. Field types, positive line numbers, ordered ranges, relative repo
 paths, sides, and confidence bounds are checked. Unknown fields are rejected.
 Unknown string severities/categories become `minor`/`style` with index-based
 notes that do not echo backend values. All findings remain in the result, including
-low-confidence, nit, and question findings; threshold selection remains future work.
+low-confidence, nit, and question findings. The core applies thresholds during
+[result finalization](review-scheduling.md#result-finalization), retaining all findings.
 
 `ParsedReview` retains the original stdout, stderr, exit code, and backend identity
 on both success and failure. Failure diagnostics are fixed strings without backend
@@ -30,6 +31,7 @@ Locations are structurally validated only: there is no DiffIndex, source existen
 check, line snapping, or commentability guarantee yet. Huge but positive line numbers
 remain untrusted until anchor validation. Orientation quality and coverage are not
 proved by schema validity. Successful parsing neither approves a PR nor establishes
-forge publication, and does not release a worker claim. Durable result storage,
-queue routing/finalization, backend extraction, and a production executor remain
-unimplemented. Tests use synthetic output and make no real reviewer calls.
+forge publication, and does not release a worker claim. The shared core now persists
+results and routes queue attention through explicit finalization; backend extraction
+and a production executor remain unimplemented. Tests use synthetic output and make
+no real reviewer calls.

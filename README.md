@@ -31,7 +31,9 @@ is runnable with `make handoff`.
 M2 internal foundations include [explicit review scheduling and durable backend session IDs](docs/review-scheduling.md)
 and [mediated local source reads, context assembly, and credential-pattern redaction](docs/source-context.md).
 An offline [captured-output parser](docs/review-parsing.md) validates orientation and
-findings; durable result finalization and anchor validation remain unimplemented.
+findings. Internal [result finalization](docs/review-scheduling.md#result-finalization)
+persists analysis and routes queue attention under worker ownership. Anchor validation
+remains unimplemented.
 An internal [offline Linux sandbox primitive](docs/background-isolation.md) now
 defines a fail-closed Bubblewrap profile. Kernel confinement is not yet validated
 on the development host; background reviewer execution remains disconnected.

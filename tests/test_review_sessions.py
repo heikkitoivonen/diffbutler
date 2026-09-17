@@ -69,8 +69,8 @@ async def test_fake_cli_conversation_survives_restart_and_explicit_retry(
     assert SessionDTO.model_validate_json(saved.model_dump_json()) == saved
     with pytest.raises(ValidationError, match="frozen"):
         saved.backend_session_id = "changed"
-    # This increment does not parse successful review results: release still
-    # records failure, while preserving the independently checkpointed session.
+    # This checkpoint-only path provides no analysis result: release records
+    # failure while preserving the independently checkpointed session.
     assert (await reviews.release_review(claim.token)).status == RunStatus.FAILED
     await reviews.suspend_session(saved.id)
     await database.close()

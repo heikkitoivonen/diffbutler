@@ -1,7 +1,7 @@
 # Review scheduling foundations (M2)
 
 The internal `core.review.ReviewService` supports explicit review requests, durable
-worker claims, cancellation, and failed-worker release through the `ReviewStore`
+worker claims, cancellation, result finalization, and failed-worker release through the `ReviewStore`
 protocol. It also reads durable sessions, checkpoints backend resume IDs under
 worker ownership, and marks idle sessions suspended. `SQLiteReviewStore` implements
 these as short serialized transactions.
@@ -36,10 +36,9 @@ generation so an older refresh must retry instead of overwriting the action.
 `get_run` reads durable status; cancellation is idempotent. `release_review` requires
 the exact claim token and acknowledges that the worker has exited. A still-running
 attempt becomes failed and routes to human review; stale/cancelled attempts retain
-their state and cannot overwrite newer queue attention. An independent
-[captured-output parser](review-parsing.md) now validates review documents; persistent
-result storage and finalization are deferred. Cancellation timestamps record
-invalidation, not proof of process exit.
+their state and cannot overwrite newer queue attention. Use `finalize_review` below
+when captured output is available. Cancellation timestamps record invalidation, not
+proof of process exit.
 
 Claims survive restart and do not expire automatically. There is no orphan-worker
 recovery, process termination, foreground workspace lease, or cleanup worker yet.
@@ -78,6 +77,52 @@ Claims reject sessions that have entered cleanup since the request was queued.
 Offline tests use a synthetic CLI to create a conversation, checkpoint its ID,
 close/reopen the database, and resume the same synthetic conversation on an explicit
 retry. The launcher lives only in the test harness. These tests do not establish
-Codex/Claude compatibility, real session storage ownership, isolated resume, or
-successful-result finalization. Those integrations remain future work; no production
-reviewer launcher or CLI session command is connected.
+Codex/Claude compatibility, real session storage ownership, or isolated resume.
+Those integrations remain future work; no production reviewer launcher or CLI
+session command is connected.
+
+
+## Result finalization
+
+`finalize_review(token, output)` acknowledges verified worker exit, parses already-
+extracted assistant text, and atomically stores the result, updates current queue
+attention, checkpoints an optional backend session ID, and deletes the worker claim.
+The caller must first establish that the entire process tree has exited. A final
+message or EOF alone is not proof. This internal method performs no process control;
+no real executor is connected. A synthetic executable test captures both pipes,
+waits for exit, then finalizes its result.
+
+The transaction rechecks the held token, task, account-specific open PR snapshot,
+base/head revisions, and session cleanup state. Current successful runs route to
+`FINDINGS_TRIAGE` when any finding meets both thresholds, otherwise to
+`PENDING_HUMAN_REVIEW`. Malformed output or a nonzero exit records a failed run and
+routes to human review with a persisted diagnostic. No outcome completes or approves
+a review cycle. Local routing advances the sync generation so an older refresh must
+retry. Cancelled/stale runs can retain late results but cannot change queue attention
+or their invalidation timestamps, including after completion and a new review cycle.
+A base mismatch detected at finalization marks a running attempt stale and restores
+pending AI attention without launching replacement work.
+
+The defaults are confidence `0.5` and severity `minor`; severity order is
+`question < nit < minor < important < blocking`. Callers supply overrides; settings
+wiring is still deferred. The full normalized document is retained, including every
+low-confidence/nit/question finding. Zero-based `selected_indices` record the subset
+that met both thresholds, alongside the applied thresholds and normalization notes.
+Anchors have structural validation only, so no selected finding is yet guaranteed
+commentable. DiffIndex and per-finding disposition records remain future work.
+
+Migration `0005` adds `review_result`, with one immutable-by-API result per run.
+Raw stdout/stderr and exit code occupy the existing `ai_run` fields. `get_result`
+returns a frozen DTO with the normalized document and raw bytes; JSON serialization
+uses base64 for bytes. A known run without a finalized result returns `None`.
+Analysis survives removal of raw output, represented by null byte fields, although
+the cleanup worker itself remains unimplemented. Storage currently keeps bounded
+output inline; file spillover remains future work.
+
+Oversized captured output is rejected before persistence without releasing the claim;
+a future executor must cap capture and handle its overflow failure before finalizing
+or releasing. The default combined stdout/stderr cap is 4 MB. Invalid thresholds,
+invalid/replaced backend IDs, and cleaned sessions also reject the operation without
+partially saving a result or releasing ownership. A repeated finalization with a
+consumed token is rejected; after an uncertain commit, read the run/result to determine
+whether it succeeded. Concurrent finalizers cannot overwrite each other's result.

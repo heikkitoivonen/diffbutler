@@ -7,11 +7,13 @@ from sqlalchemy import (
     JSON,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     LargeBinary,
     MetaData,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -217,3 +219,17 @@ class RunClaim(Base):
     __tablename__ = "run_claim"
     token: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     run_id: Mapped[UUID] = mapped_column(ForeignKey("ai_run.id"), unique=True)
+
+
+class ReviewResult(Base):
+    """Retained analysis is separate from cleanup-eligible raw AIRun output."""
+
+    __tablename__ = "review_result"
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("ai_run.id"), primary_key=True)
+    document_json: Mapped[str | None] = mapped_column(Text)
+    parse_tier: Mapped[str | None] = mapped_column(String(32))
+    error: Mapped[str | None] = mapped_column(String(255))
+    notes: Mapped[list[str]] = mapped_column(JSON)
+    selected_indices: Mapped[list[int]] = mapped_column(JSON)
+    min_confidence: Mapped[float] = mapped_column(Float)
+    findings_threshold: Mapped[str] = mapped_column(String(32))
