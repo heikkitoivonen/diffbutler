@@ -21,6 +21,7 @@ from diffbutler.domain.review import (
 from diffbutler.store.database import Database
 from diffbutler.store.models import (
     AIRun,
+    ForegroundLease,
     ForgeAccount,
     PRMonitor,
     PullRequest,
@@ -103,6 +104,15 @@ class SQLiteReviewStore:
             raise ReviewConflict("Review run does not exist")
         return run
 
+    async def _check_foreground(self, db: AsyncSession, task_id: UUID) -> None:
+        held = await db.scalar(
+            select(ForegroundLease.token)
+            .join(ReviewSession)
+            .where(ReviewSession.review_task_id == task_id)
+        )
+        if held is not None:
+            raise ReviewConflict("Foreground process still owns this task")
+
     async def get_run(self, run_id: UUID) -> RunRecord:
         async with self.database.sessions() as db:
             return record(await self._run(db, run_id))
@@ -152,6 +162,7 @@ class SQLiteReviewStore:
             await self._begin(db)
             session = await self._session(db, session_id)
             await self._task(db, session.review_task_id)
+            await self._check_foreground(db, session.review_task_id)
             if session.status == "cleaned" or session.cleanup_status != "not_requested":
                 raise ReviewConflict("Review session is cleaned or awaiting cleanup")
             active = await db.scalar(
@@ -174,6 +185,7 @@ class SQLiteReviewStore:
         async with self.database.sessions() as db:
             await self._begin(db)
             task, monitor = await self._task(db, identity.task_id)
+            await self._check_foreground(db, task.id)
             if monitor.snapshot_json["head_sha"] != identity.head_sha:
                 raise ReviewConflict("PR head changed; refresh before starting")
             pr = await db.get(PullRequest, task.pull_request_id)
@@ -256,6 +268,7 @@ class SQLiteReviewStore:
             if run.status != "queued":
                 return None
             task, monitor = await self._task(db, run.review_task_id)
+            await self._check_foreground(db, task.id)
             if task.state != "QUEUED" or monitor.snapshot_json["head_sha"] != run.head_sha:
                 raise ReviewConflict("Queued analysis is no longer current")
             pr = await db.get(PullRequest, task.pull_request_id)

@@ -127,3 +127,6 @@ invalid/replaced backend IDs, and cleaned sessions also reject the operation wit
 partially saving a result or releasing ownership. A repeated finalization with a
 consumed token is rejected; after an uncertain commit, read the run/result to determine
 whether it succeeded. Concurrent finalizers cannot overwrite each other's result.
+
+[Lifecycle services](session-lifecycle.md) now serialize foreground ownership with
+background work and defer completion cleanup until ownership is released.

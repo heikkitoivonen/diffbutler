@@ -101,3 +101,5 @@ Other database backends and their CI matrix remain deferred.
 
 Revision `0006` retains [anchor validation outcomes](diff-anchors.md) independently
 of model findings; older results remain explicitly unvalidated.
+
+Revision `0007` adds durable [foreground leases and cleanup claims](session-lifecycle.md).

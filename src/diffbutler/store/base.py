@@ -4,6 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from diffbutler.domain.forge import Account, PRRef
+from diffbutler.domain.lifecycle import CleanupClaim, ForegroundLease, HeldOperation
 from diffbutler.domain.review import (
     AnalysisIdentity,
     ReviewPolicy,
@@ -49,3 +50,11 @@ class ReviewStore(Protocol):
     async def finalize_review(
         self, token: UUID, result: ReviewResultRecord, *, backend_session_id: str | None
     ) -> RunRecord: ...
+
+
+class LifecycleStore(Protocol):
+    async def held_operations(self) -> tuple[HeldOperation, ...]: ...
+    async def acquire_foreground(self, session_id: UUID) -> ForegroundLease: ...
+    async def release_foreground(self, token: UUID) -> None: ...
+    async def claim_cleanup(self) -> CleanupClaim | None: ...
+    async def finish_cleanup(self, token: UUID, *, succeeded: bool) -> None: ...

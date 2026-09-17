@@ -234,3 +234,20 @@ class ReviewResult(Base):
     selected_indices: Mapped[list[int]] = mapped_column(JSON)
     min_confidence: Mapped[float] = mapped_column(Float)
     findings_threshold: Mapped[str] = mapped_column(String(32))
+
+
+class ForegroundLease(Base):
+    __tablename__ = "foreground_lease"
+    token: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(ForeignKey("review_session.id"), unique=True)
+    backend_session_id: Mapped[str] = mapped_column(String(1024))
+    head_sha: Mapped[str] = mapped_column(String(128))
+    task_version: Mapped[int] = mapped_column()
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class CleanupClaim(Base):
+    __tablename__ = "cleanup_claim"
+    token: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(ForeignKey("cleanup_job.id"), unique=True)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

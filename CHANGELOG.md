@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add durable foreground ownership and a completion-cleanup worker step with migration
+  `0007`, bounded retries, cancellation-safe ownership, and retained analysis history.
+  Native launch, process recovery, and deletion adapters remain disconnected.
+
 - Add declarative offline envelope/JSONL extraction, strict completion/error handling,
   raw-capture preservation, and transactional extracted-session checkpoints.
 
