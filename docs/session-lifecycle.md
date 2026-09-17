@@ -1,9 +1,8 @@
 # Session ownership and cleanup (M2 internal services)
 
 `LifecycleService` and `SQLiteLifecycleStore` add durable foreground ownership and
-an internal cleanup worker step. They do not launch an interactive agent, identify
-or kill orphan processes, install a periodic worker, or provide a native backend deletion
-adapter. Production CLI/dashboard wiring remains pending.
+an internal cleanup worker step. The [native CLI integration](native-reviews.md) supplies launch and owned-home
+cleanup. Periodic workers and the dashboard remain M3.
 
 An explicit resume action can acquire a foreground lease only for a current open
 review task with a saved backend identity. A queued/running attempt or retained
@@ -31,7 +30,7 @@ only manifest-owned resources and supported backend session data. It receives a
 frozen record including the opaque backend ID, transcript reference, and manifest.
 Opaque IDs are never interpreted as filesystem paths by the core. Unsupported
 backend deletion must raise, rather than claim success. The filesystem adapter described below performs real local deletion in offline tests;
-native backend deletion remains unsupported.
+the native path deletes its dedicated owned Codex home.
 
 On successful deletion, one transaction marks sessions cleaned, removes backend
 IDs/transcript references/manifests and raw run stdout/stderr, and completes the
@@ -67,12 +66,27 @@ loop, and cancellation waits for that I/O to settle before propagating.
 The configured root and its parents are trusted administration, must remain private,
 and must never be mounted into a reviewer or contain nested filesystem mounts. This
 is resource ownership, not a sandbox. Root provisioning is internal, not CLI wiring.
-Snapshot/worktree creation and fetched-ref cleanup remain unimplemented.
+The native path creates pinned blob snapshots; worktrees and fetched-ref cleanup remain unimplemented.
 
 `OwnedSessionCleaner` validates all manifest entries before deletion and uses a
 reviewer-specific `BackendSessionDeleter` for opaque backend identities. Missing
 backend deletion support, unknown manifests, mismatched ownership, or external
-transcript references fail cleanup without claiming success. No native backend
-adapter is supplied yet. Transcript files inside owned directories are removed with
+transcript references fail cleanup without claiming success. The native integration additionally supports deleting an entire manifest-owned Codex home. Transcript files inside owned directories are removed with
 them. Backend deletion occurs first and must be idempotent, since later filesystem
 failure can require retry. Normalized SQLite analysis remains intact after success.
+
+## Launch intent and reboot recovery
+
+Migration `0008` saves a host/boot identity before spawn under an existing background,
+foreground, or cleanup claim. A second launch intent for the same token is rejected,
+including after a crash before PID checkpointing. PID checkpoints cannot replace an
+already bound launcher. Historical metadata remains after ownership is released.
+
+`ProcessRecovery` can release local owners after a verified reboot of the same host.
+It never signals a saved PID, creates a review, or infers descendant death from EOF,
+a missing launcher, or age. Same-boot crashes and older claims without launch metadata
+remain held pending supervisor/operator verification. Linux host/boot reads require
+a unique machine-id and a local, nonshared database; moved databases do not prove exit.
+The Linux [boot identifier](https://www.kernel.org/doc/html/v6.13/admin-guide/sysctl/kernel.html#random)
+is stable during a boot. Unsupported identity reads fail closed. This mechanism is
+independent of native agent sandboxing and does not validate kernel confinement.

@@ -88,7 +88,7 @@ async def test_success_waits_for_exit_then_restart_resumes_exact_identity(
     execution.finished.set()
     execution.exit_allowed.clear()
     task = asyncio.create_task(
-        ReviewWorker(reviews, prepare, lambda: execution).execute_requested(run.id)
+        ReviewWorker(reviews, prepare, lambda _claim: execution).execute_requested(run.id)
     )
     await execution.stop_started.wait()
     assert await reviews.get_result(run.id) is None
@@ -103,7 +103,9 @@ async def test_success_waits_for_exit_then_restart_resumes_exact_identity(
         retry = await service(reopened).request_review(identity)
         resumed = Execution()
         resumed.finished.set()
-        await ReviewWorker(service(reopened), prepare, lambda: resumed).execute_requested(retry.id)
+        await ReviewWorker(service(reopened), prepare, lambda _claim: resumed).execute_requested(
+            retry.id
+        )
         assert resumed.resumed == "fake-id"
     finally:
         await reopened.close()
@@ -116,9 +118,9 @@ async def test_stop_before_release_without_replacement_run(database: Database, c
     run = await reviews.request_review(identity)
     execution = Execution()
     task = asyncio.create_task(
-        ReviewWorker(reviews, prepare, lambda: execution, poll_interval=0.01).execute_requested(
-            run.id
-        )
+        ReviewWorker(
+            reviews, prepare, lambda _claim: execution, poll_interval=0.01
+        ).execute_requested(run.id)
     )
     await execution.started.wait()
     if change == "cancel":
@@ -150,7 +152,7 @@ async def test_failed_exit_keeps_durable_ownership(database: Database) -> None:
     execution.finished.set()
     execution.stop_failed = True
     with pytest.raises(RuntimeError, match="establish exit"):
-        await ReviewWorker(reviews, prepare, lambda: execution).execute_requested(run.id)
+        await ReviewWorker(reviews, prepare, lambda _claim: execution).execute_requested(run.id)
     async with database.sessions() as db:
         assert await db.scalar(select(RunClaim)) is not None
     assert await reviews.get_result(run.id) is None
@@ -161,7 +163,7 @@ async def test_paused_worker_and_stale_preparation_never_launch(database: Databa
     reviews = service(database)
     run = await reviews.request_review(identity)
     execution = Execution()
-    worker = ReviewWorker(reviews, prepare, lambda: execution)
+    worker = ReviewWorker(reviews, prepare, lambda _claim: execution)
     assert await worker.execute_requested(run.id, paused=True) is None
     assert not execution.started.is_set()
 
@@ -170,7 +172,9 @@ async def test_paused_worker_and_stale_preparation_never_launch(database: Databa
         await reviews.cancel_review(run.id)
         return context
 
-    result = await ReviewWorker(reviews, invalidated, lambda: execution).execute_requested(run.id)
+    result = await ReviewWorker(reviews, invalidated, lambda _claim: execution).execute_requested(
+        run.id
+    )
     assert result is not None and result.status == RunStatus.CANCELLED
     assert not execution.started.is_set()
 
@@ -187,7 +191,7 @@ async def test_base_move_during_preparation_is_stale_without_launch(database: Da
         await DiffButler(SQLiteQueueStore(database), forge).sync()
         return context
 
-    result = await ReviewWorker(reviews, moved, lambda: execution).execute_requested(run.id)
+    result = await ReviewWorker(reviews, moved, lambda _claim: execution).execute_requested(run.id)
     assert result is not None and result.status == RunStatus.STALE
     assert not execution.started.is_set()
 
@@ -201,7 +205,7 @@ async def test_repeated_cancellation_during_stop_retains_claim_until_exit(
     execution = Execution()
     execution.exit_allowed.clear()
     task = asyncio.create_task(
-        ReviewWorker(reviews, prepare, lambda: execution).execute_requested(run.id)
+        ReviewWorker(reviews, prepare, lambda _claim: execution).execute_requested(run.id)
     )
     await execution.started.wait()
     task.cancel()

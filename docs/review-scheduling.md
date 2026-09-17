@@ -42,9 +42,9 @@ proof of process exit.
 
 Claims survive restart and do not expire automatically. There is no orphan-worker
 recovery, process termination, foreground workspace lease, or cleanup worker yet.
-A future executor must enforce source/credential/filesystem/network isolation before
-launch, observe cancellation, terminate its process tree, and establish exit before
-releasing ownership. A future cleanup worker must honor outstanding ownership.
+The native executor selects agent read-only permissions, observes cancellation,
+terminates its owned process group, and waits before releasing ownership. The cleanup
+worker honors outstanding ownership. See [native execution limits](native-reviews.md).
 These database foundations do not themselves enforce process isolation or delete
 session resources. No real backend or forge credentials are used in the tests.
 
@@ -76,10 +76,9 @@ Claims reject sessions that have entered cleanup since the request was queued.
 
 Offline tests use a synthetic CLI to create a conversation, checkpoint its ID,
 close/reopen the database, and resume the same synthetic conversation on an explicit
-retry. The launcher lives only in the test harness. These tests do not establish
-Codex/Claude compatibility, real session storage ownership, or isolated resume.
-Those integrations remain future work; no production reviewer launcher or CLI
-session command is connected.
+retry. These older protocol tests are supplemented by the managed native CLI acceptance
+test covering pinned snapshots, restart, exact resume, and owned home cleanup.
+The supported version and remaining platform limits are in the native review guide.
 
 
 ## Result finalization
@@ -89,7 +88,7 @@ extracted assistant text, and atomically stores the result, updates current queu
 attention, checkpoints an optional backend session ID, and deletes the worker claim.
 The caller must first establish that the entire process tree has exited. A final
 message or EOF alone is not proof. This internal method performs no process control;
-no real executor is connected. A synthetic executable test captures both pipes,
+the native worker supplies the required process-group exit ordering. A synthetic executable test captures both pipes,
 waits for exit, then finalizes its result.
 
 The transaction rechecks the held token, task, account-specific open PR snapshot,
@@ -104,8 +103,7 @@ A base mismatch detected at finalization marks a running attempt stale and resto
 pending AI attention without launching replacement work.
 
 The defaults are confidence `0.5` and severity `minor`; severity order is
-`question < nit < minor < important < blocking`. Callers supply overrides; settings
-wiring is still deferred. The full normalized document is retained, including every
+`question < nit < minor < important < blocking`. The managed native workflow supplies configured overrides. The full normalized document is retained, including every
 low-confidence/nit/question finding. Zero-based `selected_indices` record the subset
 that met both thresholds, alongside the applied thresholds and normalization notes.
 Finalization accepts the pinned context DiffIndex and retains [anchor outcomes](diff-anchors.md)
@@ -116,12 +114,11 @@ Migration `0005` adds `review_result`, with one immutable-by-API result per run.
 Raw stdout/stderr and exit code occupy the existing `ai_run` fields. `get_result`
 returns a frozen DTO with the normalized document and raw bytes; JSON serialization
 uses base64 for bytes. A known run without a finalized result returns `None`.
-Analysis survives removal of raw output, represented by null byte fields, although
-the cleanup worker itself remains unimplemented. Storage currently keeps bounded
+Analysis survives automatic cleanup of raw output, represented by null byte fields. Storage currently keeps bounded
 output inline; file spillover remains future work.
 
 Oversized captured output is rejected before persistence without releasing the claim;
-a future executor must cap capture and handle its overflow failure before finalizing
+the native executor caps capture and handle its overflow failure before finalizing
 or releasing. The default combined stdout/stderr cap is 4 MB. Invalid thresholds,
 invalid/replaced backend IDs, and cleaned sessions also reject the operation without
 partially saving a result or releasing ownership. A repeated finalization with a
@@ -135,7 +132,7 @@ background work and defer completion cleanup until ownership is released.
 
 `ReviewWorker.execute_requested` consumes one explicitly requested run under the
 existing capacity/pause-aware claim. It does not discover/enqueue/retry work and
-has no production executable factory. Tests inject trusted in-memory executions.
+is connected to the native Codex factory; unit tests also inject in-memory executions.
 Context preparation is followed by identity/index checks and a transactional
 `claim_is_current` recheck of ownership, current base/head, session status and review
 policy. A moved base invalidates the attempt before launch, retaining its claim
@@ -150,10 +147,8 @@ be finalized or a failed/stale/cancelled run released. Repeated cancellation can
 interrupt that stop operation. Stop failure leaves ownership held for recovery.
 An uncertain finalization commit is never blindly retried or overwritten.
 
-This protocol is a trusted adapter obligation, not an isolation implementation or
-proof of OS process death. A real factory must enforce source/model mediation,
-capture limits, credential separation, and durable process ownership, including
-spawn races and foreground-to-background permission changes. No real CLI, local
-source reader, or unvalidated sandbox is connected as an execution shortcut.
-Automatic dispatch, process discovery/orphan verification, prompt rendering, and
-real reviewer presets remain pending.
+This protocol is a trusted adapter obligation, not an independent OS isolation
+implementation. The [native factory](native-reviews.md) provides captured I/O,
+per-launch permission selection, durable launch intent, and pinned snapshots.
+It relies on the installed agent's sandbox and ordinary process-group lifecycle;
+deliberately detached descendants and same-boot orphan recovery remain limitations.

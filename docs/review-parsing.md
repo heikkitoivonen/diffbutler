@@ -25,7 +25,7 @@ low-confidence, nit, and question findings. The core applies thresholds during
 on both success and failure. Failure diagnostics are fixed strings without backend
 content. Nonzero exits, invalid UTF-8, and a combined stdout/stderr byte-budget overflow
 cannot produce a successful document. This parser checks already-captured bytes;
-a future executor must also enforce limits while collecting output. Nothing is
+the native executor also enforces limits while collecting output. Nothing is
 logged or persisted by parsing.
 
 The parser validates locations structurally. Context preparation now builds a
@@ -33,8 +33,7 @@ The parser validates locations structurally. Context preparation now builds a
 anchor outcomes. Huge positive line numbers are demoted when outside the indexed hunks. Orientation quality and coverage are not
 proved by schema validity. Successful parsing neither approves a PR nor establishes
 forge publication, and does not release a worker claim. The shared core now persists
-results and routes queue attention through explicit finalization; a production
-executor remains unimplemented. Tests use synthetic output and make
+results and routes queue attention through explicit finalization from the native executor. Tests use synthetic output and make
 no real reviewer calls.
 
 ## Backend extraction
@@ -54,8 +53,8 @@ can still preserve its valid conversation identity. Extraction failure does not
 checkpoint partially trusted stream identities. No tool/progress text is emitted
 as a UI event by this parser. Byte limits apply to the whole captured stream.
 
-The formats are internal declarative contracts, not installed CLI presets. Defaults
-for streaming describe a synthetic test protocol. Actual Codex/Claude selectors and
-flags still require version verification; settings wiring and real execution remain
-disconnected. A terminal success event establishes only protocol completeness, not
+Default streaming selectors remain a synthetic test protocol. The native Codex preset
+selects completed `agent_message` items, requires the thread ID and `turn.completed`,
+and ignores completed tool items. Its versioned argv lives in packaged TOML. Claude
+selectors remain deferred. See [native review support](native-reviews.md). A terminal success event establishes only protocol completeness, not
 process-tree exit, authorization, publication, or approval.

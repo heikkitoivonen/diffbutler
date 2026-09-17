@@ -1,0 +1,228 @@
+"""Managed native execution and exact conversation handoff preparation."""
+
+import asyncio
+import json
+import os
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import replace
+from pathlib import Path
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
+from diffbutler.core.process import ProcessRecovery
+from diffbutler.core.resources import provision_directory
+from diffbutler.core.snapshot import write_snapshot
+from diffbutler.domain.lifecycle import CleanupSession
+from diffbutler.domain.resources import OwnedDirectory
+from diffbutler.domain.review import RunClaim
+from diffbutler.reviewers.base import ReviewContext, ReviewOutput
+from diffbutler.reviewers.native import CapturedProcess, NativeError, codex_preset, verify_version
+from diffbutler.reviewers.prompt import render_prompt
+from diffbutler.reviewers.resources import OwnedDirectories, OwnedSessionCleaner, settled_io
+from diffbutler.sources.git import GitSourceReader
+from diffbutler.store.base import LifecycleStore, ProcessStore, ReviewStore
+
+
+def background_environment(agent_home: Path) -> dict[str, str]:
+    env = {
+        key: os.environ[key]
+        for key in ("PATH", "HOME", "LANG", "LC_ALL", "CODEX_API_KEY")
+        if key in os.environ
+    }
+    env["CODEX_HOME"] = str(agent_home)
+    return env
+
+
+async def session_directory(
+    store: ReviewStore, directories: OwnedDirectories, session_id: UUID
+) -> Path:
+    resources = await store.session_resources(session_id)
+    if (
+        len(resources) != 1
+        or resources[0].root_id != directories.root_id
+        or resources[0].purpose != "codex_home"
+    ):
+        raise NativeError("Managed native session workspace is unavailable")
+    path = directories.path / resources[0].name
+    if path.is_symlink() or not path.is_dir():
+        raise NativeError("Managed native session workspace is unavailable")
+    return path
+
+
+class NativeExecution:
+    def __init__(
+        self,
+        claim: RunClaim,
+        store: ReviewStore,
+        directories: OwnedDirectories,
+        sources: GitSourceReader,
+        command: tuple[str, ...],
+        recovery: ProcessRecovery,
+        processes: ProcessStore,
+        is_current: Callable[[], Awaitable[bool]],
+    ) -> None:
+        self.claim = claim
+        self.store = store
+        self.directories = directories
+        self.sources = sources
+        self.command = command
+        self.recovery = recovery
+        self.processes = processes
+        self.is_current = is_current
+        self.execution = CapturedProcess()
+
+    async def run(
+        self,
+        context: ReviewContext,
+        backend_session_id: str | None,
+        checkpoint: Callable[[str], Awaitable[None]],
+    ) -> ReviewOutput:
+        resources = await self.store.session_resources(context.session_id)
+        if not resources:
+            root = await provision_directory(
+                self.store,
+                self.directories,
+                token=self.claim.token,
+                session_id=context.session_id,
+                purpose="codex_home",
+            )
+        else:
+            if len(resources) == 1 and not (self.directories.path / resources[0].name).exists():
+                await self.directories.create(resources[0])
+            root = await session_directory(self.store, self.directories, context.session_id)
+
+        def initialize_home() -> None:
+            for name in ("agent-home", "runs"):
+                directory = root / name
+                if directory.is_symlink():
+                    raise NativeError("Managed native directory was replaced by a symlink")
+                directory.mkdir(mode=0o700, exist_ok=True)
+            # Share only the native login, not user MCP/plugins/rules/configuration.
+            auth = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "auth.json"
+            target = root / "agent-home" / "auth.json"
+            if auth.is_file() and not target.exists() and not target.is_symlink():
+                target.symlink_to(auth.absolute())
+
+        await settled_io(initialize_home)
+        workdir = root / "runs" / str(context.run_id)
+        await write_snapshot(self.sources, workdir)
+        prepared = replace(
+            context,
+            checkout_path=workdir,
+            limitations=(
+                "Pinned base/ and head/ are redacted source snapshots, not the local working tree.",
+                "Symlinks are represented by link text; executable modes are not retained.",
+                "Project tests, builds, and application code were not executed.",
+                *self.sources.limitations,
+            ),
+        )
+        prompt = render_prompt(prepared)
+
+        def save_current() -> None:
+            temporary = root / "current.tmp"
+            temporary.write_text(json.dumps({"run_id": str(context.run_id)}))
+            temporary.replace(root / "current.json")
+
+        await settled_io(save_current)
+        env = background_environment(root / "agent-home")
+        preset = codex_preset()
+        await verify_version(self.command, preset, cwd=workdir, env=env)
+        if not await self.is_current():
+            raise NativeError("Review became stale during source preparation")
+        await self.recovery.prepare_launch(self.claim.token, "background")
+
+        async def native_checkpoint(identity: str) -> None:
+            try:
+                UUID(identity)
+            except ValueError:
+                raise NativeError("Invalid Codex conversation identity") from None
+            await checkpoint(identity)
+
+        capture = asyncio.create_task(
+            self.execution.capture(
+                preset.argv((*self.command, "-C", str(workdir)), backend_session_id),
+                cwd=workdir,
+                env=env,
+                input=prompt.content,
+                maximum=context.budget.max_output_bytes,
+                checkpoint=native_checkpoint,
+            )
+        )
+        try:
+            # capture starts the spawn task synchronously on its first scheduling turn.
+            await asyncio.sleep(0)
+            if self.execution.spawn is not None:
+                process = await asyncio.shield(self.execution.spawn)
+                await self.processes.bind_launcher(self.claim.token, process.pid)
+            return await capture
+        finally:
+            if not capture.done():
+                capture.cancel()
+                await asyncio.gather(capture, return_exceptions=True)
+
+    async def stop_and_wait(self) -> None:
+        await self.execution.stop_and_wait()
+
+
+class NativeSessionCleaner:
+    """Codex local state lives wholly inside its session's owned agent home."""
+
+    def __init__(self, directories: OwnedDirectories) -> None:
+        self.directories = directories
+
+    async def cleanup(self, session: CleanupSession) -> None:
+        if session.backend_session_id is not None:
+            resources = tuple(
+                OwnedDirectory.from_manifest(dict(item)) for item in session.resources
+            )
+            if len(resources) != 1 or resources[0].purpose != "codex_home":
+                raise NativeError("Native cleanup requires an owned Codex home manifest")
+        # Deleting the entire dedicated native home removes local conversation state,
+        # caches, and indexes without deriving paths from the opaque backend ID.
+        await OwnedSessionCleaner(self.directories, {}).cleanup(
+            replace(session, backend_session_id=None)
+        )
+
+
+class SessionLaunch(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    token: UUID
+    session_id: UUID
+    argv: tuple[str, ...]
+    cwd: Path
+    agent_home: Path
+
+
+async def prepare_native_handoff(
+    store: ReviewStore,
+    lifecycle: LifecycleStore,
+    directories: OwnedDirectories,
+    session_id: UUID,
+    command: tuple[str, ...],
+) -> SessionLaunch:
+    lease = await lifecycle.acquire_foreground(session_id)
+    try:
+        root = await session_directory(store, directories, session_id)
+        run_id = UUID(json.loads((root / "current.json").read_text())["run_id"])
+        cwd = root / "runs" / str(run_id)
+        if cwd.is_symlink() or not cwd.is_dir():
+            raise NativeError("Pinned review workspace is unavailable")
+        preset = codex_preset()
+        await verify_version(
+            command, preset, cwd=cwd, env=background_environment(root / "agent-home")
+        )
+        return SessionLaunch(
+            token=lease.token,
+            session_id=session_id,
+            argv=preset.argv((*command, "-C", str(cwd)), lease.backend_session_id, foreground=True),
+            cwd=cwd,
+            agent_home=root / "agent-home",
+        )
+    except BaseException:
+        await lifecycle.release_foreground(lease.token)
+        raise
+
+
+def foreground_environment(launch: SessionLaunch) -> Mapping[str, str]:
+    return {**os.environ, "CODEX_HOME": str(launch.agent_home)}

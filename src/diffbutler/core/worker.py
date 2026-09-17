@@ -1,4 +1,4 @@
-"""Internal worker orchestration; no real executable adapter is connected."""
+"""Worker orchestration for explicit requests, including native CLI execution."""
 
 import asyncio
 import math
@@ -8,9 +8,10 @@ from typing import Protocol
 from uuid import UUID
 
 from diffbutler.core.review import AIRun, ReviewService
-from diffbutler.domain.review import ReviewConflict, RunRecord
+from diffbutler.domain.review import ReviewConflict, RunClaim, RunRecord
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
 from diffbutler.reviewers.extraction import OutputFormat
+from diffbutler.reviewers.parsing import Severity
 
 
 class ReviewExecution(Protocol):
@@ -20,12 +21,12 @@ class ReviewExecution(Protocol):
         backend_session_id: str | None,
         checkpoint: Callable[[str], Awaitable[None]],
     ) -> ReviewOutput:
-        """Capture bounded output under enforced background isolation, never a terminal.
+        """Capture bounded output under the configured native read-only profile, never a terminal.
 
         Implementations must await checkpoint when a backend identity is learned.
         Creating the execution object must not start a process; only run may start
-        it. A real adapter must enforce source/model mediation and durable process
-        ownership, including resumes from formerly foreground conversations.
+        it. A native adapter must reassert its permission profile and durable ownership,
+        including resumes from formerly foreground conversations.
         """
         ...
 
@@ -55,10 +56,12 @@ class ReviewWorker:
         self,
         reviews: ReviewService,
         prepare: Callable[[RunRecord], Awaitable[ReviewContext]],
-        execution_factory: Callable[[], ReviewExecution],
+        execution_factory: Callable[[RunClaim], ReviewExecution],
         *,
         output_format: OutputFormat | None = None,
         poll_interval: float = 0.25,
+        min_confidence: float = 0.5,
+        findings_threshold: Severity = "minor",
     ) -> None:
         if not math.isfinite(poll_interval) or poll_interval <= 0:
             raise ValueError("poll interval must be positive and finite")
@@ -67,6 +70,8 @@ class ReviewWorker:
         self.execution_factory = execution_factory
         self.output_format = output_format
         self.poll_interval = poll_interval
+        self.min_confidence = min_confidence
+        self.findings_threshold: Severity = findings_threshold
 
     async def execute_requested(
         self,
@@ -77,8 +82,9 @@ class ReviewWorker:
     ) -> AIRun | None:
         """Consume one already requested run, never create or requeue analysis.
 
-        Factory/prepare are trusted dependencies. No production factory exists
-        until integrated isolation is validated. Cancellation releases ownership
+        Factory/prepare are trusted dependencies; native execution relies on the
+        installed agent sandbox and process-group lifecycle contract. Cancellation
+        releases ownership
         only after stop_and_wait; stop failure deliberately retains the claim.
         """
         claim = await self.reviews.claim_review(run_id, capacity=capacity, paused=paused)
@@ -106,7 +112,7 @@ class ReviewWorker:
             async def checkpoint(identity: str) -> None:
                 await self.reviews.bind_backend_session(claim.token, identity)
 
-            execution = self.execution_factory()
+            execution = self.execution_factory(claim)
             exited = False
             running = asyncio.create_task(
                 execution.run(context, session.backend_session_id, checkpoint)
@@ -141,6 +147,8 @@ class ReviewWorker:
                 diff_index=context.diff_index,
                 output_format=self.output_format,
                 max_output_bytes=context.budget.max_output_bytes,
+                min_confidence=self.min_confidence,
+                findings_threshold=self.findings_threshold,
             )
         except BaseException:
             if exited:

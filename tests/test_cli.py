@@ -10,7 +10,7 @@ from diffbutler.ui.cli import main
 def test_no_arguments_explains_project_status(capsys: pytest.CaptureFixture[str]) -> None:
     main([])
     output = capsys.readouterr()
-    assert "not implemented yet" in " ".join(output.out.split())
+    assert "Native CLI reviews are available" in " ".join(output.out.split())
     assert output.err == ""
 
 
@@ -26,11 +26,11 @@ def test_information_options(argument: str, capsys: pytest.CaptureFixture[str]) 
         assert "--version" in output
 
 
-def test_unimplemented_commands_are_rejected(capsys: pytest.CaptureFixture[str]) -> None:
+def test_review_requires_a_persisted_qualified_pr(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as error:
         main(["review", "1841"])
-    assert error.value.code == 2
-    assert "No such command" in capsys.readouterr().err
+    assert error.value.code == 1
+    assert "PR is missing or ambiguous" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

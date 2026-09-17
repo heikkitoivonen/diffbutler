@@ -1,0 +1,6 @@
+# Verified against installed codex-cli 0.98.0 help, 2026-09-16.
+[codex]
+version = "codex-cli 0.98.0"
+background = ["-a", "never", "-s", "read-only", "exec", "--json", "--skip-git-repo-check", "-"]
+background_resume = ["-a", "never", "-s", "read-only", "exec", "resume", "--json", "--skip-git-repo-check", "{session_id}", "-"]
+foreground = ["-a", "on-request", "-s", "read-only", "resume", "{session_id}"]

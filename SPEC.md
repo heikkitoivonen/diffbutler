@@ -19,13 +19,14 @@ tells you where to look.
 
 > **Name:** DiffButler. Python package and CLI command: `diffbutler`.
 
-**Status:** M0 and M1 are implemented: configuration, SQLite migrations, doctor,
-GitHub discovery/search/activity reads, persistent account-scoped queues, followed-PR
-sync, and the Typer CLI. See [GitHub usage and limitations](docs/github.md) and
-[current configuration/storage scope](docs/configuration.md). The
-[terminal handoff experiment](docs/terminal-handoff.md) remains separate from the
-future production dashboard. Managed AI reviews, sessions, history UI, periodic
-polling, and the cleanup worker remain unimplemented; the design below is the target.
+**Status:** M0 and M1 are implemented; M2 now has a Linux/Codex native path. Configuration,
+GitHub queue sync, review execution, pinned source snapshots, durable conversations,
+parsing/anchors, exact native resume, and owned local cleanup are available through
+the CLI. See [native review scope and evidence](docs/native-reviews.md). Codex 0.98.0
+help/version were verified; end-to-end automated tests are offline, with no paid
+managed review run. Claude and macOS validation remain deferred. The dashboard,
+periodic polling, full posting reconciliation, and history UI are M3. Design details
+below beyond that documented scope remain targets.
 
 ---
 
@@ -547,7 +548,7 @@ Whole-file context arrives through `read_file`, a dashboard-mediated callback th
 serves repository files at this PR's base/head (including unchanged surrounding
 source), and nothing else — no other repo, no other PR,
 no write verb. A reviewer backend cannot post a comment, approve a PR, or push a
-commit because it runs with enforced read-only capabilities (§13.1). This protocol
+commit through the selected native read-only profile (§13.1). This protocol
 describes background analysis, not the foreground native CLI handoff (§7.7).
 
 ### 7.2 Backends
@@ -977,8 +978,9 @@ monitoring, generation checks, and activity watermarks, plus completion SHA stor
 M2 foundations add session/run records in revision `0003`, reviewer/source contracts,
 and immutable core DTOs. Revision `0004` adds explicit requests and durable worker
 claims; see [review scheduling](docs/review-scheduling.md). An internal
-[local source reader](docs/source-context.md) serves pinned Git objects. Dispatch,
-reviewer process isolation, and managed session operations remain unimplemented.
+[local source reader](docs/source-context.md) serves pinned Git objects. Revisions
+`0005`–`0008` retain results, anchors, foreground/cleanup ownership, and launch intent.
+The native CLI path connects these services using the agent’s own sandbox.
 Remaining tables arrive with their workflows; this is the target schema.
 
 ```
@@ -1387,35 +1389,34 @@ buried in the service layer.
 
 ## 13. Security & privacy
 
-### 13.1 The privilege boundary
+### 13.1 Native agent permissions
 
-There are two execution profiles, with different capabilities:
+DiffButler relies on the installed agent CLI's native sandbox and approval controls.
+It does not build or provision an additional OS sandbox, network broker, or model
+authentication proxy. Bubblewrap and kernel-confinement validation are not M2
+prerequisites. The earlier custom-isolation experiment is optional legacy work.
 
-| Profile | Forge access | Publication authorization |
-|---|---|---|
-| Background analysis (`r`) | Mediated source reads; no write credential/capability | Cannot post |
-| Foreground native session (`v`) | User-authenticated access for reviewing and posting feedback | Explicit instruction from the human inside the agent |
+Background launches explicitly select native read-only mode and disable interactive
+approval/escalation. They use captured pipes, an environment allowlist, source-only
+instructions, and session-owned pinned source snapshots. Failures are surfaced; there
+is no retry with sandbox bypass flags. DiffButler trusts the installed agent and its
+sandbox implementation. This is not a claim that DiffButler independently confines
+all filesystem reads, network capabilities, tools, or descendant processes. Source-only
+instructions prohibit tests/builds/edits, but native read-only mode is not an execution
+allowlist. The configured agent remains responsible for honoring those instructions.
 
-The background `ReviewContext` contains no forge client or token. Its process runs
-with an isolated environment, filesystem credential access and network policy;
-omitting a token from arguments alone is insufficient. Whole-file reads remain
-restricted to this PR's base/head sources. Enforce and test this profile on every
-background launch, including when resuming a conversation previously used interactively.
+Foreground resume uses the exact saved conversation and native interactive approvals.
+Entering it does not authorize posting. The human must explicitly instruct publication;
+source edits, pushes, approval, and merge are not part of this workflow. Forge activity
+is reconciled from the forge, never from agent claims. Foreground credentials are not
+injected into background environments. Backend authentication follows the CLI's
+supported mechanism and is never stored in prompts or SQLite.
 
-The interactive profile deliberately permits human-instructed review/comment writes.
-Supply authorized forge access through the agent's supported authentication mechanism,
-not through prompts, transcripts, command-line secrets, or SQLite. Keep credentials
-out of shared session artifacts that the background runner can later read. Restoring
-a conversation must not restore the foreground process's permissions to a background
-run. Source-only review remains the default; posting feedback is not permission to
-edit the implementation, push commits, or approve/merge on the human's behalf.
-
-This is a weaker boundary than an agent without write capability: DiffButler cannot
-structurally prove each write was authorized inside an arbitrary interactive CLI.
-Use its native permission controls and explicit human instructions; do not claim
-that background isolation also protects the foreground agent. DiffButler records
-actual forge activity on return (§8.1). Separate read and interactive write credentials
-are supported; background jobs must never inherit the interactive write credential.
+Each new background launch reasserts read-only permissions, including after foreground
+use. Owned session storage is separate from unrelated user sessions and is deleted
+only after its process owner has exited. Ordinary process-group cleanup is required;
+uncertain orphan ownership remains held rather than being released based on age/EOF.
+Supported backends and tested versions must be documented honestly.
 
 ### 13.2 Everything else
 
@@ -1430,14 +1431,14 @@ are supported; background jobs must never inherit the interactive write credenti
   (`env_passthrough`), no shell interpolation of PR titles or branch names anywhere
   — a PR title is attacker-controlled input.
 - **Prompt injection is expected.** Fence and label source content as untrusted.
-  Background reviewers cannot write; interactive agents have the broader capability
+  Background reviewers use native read-only mode; interactive agents have the broader capability
   described in §13.1 and rely on their permission controls and human supervision.
   A clean pass means "your turn", never "approved". Returning from an agent triggers
   forge reconciliation, not trust in instructions or receipts found in its output.
 - **Repository sources are read-only to the reviewer.** The dashboard owns fetch,
   worktree preparation and cleanup; workspaces live until session cleanup, not just
-  run completion. Enforce isolation rather than assuming `git worktree --detach`
-  makes files read-only. A local repository or inherited `HOME` can expose git
+  run completion. Select the native agent read-only profile; `git worktree --detach` alone
+  does not make files read-only. A local repository or inherited `HOME` can expose git
   credentials and agent configuration: use an isolated agent home and controlled
   credential/network access for background runs while preserving only the intended
   model login and session storage. Foreground forge access is separate (§13.1). Environment token filtering alone cannot enforce §13.1.

@@ -2,7 +2,7 @@
 
 `sources.git.GitSourceReader` implements the reviewer `SourceReader` protocol for
 dashboard-mediated reads from a configured, trusted local Git repository. It is
-an internal adapter; no CLI command or review dispatcher uses it yet.
+used by the managed native review workflow and independently testable.
 
 Opening a context requires full base and head commit object IDs already available
 locally. The reader inventories both trees and serves only blobs named in those
@@ -35,8 +35,8 @@ are caller-supplied trusted inputs; source and PR metadata remain untrusted data
 This is an internal assembly function, not a dispatcher or authorization check.
 The caller must load the PR belonging to the task and recheck durable worker
 ownership, freshness, and policy before execution. No reviewer is launched and no
-source leaves the machine. Local prompt rendering is implemented below; integrated isolation remains deferred.
-The assembled context must not be sent to a real backend yet.
+source leaves the machine in this function. The explicit native review workflow
+serializes it and launches the configured agent with native read-only permissions.
 
 Git runs asynchronously with argv execution, no terminal input, captured output,
 bounded byte counts, a timeout, and process-group termination on cancellation or
@@ -48,15 +48,11 @@ uses the documented [Git environment controls](https://git-scm.com/docs/git) and
 [NUL-delimited tree format](https://git-scm.com/docs/git-ls-tree).
 
 The local Git executable and repository administration (including `.git` configuration
-and object storage) are trusted. This is a source mediation boundary, **not an OS
-sandbox for a reviewer process**. Do not pass the local repository or this in-process
-adapter as evidence that an arbitrary CLI agent is isolated. Enforced filesystem,
-credential, and network isolation is still required before any background reviewer
-launch. An [offline sandbox primitive](background-isolation.md) exists separately;
-its kernel confinement is not yet validated here and it exposes no source RPC.
-No reviewer executable is connected, including for previously foreground
-conversations. Remote retrieval, owned snapshots, durable manifests,
-foreground leases, and cleanup remain future work.
+and object storage) are trusted. This is source preparation, not an OS sandbox. The [native reviewer](native-reviews.md)
+uses the installed agent CLI's read-only profile and owned pinned snapshots of these
+blobs. DiffButler does not provision an additional sandbox. Remote retrieval and
+worktrees remain future work; owned snapshots, manifests, leases, and cleanup are
+implemented in the managed path.
 
 Offline tests use disposable Git repositories and synthetic executables. They cover
 pinned reads with a dirty index/worktree, surrounding files, links, binary and unusual
@@ -86,10 +82,10 @@ unknown-format, low-entropy, and partial private-key secrets can remain; false
 positives are possible. Masking multiline keys can also obscure diff prefixes
 inside the block, so the masked text must not be used to construct DiffIndex.
 PR metadata, paths, trusted instructions/schema, and future transcripts are outside
-this source-only pass and need handling at the future serialization boundary.
+this source-only pass and need handling at the prompt serialization boundary below.
 The context explicitly records the heuristic limitation. A Python wrapper does
 not confine an executable or prevent access to its underlying objects; an isolated
-runner must expose only mediated redacted data. No backend is connected yet.
+runner must expose only mediated redacted data. Native snapshot preparation uses the same redactor.
 
 ## Prompt serialization
 

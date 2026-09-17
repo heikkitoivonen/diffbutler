@@ -1,3 +1,9 @@
+> Historical optional experiment. The current design relies on the native agent
+> sandbox, per the user's 2026-09-16 decision. Bubblewrap/kernel validation is not
+> an M2 prerequisite and this primitive is not used by native reviews. See
+> [the native review guide](native-reviews.md). The limitations below describe this
+> standalone experiment, not a gate on the native execution path.
+
 # Offline process isolation (M2 foundation)
 
 `reviewers.sandbox.OfflineSandbox` is an internal Linux process primitive. It is

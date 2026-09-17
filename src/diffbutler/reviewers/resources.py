@@ -14,7 +14,7 @@ from diffbutler.domain.lifecycle import CleanupSession
 from diffbutler.domain.resources import OwnedDirectory
 
 
-async def _settled_io[T](operation: Callable[[], T]) -> T:
+async def settled_io[T](operation: Callable[[], T]) -> T:
     # Cancelling to_thread does not stop its thread. Keep ownership until I/O ends.
     task = asyncio.create_task(asyncio.to_thread(operation))
     cancelled = False
@@ -58,7 +58,18 @@ class OwnedDirectories:
                 os.fsync(stream.fileno())
             return cls(path, root_id)
 
-        return await _settled_io(initialize)
+        return await settled_io(initialize)
+
+    @classmethod
+    async def reopen(cls, path: Path) -> OwnedDirectories:
+        def read() -> OwnedDirectories:
+            root_id = UUID((path / ".diffbutler-root").read_text(encoding="ascii"))
+            directories = cls(path, root_id)
+            fd = directories._open()
+            os.close(fd)
+            return directories
+
+        return await settled_io(read)
 
     def _open(self) -> int:
         if not shutil.rmtree.avoids_symlink_attacks:
@@ -100,7 +111,7 @@ class OwnedDirectories:
             finally:
                 os.close(fd)
 
-        return await _settled_io(create)
+        return await settled_io(create)
 
     async def delete(self, resource: OwnedDirectory) -> None:
         self._validate(resource)
@@ -115,7 +126,7 @@ class OwnedDirectories:
             finally:
                 os.close(fd)
 
-        await _settled_io(delete)
+        await settled_io(delete)
 
 
 class BackendSessionDeleter(Protocol):

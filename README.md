@@ -7,7 +7,7 @@ AI review, your review, or author changes. You decide when an AI review starts,
 discuss findings in the agent's own terminal session, and do the human pass in
 your browser.
 
-**Status: M0 and M1 implemented; the review dashboard is still planned.**
+**Status: M0/M1 implemented; M2 native reviews available for Linux/Codex. The dashboard is M3.**
 Configuration, SQLite migrations, doctor, and the [GitHub adapter](docs/github.md)
 now support a persistent review queue through the Typer CLI. Direct/team requests
 are deduplicated, followed PRs remain monitored after request removal, and observed
@@ -24,26 +24,29 @@ uv run diffbutler follow 'acme/api#1841'
 
 Configure a forge before remote commands. Local listing works offline. `sync` is a
 single refresh; there is no periodic poller yet. These commands never invoke AI or
-post to a forge. Reviews, managed sessions, a history UI, and the cleanup worker
-arrive in later milestones. A separate [terminal handoff experiment](docs/terminal-handoff.md)
-is runnable with `make handoff`.
+post to a forge. [Native reviews and resumable sessions](docs/native-reviews.md) are
+available with a configured Codex reviewer and pinned local Git objects:
 
-M2 internal foundations include [explicit review scheduling and durable backend session IDs](docs/review-scheduling.md)
-and [mediated local source reads, context assembly, and credential-pattern redaction](docs/source-context.md).
-A local prompt renderer adds precision-first instructions, untrusted JSON framing,
-and redaction before serialization; it sends no source.
-An offline [captured-output parser](docs/review-parsing.md) validates orientation and
-findings. Internal [result finalization](docs/review-scheduling.md#result-finalization)
-persists analysis and routes queue attention under worker ownership. [Side-aware anchor validation](docs/diff-anchors.md) retains original locations and
-demotes unanchorable findings to file notes. Internal [session lifecycle services](docs/session-lifecycle.md)
-add durable foreground leases and a completion-cleanup worker step; production
-native launch/deletion adapters and automatic dispatch remain pending. Owned local
-directories now have durable manifests and an idempotent filesystem cleanup adapter. An internal worker
-now coordinates requested runs and verifies adapter exit before releasing ownership;
-it is tested with offline fakes and has no production execution factory.
-An internal [offline Linux sandbox primitive](docs/background-isolation.md) now
-defines a fail-closed Bubblewrap profile. Kernel confinement is not yet validated
-on the development host; background reviewer execution remains disconnected.
+```sh
+diffbutler review 'acme/api#1841'
+diffbutler findings 'acme/api#1841'
+diffbutler session 'acme/api#1841'
+diffbutler approved 'acme/api#1841'
+```
+
+A review sends redacted source to the configured agent/model provider only after the
+explicit review command. DiffButler relies on the agent's native read-only sandbox;
+it does not require Bubblewrap or add its own OS sandbox. Current version support,
+authentication, source limits, and validation evidence are in the [native review guide](docs/native-reviews.md).
+Claude and macOS integration remain deferred. Tests are offline; no live managed
+review was invoked during implementation.
+
+The shared core provides [review scheduling](docs/review-scheduling.md),
+[pinned source preparation](docs/source-context.md), [output parsing](docs/review-parsing.md),
+[anchor validation](docs/diff-anchors.md), and [durable session cleanup](docs/session-lifecycle.md).
+The [terminal handoff experiment](docs/terminal-handoff.md) remains independently runnable
+with `make handoff`. The [Bubblewrap experiment](docs/background-isolation.md) is legacy
+optional work, not a prerequisite for native reviews.
 
 ## Local setup and diagnostics
 
@@ -136,8 +139,8 @@ scripts/        Development and packaging checks
 The config, store, GitHub read adapter, doctor, and shared queue services are implemented;
 M2 now includes reviewer/source protocols, immutable session/run DTOs, and durable
 session/run tables, plus [explicit starts and transactional worker claims](docs/review-scheduling.md).
-Real reviewer execution and managed foreground session operations remain unimplemented;
-the offline sandbox primitive is not yet an integrated, validated review boundary.
+The Linux/Codex native adapter connects these services through the shared core and CLI.
+The optional Bubblewrap primitive is not part of that execution path.
 The terminal handoff experiment lives in `ui/tui/`.
 Import-linter enforces their dependency direction from the start. Textual is used by
 the experiment; Pydantic validates configuration, SQLAlchemy/Alembic manage SQLite,

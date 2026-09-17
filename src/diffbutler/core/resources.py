@@ -1,7 +1,8 @@
 """Persist resource ownership before filesystem preparation, under a worker claim."""
 
+from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from diffbutler.domain.resources import OwnedDirectory
@@ -19,8 +20,9 @@ async def provision_directory(
     *,
     token: UUID,
     session_id: UUID,
+    purpose: Literal["artifact", "codex_home"] = "artifact",
 ) -> Path:
     """Failures retain the manifest; ordinary completion can clean absent resources."""
-    resource = directories.reserve(session_id)
+    resource = replace(directories.reserve(session_id), purpose=purpose)
     await store.register_resource(token, resource)
     return await directories.create(resource)

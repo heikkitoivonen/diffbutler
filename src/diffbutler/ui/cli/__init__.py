@@ -18,12 +18,26 @@ from diffbutler.core.application import (
     browse_configured,
     follow_configured,
     local_queue,
+    local_store,
     sync_configured,
 )
 from diffbutler.core.doctor import run_doctor
+from diffbutler.core.managed import (
+    ManagedReviews,
+    approved_configured,
+    cleanup_configured,
+    findings_configured,
+    owned_directories,
+    resolve_local,
+    review_configured,
+)
+from diffbutler.core.native import foreground_environment
 from diffbutler.core.sync import PullRequestRow
 from diffbutler.domain.forge import PRPage, PRQuery, PullRequest
+from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
+from diffbutler.reviewers.native import NativeError
+from diffbutler.sources.git import SourceError
 from diffbutler.store.database import DatabaseError
 
 app = typer.Typer(
@@ -31,7 +45,7 @@ app = typer.Typer(
     rich_markup_mode=None,
     pretty_exceptions_enable=False,
     help="A terminal dashboard for human-directed AI code reviews.",
-    epilog="Early development: the dashboard and review commands are not implemented yet.",
+    epilog="Native CLI reviews are available; the dashboard is planned for M3.",
 )
 ConfigOption = Annotated[Path | None, typer.Option(help="Explicit TOML file (must exist)")]
 ForgeOption = Annotated[int, typer.Option(min=1, help="Configured forge, numbered from one")]
@@ -40,8 +54,18 @@ ForgeOption = Annotated[int, typer.Option(min=1, help="Configured forge, numbere
 def run[T](operation: Coroutine[Any, Any, T]) -> T:
     try:
         return asyncio.run(operation)
-    except (ConfigError, DatabaseError, ForgeError) as exc:
+    except (
+        ConfigError,
+        DatabaseError,
+        ForgeError,
+        ReviewConflict,
+        NativeError,
+        SourceError,
+    ) as exc:
         typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from None
+    except TimeoutError:
+        typer.echo("Error: operation timed out; inspect the saved run status", err=True)
         raise typer.Exit(1) from None
     except OSError, SQLAlchemyError:
         typer.echo(
@@ -212,6 +236,80 @@ def follow(
         typer.echo(row.model_dump_json())
     else:
         print_row(row)
+
+
+@app.command()
+def review(
+    pr: str,
+    config: ConfigOption = None,
+    login: str | None = None,
+    reviewer: str | None = None,
+) -> None:
+    """Explicitly run a source-only native review of a synced/followed PR."""
+    result = run(review_configured(config, pr, login, reviewer))
+    typer.echo(result.model_dump_json())
+    if result.status == "failed":
+        raise typer.Exit(1)
+
+
+@app.command()
+def findings(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
+    """Read retained orientation/findings from local storage, including after cleanup."""
+    result = run(findings_configured(config, pr, login))
+    typer.echo(
+        "No saved review result."
+        if result is None
+        else result.model_dump_json(exclude={"stdout", "stderr"})
+    )
+
+
+@app.command()
+def approved(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
+    """Record your completed approval locally and clean owned resources; never post it."""
+    run(approved_configured(config, pr, login))
+    typer.echo("Completion recorded; cleanup dispatched.")
+
+
+@app.command()
+def cleanup(config: ConfigOption = None) -> None:
+    """Retry due completion cleanup jobs without starting reviews."""
+    run(cleanup_configured(config))
+
+
+@app.command()
+def session(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
+    """Explicitly resume the exact saved native conversation in this terminal."""
+    from diffbutler.ui.tui.foreground import ForegroundExitUncertain, run_foreground
+
+    async def attach() -> int:
+        async with local_store(config) as (queue, settings):
+            row = await resolve_local(queue, pr, login)
+            managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
+            launch = await managed.prepare_handoff(row)
+            exited = True
+            try:
+                await managed.recovery.prepare_launch(launch.token, "foreground")
+
+                async def started(pid: int) -> None:
+                    await managed.processes.bind_launcher(launch.token, pid)
+
+                return await run_foreground(
+                    launch.argv,
+                    cwd=launch.cwd,
+                    env=foreground_environment(launch),
+                    started=started,
+                )
+            except ForegroundExitUncertain:
+                exited = False
+                raise NativeError("Foreground exit is uncertain; ownership retained") from None
+            finally:
+                if exited:
+                    await managed.lifecycle.release_foreground(launch.token)
+                    await managed.cleanup()
+
+    code = run(attach())
+    if code:
+        raise typer.Exit(code)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

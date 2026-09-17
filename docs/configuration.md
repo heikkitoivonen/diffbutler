@@ -75,14 +75,14 @@ backup; the shipped `0001` is unchanged.
 
 Discovery/follow persist pending attention. Observed completion retains cycle history
 and atomically schedules a cleanup job. Monitor state survives completed cycles and
-request removal. No cleanup worker or history interface is implemented. Revision `0003`
+request removal. Completion cleanup is implemented; the history interface is M3. Revision `0003`
 adds session identity and analysis-attempt tables, including task/reviewer
 foreign-key consistency and unique analysis-key/attempt pairs. No sessions or runs
 are created by queue sync. Revision `0004` adds durable worker claims for the internal
 [explicit scheduling service](review-scheduling.md). Revision `0005` adds a per-run
 `review_result` record for orientation/all findings, parse diagnostics, and threshold
-selection; raw output remains on `ai_run`. Execution, foreground workspace
-ownership, and cleanup remain unimplemented; per-finding disposition and posting tables are deferred.
+selection; raw output remains on `ai_run`. Native execution, foreground ownership, and cleanup are described in the
+[native review guide](native-reviews.md); per-finding disposition and posting tables are deferred.
 HTTP response validators remain in memory; restart reads are unconditional.
 
 Existing databases receive a consistent SQLite backup before a pending migration.
@@ -103,3 +103,5 @@ Revision `0006` retains [anchor validation outcomes](diff-anchors.md) independen
 of model findings; older results remain explicitly unvalidated.
 
 Revision `0007` adds durable [foreground leases and cleanup claims](session-lifecycle.md).
+
+Revision `0008` retains claim-protected launch intent and host/boot identities for recovery.

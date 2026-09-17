@@ -55,6 +55,9 @@ class StreamFormat:
     session_path: tuple[str, ...] = ("id",)
     complete_type: str = "complete"
     failure_types: tuple[str, ...] = ("error", "failed")
+    assistant_filter_path: tuple[str, ...] | None = None
+    assistant_filter_value: str | None = None
+    require_session: bool = False
 
     def __post_init__(self) -> None:
         types = (self.assistant_type, self.session_type, self.complete_type, *self.failure_types)
@@ -133,13 +136,16 @@ def extract_output(
                     raise ValueError
                 if kind == format.session_type:
                     session_id = _identity(_at(event, format.session_path), session_id)
-                elif kind == format.assistant_type:
+                elif kind == format.assistant_type and (
+                    format.assistant_filter_path is None
+                    or _at(event, format.assistant_filter_path) == format.assistant_filter_value
+                ):
                     answer = _at(event, format.text_path)
                     if not isinstance(answer, str):
                         raise ValueError
                 elif kind == format.complete_type:
                     complete = True
-            if not complete:
+            if not complete or (format.require_session and session_id is None):
                 raise ValueError
         if not isinstance(answer, str) or not answer.strip():
             raise ValueError

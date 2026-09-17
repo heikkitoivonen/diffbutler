@@ -22,6 +22,7 @@ from diffbutler.domain.review import (
 from diffbutler.store.database import Database
 from diffbutler.store.models import (
     AIRun,
+    CleanupJob,
     ForegroundLease,
     ForgeAccount,
     PRMonitor,
@@ -114,6 +115,38 @@ class SQLiteReviewStore:
         if held is not None:
             raise ReviewConflict("Foreground process still owns this task")
 
+    async def latest_run(self, task_id: UUID) -> RunRecord | None:
+        async with self.database.sessions() as db:
+            run = await db.scalar(
+                select(AIRun)
+                .where(AIRun.review_task_id == task_id)
+                .order_by(AIRun.requested_at.desc(), AIRun.attempt.desc())
+                .limit(1)
+            )
+            return None if run is None else record(run)
+
+    async def mark_approved(self, task_id: UUID) -> None:
+        async with self.database.sessions() as db:
+            await self._begin(db)
+            task, monitor = await self._task(db, task_id)
+            await transition(db, task, "DONE")
+            task.completed_at = utc_now()
+            task.completion_reason = "local_approval"
+            task.completion_source = "local"
+            task.completed_head_sha = str(monitor.snapshot_json["head_sha"])
+            task.approved_sha = task.completed_head_sha
+            task.completion_event_watermark = monitor.review_key
+            runs = await db.scalars(
+                select(AIRun).where(
+                    AIRun.review_task_id == task_id, AIRun.status.in_(["queued", "running"])
+                )
+            )
+            for run in runs:
+                run.status = "cancelled"
+                run.finished_at = utc_now()
+            db.add(CleanupJob(review_task_id=task_id))
+            await db.commit()
+
     async def get_run(self, run_id: UUID) -> RunRecord:
         async with self.database.sessions() as db:
             return record(await self._run(db, run_id))
@@ -127,6 +160,13 @@ class SQLiteReviewStore:
     async def get_session(self, session_id: UUID) -> SessionRecord:
         async with self.database.sessions() as db:
             return session_record(await self._session(db, session_id))
+
+    async def session_resources(self, session_id: UUID) -> tuple[OwnedDirectory, ...]:
+        async with self.database.sessions() as db:
+            session = await self._session(db, session_id)
+            return tuple(
+                OwnedDirectory.from_manifest(item) for item in session.resource_manifest_json
+            )
 
     async def register_resource(self, token: UUID, resource: OwnedDirectory) -> None:
         """Persist ownership before creation; cancellation/completion still allow cleanup."""

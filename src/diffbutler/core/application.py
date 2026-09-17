@@ -51,6 +51,10 @@ async def sync_configured(path: Path | None, index: int | None = None) -> tuple[
         for selected in indexes:
             async with remote_service(store, settings, selected) as service:
                 reports.append(await service.sync())
+        from diffbutler.core.managed import ManagedReviews, owned_directories
+
+        managed = ManagedReviews(store.database, settings, await owned_directories(settings))
+        await managed.cleanup()
         return tuple(reports)
 
 

@@ -299,7 +299,7 @@ async def test_upgrade_0004_preserves_worker_claim(database: Database) -> None:
     async with database.engine.begin() as connection:
         await connection.run_sync(lambda conn: command.downgrade(migration_config(conn), "0004"))
     status = await database.initialize()
-    assert status.revision == "0007" and status.backup is not None
+    assert status.revision == "0008" and status.backup is not None
     await reviews.finalize_review(claim.token, captured())
     async with database.sessions() as db:
         assert (await db.scalars(select(ReviewResult.run_id))).all() == [run.id]

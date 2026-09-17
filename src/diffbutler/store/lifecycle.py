@@ -54,6 +54,11 @@ class SQLiteLifecycleStore:
             result.extend(
                 HeldOperation(row.token, "cleanup", row.job_id, row.acquired_at) for row in cleanup
             )
+            background = await db.execute(select(RunClaim, AIRun).join(AIRun))
+            result.extend(
+                HeldOperation(claim.token, "background", run.id, run.started_at or run.requested_at)
+                for claim, run in background
+            )
             return tuple(result)
 
     async def acquire_foreground(self, session_id: UUID) -> ForegroundLease:

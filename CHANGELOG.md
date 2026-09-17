@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add the Linux/Codex M2 native path: explicit CLI review, pinned redacted
+  snapshots, bounded JSONL capture, exact-session resume, local completion and
+  automatic owned-home cleanup with retained findings. Use agent-native sandboxing;
+  Bubblewrap is an optional legacy experiment. Codex 0.98.0 flags were checked locally,
+  and lifecycle acceptance is offline; Claude/macOS integration remains deferred.
+
+- Add durable pre-launch metadata in migration `0008`, PID checkpoints, complete
+  ownership listings, and conservative recovery after a verified local reboot.
+
 - Add claim-protected resource registration before creation, private managed directories,
   confined idempotent filesystem cleanup, and cancellation-safe filesystem operations.
   Native backend deletion remains unsupported unless an adapter is supplied.

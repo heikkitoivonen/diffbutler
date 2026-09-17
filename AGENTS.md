@@ -25,8 +25,8 @@
 
 - Every background AI run requires an explicit user action. Discovery, pushes,
   renewed requests, and session return must never automatically start reviews.
-- Background analysis is read-only, with enforced credential and capability
-  isolation. Foreground posting requires explicit human instruction; entering a
+- Background analysis uses the configured agent CLI's native read-only sandbox
+  and approval controls; DiffButler does not provide an additional OS sandbox. Foreground posting requires explicit human instruction; entering a
   session is not permission to post. A clean AI pass is not approval.
 - Reconcile actual forge activity rather than trusting agent claims of posting.
   Keep request membership separate from followed-PR monitoring.

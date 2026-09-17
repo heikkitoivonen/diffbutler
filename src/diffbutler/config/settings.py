@@ -20,6 +20,7 @@ class Section(BaseModel):
 
 
 class General(Section):
+    workspace_root: Path = Field(default_factory=lambda: data_path() / "reviews")
     poll_interval_s: int = Field(default=180, gt=0)
     max_concurrent_reviews: int = Field(default=2, gt=0)
 
@@ -61,6 +62,8 @@ class Reviewer(Section):
     id: str = Field(min_length=1)
     kind: Literal["cli"] = "cli"
     command: list[str] = Field(min_length=1)
+    preset: Literal["codex"] | None = None
+    max_output_bytes: int = Field(default=4_000_000, gt=0)
     timeout_s: int = Field(default=900, gt=0)
     parse: Literal["json_envelope", "jsonl_stream"] = "json_envelope"
     json_path: str | None = None
@@ -211,6 +214,7 @@ def load_settings(
         value = value.expanduser()
         return value if value.is_absolute() else selected.parent / value
 
+    result.general.workspace_root = resolve(result.general.workspace_root)
     if result.review.prompt is not None:
         result.review.prompt = resolve(result.review.prompt)
     for repository in result.repos.values():

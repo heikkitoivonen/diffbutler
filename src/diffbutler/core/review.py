@@ -78,7 +78,7 @@ class ReviewResult(BaseModel):
 class ReviewService:
     """Internal scheduling seam; callers map explicit UI actions to requests.
 
-    No executor is connected until background isolation is implemented. Worker
+    The native executor selects the installed agent CLI permission profile. Worker
     claims are durable and never expire automatically: process death must be
     established before releasing ownership or finalizing a captured result.
     """

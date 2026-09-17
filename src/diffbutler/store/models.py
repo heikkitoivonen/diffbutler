@@ -251,3 +251,18 @@ class CleanupClaim(Base):
     token: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     job_id: Mapped[UUID] = mapped_column(ForeignKey("cleanup_job.id"), unique=True)
     acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ProcessLaunch(Base):
+    """Historical ownership metadata; token references one of three claim types."""
+
+    __tablename__ = "process_launch"
+    __table_args__ = (
+        CheckConstraint("kind IN ('background', 'foreground', 'cleanup')", name="operation_kind"),
+        CheckConstraint("launcher_pid IS NULL OR launcher_pid > 0", name="positive_launcher_pid"),
+    )
+    token: Mapped[UUID] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    host_id: Mapped[UUID] = mapped_column()
+    boot_id: Mapped[UUID] = mapped_column()
+    launcher_pid: Mapped[int | None] = mapped_column()
