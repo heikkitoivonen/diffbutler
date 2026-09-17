@@ -974,7 +974,9 @@ Portability rules, enforced by running the store test suite against all three in
 M0 implements the account, repository, pull-request, review-task, and cleanup-job
 foundation below. M1 adds `forge_account` and `pr_monitor` for account-scoped
 monitoring, generation checks, and activity watermarks, plus completion SHA storage.
-Remaining tables arrive with their workflows; this is the target schema.
+M2 foundations add session/run records in revision `0003`, reviewer/source contracts,
+and immutable core DTOs. Dispatch, claims, isolation, and session operations remain
+unimplemented. Remaining tables arrive with their workflows; this is the target schema.
 
 ```
 account(id, forge, login, display_name)                      -- multi-user seam, §9.5

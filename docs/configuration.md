@@ -75,8 +75,11 @@ backup; the shipped `0001` is unchanged.
 
 Discovery/follow persist pending attention. Observed completion retains cycle history
 and atomically schedules a cleanup job. Monitor state survives completed cycles and
-request removal. No cleanup worker or history interface is implemented. Session,
-run, finding, and posting tables will arrive with their workflows. HTTP response
+request removal. No cleanup worker or history interface is implemented. Revision `0003`
+adds session identity and analysis-attempt tables, including task/reviewer
+foreign-key consistency and unique analysis-key/attempt pairs. No sessions or runs
+are created by queue sync. Run claims, execution, resource ownership enforcement,
+and cleanup remain unimplemented; finding and posting tables are deferred. HTTP response
 validators remain in memory; restart reads are unconditional.
 
 Existing databases receive a consistent SQLite backup before a pending migration.

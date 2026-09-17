@@ -8,6 +8,8 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
+    LargeBinary,
     MetaData,
     String,
     UniqueConstraint,
@@ -144,3 +146,66 @@ class PRMonitor(Base):
     snapshot_json: Mapped[dict[str, object]] = mapped_column(JSON)
     request_key: Mapped[str] = mapped_column(String(1024), default="")
     review_key: Mapped[str] = mapped_column(String(1024), default="")
+
+
+class ReviewSession(Base):
+    """A conversation belongs to a task/account cycle, independently of its runs."""
+
+    __tablename__ = "review_session"
+    __table_args__ = (
+        UniqueConstraint("review_task_id", "reviewer_id", "generation"),
+        UniqueConstraint("id", "review_task_id", "reviewer_id"),
+        CheckConstraint("generation > 0", name="positive_generation"),
+        CheckConstraint("status IN ('ready', 'suspended', 'cleaned')", name="session_status"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    review_task_id: Mapped[UUID] = mapped_column(ForeignKey("review_task.id"))
+    reviewer_id: Mapped[str] = mapped_column(String(255))
+    generation: Mapped[int] = mapped_column(default=1)
+    display_name: Mapped[str] = mapped_column(String(1024))
+    backend_session_id: Mapped[str | None] = mapped_column(String(1024))
+    repository_path: Mapped[str | None] = mapped_column(String(4096))
+    status: Mapped[str] = mapped_column(String(32), default="ready")
+    transcript_ref: Mapped[str | None] = mapped_column(String(4096))
+    resource_manifest_json: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    cleanup_status: Mapped[str] = mapped_column(String(32), default="not_requested")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    resumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cleaned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AIRun(Base):
+    """Attempt metadata survives deletion of raw output and session resources."""
+
+    __tablename__ = "ai_run"
+    __table_args__ = (
+        UniqueConstraint("analysis_key", "attempt"),
+        ForeignKeyConstraint(
+            ["review_session_id", "review_task_id", "reviewer_id"],
+            ["review_session.id", "review_session.review_task_id", "review_session.reviewer_id"],
+        ),
+        CheckConstraint("attempt > 0", name="positive_attempt"),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'stale')",
+            name="run_status",
+        ),
+        CheckConstraint("parse_status IN ('pending', 'succeeded', 'failed')", name="parse_status"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    review_task_id: Mapped[UUID] = mapped_column(ForeignKey("review_task.id"))
+    review_session_id: Mapped[UUID]
+    reviewer_id: Mapped[str] = mapped_column(String(255))
+    prompt_version: Mapped[str] = mapped_column(String(255))
+    config_hash: Mapped[str] = mapped_column(String(64))
+    head_sha: Mapped[str] = mapped_column(String(64))
+    base_sha: Mapped[str] = mapped_column(String(64))
+    analysis_key: Mapped[str] = mapped_column(String(64))
+    attempt: Mapped[int]
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    parse_status: Mapped[str] = mapped_column(String(32), default="pending")
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exit_code: Mapped[int | None]
+    stdout_blob: Mapped[bytes | None] = mapped_column(LargeBinary)
+    stderr_blob: Mapped[bytes | None] = mapped_column(LargeBinary)

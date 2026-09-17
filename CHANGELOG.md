@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add M2 reviewer/source protocols, immutable session/run DTOs, and migration `0003`
+  for durable conversation identity and unique analysis attempts. Execution and
+  session management remain deferred; queue operations still never start AI.
+
 - Add persistent account-scoped review queues, independent followed-PR refresh,
   request provenance, restart-safe activity watermarks, and duplicate-event suppression.
 - Observe own approvals and closure/merge, retaining cycle history and atomically

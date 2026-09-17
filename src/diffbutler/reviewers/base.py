@@ -1,0 +1,79 @@
+"""Background-only adapter seam. Contracts alone do not enforce process isolation."""
+
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+from uuid import UUID
+
+from diffbutler.domain.forge import PullRequest
+from diffbutler.domain.review import ChangedFile, SourceFile
+
+
+class SourceReader(Protocol):
+    """Bound to this PR's exact base/head. Implementations must confine all reads."""
+
+    async def read_file(self, source: SourceFile) -> bytes | None: ...
+
+
+@dataclass(frozen=True)
+class ReviewBudget:
+    timeout_s: int = 900
+    max_diff_bytes: int = 1_000_000
+    max_output_bytes: int = 4_000_000
+
+    def __post_init__(self) -> None:
+        if min(self.timeout_s, self.max_diff_bytes, self.max_output_bytes) <= 0:
+            raise ValueError("review budgets must be positive")
+
+
+@dataclass(frozen=True)
+class ReviewContext:
+    pr: PullRequest
+    session_id: UUID
+    run_id: UUID
+    diff: str
+    changed_files: tuple[ChangedFile, ...]
+    sources: SourceReader
+    instructions: str
+    schema_json: str
+    budget: ReviewBudget
+    checkout_path: Path | None = None
+    limitations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReviewerCapabilities:
+    resume: bool = False
+    discussion: bool = False
+    delete_session: bool = False
+
+
+@dataclass(frozen=True)
+class ReviewProgress:
+    text: str
+
+
+@dataclass(frozen=True)
+class ReviewOutput:
+    """Untrusted output, not parsed findings or evidence of forge publication."""
+
+    stdout: bytes
+    stderr: bytes
+    exit_code: int
+    backend_session_id: str | None = None
+
+
+type ReviewEvent = ReviewProgress | ReviewOutput
+
+
+class Reviewer(Protocol):
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def capabilities(self) -> ReviewerCapabilities: ...
+
+    def review(self, context: ReviewContext) -> AsyncIterator[ReviewEvent]:
+        """Stream captured progress and one final output; never own a terminal."""
+        ...
