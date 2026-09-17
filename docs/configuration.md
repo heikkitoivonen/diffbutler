@@ -37,8 +37,9 @@ path = "~/src/acme/api"
 checkout = "mediated"
 ```
 
-These workflow settings are validated now, but polling/review workflows are not yet
-implemented. `enabled` is repository AI opt-in metadata, not a trigger to start anything.
+These workflow settings are validated now; manual queue sync is implemented, while
+periodic polling and AI review workflows are not yet implemented. `enabled` is
+repository AI opt-in metadata, not a trigger to start anything.
 The full planned example in [SPEC.md §11](../SPEC.md#11-configuration) also parses;
 M0 supports configuration for CLI reviewers only. Reviewer IDs must be unique and
 `default_reviewer` must name a configured reviewer. Repo `default_reviewer`, `checkout`,
@@ -66,9 +67,17 @@ yet. Connections enable foreign keys, WAL journaling, and a five-second busy tim
 
 Doctor applies packaged Alembic migrations by default. The initial revision creates
 `account`, `repository`, `pull_request`, `review_task`, and `cleanup_job`, including a
-stable local account and per-account review-cycle identity. This is storage groundwork;
-no task transitions, cleanup worker, or history interface is implemented. Session,
-run, finding, posting, and sync tables will be added with their workflows.
+stable local account and per-account review-cycle identity. Revision `0002` adds
+`forge_account` (API instance/login mapping and optimistic sync generation),
+`pr_monitor` (following, request provenance, per-account PR snapshot and activity
+watermarks), and the task's completion SHA. Known older revisions upgrade with a
+backup; the shipped `0001` is unchanged.
+
+Discovery/follow persist pending attention. Observed completion retains cycle history
+and atomically schedules a cleanup job. Monitor state survives completed cycles and
+request removal. No cleanup worker or history interface is implemented. Session,
+run, finding, and posting tables will arrive with their workflows. HTTP response
+validators remain in memory; restart reads are unconditional.
 
 Existing databases receive a consistent SQLite backup before a pending migration.
 Backups include committed WAL contents and live beside the database as

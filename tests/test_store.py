@@ -55,7 +55,7 @@ async def test_upgrade_reopen_and_schema_matches_models(tmp_path: Path) -> None:
     reopened = Database(url)
     try:
         status = await reopened.initialize(auto_migrate=False)
-        assert not status.migrated and status.revision == "0001"
+        assert not status.migrated and status.revision == "0002"
     finally:
         await reopened.close()
 
@@ -212,5 +212,27 @@ async def test_cycle_identity_foreign_keys_and_cleanup_ledger(tmp_path: Path) ->
             with pytest.raises(IntegrityError):
                 await session.commit()
             await session.rollback()
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_known_older_revision_upgrades_with_data_and_backup(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path}/upgrade.db")
+    try:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(lambda conn: command.upgrade(migration_config(conn), "0001"))
+            await connection.execute(text("UPDATE account SET display_name='Retained identity'"))
+        with pytest.raises(DatabaseError, match="not current"):
+            await database.initialize(auto_migrate=False)
+        status = await database.initialize()
+        assert status.migrated and status.revision == "0002" and status.backup
+        with closing(sqlite3.connect(status.backup)) as backup:
+            assert backup.execute("SELECT version_num FROM alembic_version").fetchone() == ("0001",)
+            assert backup.execute("SELECT display_name FROM account").fetchone() == (
+                "Retained identity",
+            )
+        async with database.sessions() as session:
+            assert await session.scalar(select(Account.display_name)) == "Retained identity"
     finally:
         await database.close()

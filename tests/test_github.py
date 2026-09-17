@@ -386,3 +386,108 @@ async def test_untrusted_search_urls_are_not_requested(url: str) -> None:
         assert not result.complete and not result.items
     finally:
         await forge.close()
+
+
+@pytest.mark.asyncio
+async def test_activity_paginates_requests_and_reviews_and_filters_teams() -> None:
+    calls: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        path = request.url.path
+        calls.append(path)
+        if path == "/user":
+            return httpx.Response(200, json={"login": "reader"})
+        if path == "/user/teams":
+            return httpx.Response(
+                200,
+                headers={"x-oauth-scopes": "read:org"},
+                json=[
+                    {"slug": "reviewers", "organization": {"login": "acme"}},
+                ],
+            )
+        page = int(request.url.params["page"])
+        headers = {"link": f'<{API}{path}?page=2>; rel="next"'} if page == 1 else {}
+        if path.endswith("/events"):
+            return httpx.Response(
+                200,
+                headers=headers,
+                json=[
+                    {
+                        "id": page,
+                        "event": "review_requested",
+                        "created_at": "2026-09-01T00:00:00Z",
+                        **(
+                            {"requested_reviewer": {"login": "reader"}}
+                            if page == 1
+                            else {"requested_team": {"slug": "reviewers"}}
+                        ),
+                    },
+                    {
+                        "id": 100,
+                        "event": "review_requested",
+                        "created_at": "2026-09-01T00:00:00Z",
+                        "requested_reviewer": {"login": "someone-else"},
+                    },
+                ],
+            )
+        return httpx.Response(
+            200,
+            headers=headers,
+            json=[
+                {
+                    "id": page,
+                    "user": {"login": "reader"},
+                    "state": "APPROVED",
+                    "submitted_at": "2026-09-02T00:00:00Z",
+                    "commit_id": "head",
+                },
+                {
+                    "id": 100,
+                    "user": {"login": "reader"},
+                    "state": "PENDING",
+                    "submitted_at": None,
+                    "commit_id": None,
+                },
+            ],
+        )
+
+    forge = adapter(handle)
+    try:
+        activity = await forge.get_review_activity(forge.ref("acme/api#1"))
+        assert activity.complete and not activity.warnings
+        assert len(activity.requests) == len(activity.reviews) == 2
+        assert activity.requests[0].id != activity.requests[1].id
+        assert calls.count("/repos/acme/api/issues/1/events") == 2
+        assert calls.count("/repos/acme/api/pulls/1/reviews") == 2
+    finally:
+        await forge.close()
+
+
+@pytest.mark.asyncio
+async def test_partial_activity_preserves_results_and_safe_warning() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/user":
+            return httpx.Response(200, json={"login": "reader"})
+        if request.url.path.endswith("/events"):
+            return httpx.Response(403, json={"message": "PRIVATE BODY"})
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 1,
+                    "user": {"login": "reader"},
+                    "state": "APPROVED",
+                    "submitted_at": "2026-09-02T00:00:00Z",
+                    "commit_id": "head",
+                },
+            ],
+        )
+
+    forge = adapter(handle, teams=False)
+    try:
+        activity = await forge.get_review_activity(forge.ref("acme/api#1"))
+        assert not activity.complete and len(activity.reviews) == 1
+        assert activity.warnings and "PRIVATE BODY" not in str(activity)
+    finally:
+        await forge.close()

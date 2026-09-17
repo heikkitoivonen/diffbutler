@@ -4,6 +4,7 @@ import json
 import re
 
 import httpx
+from pydantic import ValidationError
 
 from diffbutler.domain.forge import (
     Account,
@@ -17,9 +18,20 @@ from diffbutler.domain.forge import (
     TeamMembership,
     identity_part,
 )
+from diffbutler.domain.sync import RequestEvent, ReviewActivity, ReviewEvent
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.http import GitHubHTTP
-from diffbutler.forges.github.mapping import SearchResult, Team, User, objects, parse, pull_request
+from diffbutler.forges.github.mapping import (
+    IssueEvent,
+    Review,
+    SearchResult,
+    Team,
+    User,
+    objects,
+    parse,
+    pull_request,
+    timestamp,
+)
 
 
 class GitHubForge:
@@ -212,6 +224,72 @@ class GitHubForge:
                     warnings.append(f"Review-request discovery is incomplete: {exc}")
                     break
         return Discovery(tuple(discovered.values()), not warnings, tuple(dict.fromkeys(warnings)))
+
+    async def get_review_activity(self, ref: PRRef) -> ReviewActivity:
+        if ref.forge != self.id:
+            raise ForgeError("PR identity belongs to a different forge")
+        account = await self.whoami()
+        memberships = (
+            await self.team_membership() if self.include_team_requests else TeamMembership((), True)
+        )
+        warnings = list(memberships.warnings)
+        requests: dict[str, RequestEvent] = {}
+        reviews: dict[str, ReviewEvent] = {}
+        prefix = f"repos/{ref.namespace}/{ref.repository}"
+        endpoints = (f"{prefix}/issues/{ref.number}/events", f"{prefix}/pulls/{ref.number}/reviews")
+        for endpoint in endpoints:
+            for page in range(1, 101):
+                try:
+                    response = await self.http.get(endpoint, {"per_page": 100, "page": page})
+                    if response.headers.get("x-github-sso"):
+                        warnings.append("Organization SSO restricts review activity visibility")
+                    for value in objects(response.body):
+                        if endpoint.endswith("/events"):
+                            event = parse(IssueEvent, value)
+                            if event.event != "review_requested":
+                                continue
+                            user = event.requested_reviewer
+                            team = event.requested_team
+                            organization = (
+                                team.organization.login.lower()
+                                if team and team.organization
+                                else ref.namespace
+                            )
+                            addressed = (
+                                user is not None and user.login.lower() == account.login.lower()
+                            ) or (
+                                team is not None
+                                and f"{organization}/{team.slug.lower()}" in memberships.teams
+                            )
+                            if addressed:
+                                key = f"request:{event.id:020d}"
+                                requests[key] = RequestEvent(key, timestamp(event.created_at))
+                        else:
+                            review = parse(Review, value)
+                            if review.submitted_at is None or review.user is None:
+                                continue
+                            key = f"review:{review.id:020d}"
+                            reviews[key] = ReviewEvent(
+                                key,
+                                timestamp(review.submitted_at),
+                                review.user.login,
+                                review.state,
+                                review.commit_id or "",
+                            )
+                    if not response.next_page:
+                        break
+                except ForgeError, ValidationError:
+                    warnings.append("Review activity is incomplete; activity transitions deferred")
+                    break
+            else:
+                warnings.append("Review activity pagination limit reached")
+        return ReviewActivity(
+            account,
+            tuple(requests.values()),
+            tuple(reviews.values()),
+            not warnings,
+            tuple(dict.fromkeys(warnings)),
+        )
 
     async def health(self) -> ForgeHealth:
         account = await self.whoami()

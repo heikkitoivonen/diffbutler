@@ -132,18 +132,20 @@ class Database:
             current = await connection.run_sync(
                 lambda conn: MigrationContext.configure(conn).get_current_heads()
             )
-            head = ScriptDirectory.from_config(migration_config()).get_current_head()
+            scripts = ScriptDirectory.from_config(migration_config())
+            head = scripts.get_current_head()
             assert head is not None
             if current == (head,):
                 await connection.commit()
                 return DatabaseStatus(head, False, None)
-            if current:
+            known = {revision.revision for revision in scripts.walk_revisions()}
+            if current and (len(current) != 1 or current[0] not in known):
                 raise DatabaseError(
                     "database revision is unknown to this version; "
                     "use the matching DiffButler release"
                 )
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-            if set(tables) - {"alembic_version"}:
+            if not current and set(tables) - {"alembic_version"}:
                 raise DatabaseError(
                     "database has unversioned tables; refusing to adopt or overwrite it"
                 )

@@ -20,6 +20,11 @@ and the existing idna 3.19 dependency (BSD-3-Clause). HTTPX also makes the exist
 certifi dependency a runtime dependency; its certificate bundle and MPL-2.0 notice
 were reviewed. All packages remain separately installed with their own notices.
 
+M1's CLI adds Typer 0.27.2 (MIT), annotated-doc 0.0.5 (MIT), and shellingham 1.5.4
+(ISC). Their installed license files were reviewed, including Typer's bundled Click
+license (BSD-3-Clause). Existing Rich and typing-extensions retain their notices.
+These dependencies do not require changing DiffButler's license.
+
 Textual 8.2.8's installed `licenses/LICENSE` was reviewed when added. Its runtime
 dependencies include Rich (MIT), markdown-it-py (MIT), mdit-py-plugins (MIT),
 mdurl (MIT), linkify-it-py (MIT), Pygments (BSD-2-Clause),

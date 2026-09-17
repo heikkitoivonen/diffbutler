@@ -19,13 +19,13 @@ tells you where to look.
 
 > **Name:** DiffButler. Python package and CLI command: `diffbutler`.
 
-**Status:** M0 configuration loading, initial SQLite migration/ledger, and
-`diffbutler doctor` are implemented. M1's [GitHub read adapter](docs/github.md) adds
-discovery/search APIs and doctor account checks; persistent queue sync and workflow
-CLI commands are still pending. There is also a runnable
-[terminal handoff experiment](docs/terminal-handoff.md). See
-[current configuration/storage scope](docs/configuration.md). Review workflow features
-remain unimplemented; this document describes the target, not shipped behavior.
+**Status:** M0 and M1 are implemented: configuration, SQLite migrations, doctor,
+GitHub discovery/search/activity reads, persistent account-scoped queues, followed-PR
+sync, and the Typer CLI. See [GitHub usage and limitations](docs/github.md) and
+[current configuration/storage scope](docs/configuration.md). The
+[terminal handoff experiment](docs/terminal-handoff.md) remains separate from the
+future production dashboard. Managed AI reviews, sessions, history UI, periodic
+polling, and the cleanup worker remain unimplemented; the design below is the target.
 
 ---
 
@@ -972,7 +972,9 @@ Portability rules, enforced by running the store test suite against all three in
 ### 9.4 Schema sketch
 
 M0 implements the account, repository, pull-request, review-task, and cleanup-job
-foundation below. Remaining tables arrive with their workflows; this is the target schema.
+foundation below. M1 adds `forge_account` and `pr_monitor` for account-scoped
+monitoring, generation checks, and activity watermarks, plus completion SHA storage.
+Remaining tables arrive with their workflows; this is the target schema.
 
 ```
 account(id, forge, login, display_name)                      -- multi-user seam, §9.5
@@ -1500,8 +1502,7 @@ The project is MIT-licensed; dependencies retain their own licenses (see
 Runtime deps are added only as used: `textual` powers the handoff experiment;
 `pydantic`, `pydantic-settings`, `sqlalchemy[asyncio]`, `alembic`, and `aiosqlite`
 power M0 configuration and storage. `httpx` powers GitHub reads.
-Remaining planned deps: `typer`,
-`jinja2`, `keyring`, `mcp`.
+Typer powers M1's CLI. Remaining planned deps: `jinja2`, `keyring`, `mcp`.
 Extras: `postgres`, `mysql`, `api`.
 
 Ship as `uv tool install diffbutler` / `pipx install diffbutler`.

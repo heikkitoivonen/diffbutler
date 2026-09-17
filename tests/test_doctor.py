@@ -104,7 +104,7 @@ def test_doctor_cli_overrides_and_check_only(
     main(["doctor", "--db-url", url])
     assert "migrations applied" in capsys.readouterr().out
     main(["doctor", "--db-url", url, "--no-migrate"])
-    assert "Schema 0001 current" in capsys.readouterr().out
+    assert "Schema 0002 current" in capsys.readouterr().out
 
 
 @pytest.mark.asyncio

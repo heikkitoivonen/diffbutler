@@ -1,4 +1,4 @@
-"""M0 identity and review-cycle ledger. No workflow transitions are implemented yet."""
+"""Identity, review-cycle history, and durable per-account monitoring."""
 
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -98,6 +98,7 @@ class ReviewTask(Base):
     last_activity_cursor: Mapped[str | None] = mapped_column(String(1024))
     last_reviewed_sha: Mapped[str | None] = mapped_column(String(64))
     approved_sha: Mapped[str | None] = mapped_column(String(64))
+    completed_head_sha: Mapped[str | None] = mapped_column(String(64))
     completion_reason: Mapped[str | None] = mapped_column(String(64))
     completion_source: Mapped[str | None] = mapped_column(String(64))
     completion_event_watermark: Mapped[str | None] = mapped_column(String(1024))
@@ -118,3 +119,28 @@ class CleanupJob(Base):
     last_error: Mapped[str | None] = mapped_column(String(4096))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ForgeAccount(Base):
+    """Full API-instance identity mapped to a ledger account; local stays separate."""
+
+    __tablename__ = "forge_account"
+    __table_args__ = (UniqueConstraint("forge", "login"),)
+    account_id: Mapped[UUID] = mapped_column(ForeignKey("account.id"), primary_key=True)
+    forge: Mapped[str] = mapped_column(String(255))
+    login: Mapped[str] = mapped_column(String(255))
+    version: Mapped[int] = mapped_column(default=0)
+
+
+class PRMonitor(Base):
+    """Monitoring persists independently of request membership and completed cycles."""
+
+    __tablename__ = "pr_monitor"
+    account_id: Mapped[UUID] = mapped_column(ForeignKey("account.id"), primary_key=True)
+    pull_request_id: Mapped[UUID] = mapped_column(ForeignKey("pull_request.id"), primary_key=True)
+    task_id: Mapped[UUID] = mapped_column(ForeignKey("review_task.id"))
+    following: Mapped[bool] = mapped_column(default=True)
+    sources: Mapped[list[str]] = mapped_column(JSON, default=list)
+    snapshot_json: Mapped[dict[str, object]] = mapped_column(JSON)
+    request_key: Mapped[str] = mapped_column(String(1024), default="")
+    review_key: Mapped[str] = mapped_column(String(1024), default="")

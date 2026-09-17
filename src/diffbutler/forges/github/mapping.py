@@ -114,3 +114,19 @@ def pull_request(value: object, *, forge: str, web_base: str) -> PullRequest:
         )
     except ValueError:
         raise ForgeError("GitHub returned invalid pull request identity or dates") from None
+
+
+class IssueEvent(ResponseModel):
+    id: int
+    event: str
+    created_at: str
+    requested_reviewer: User | None = None
+    requested_team: Team | None = None
+
+
+class Review(ResponseModel):
+    id: int
+    user: User | None
+    state: str
+    submitted_at: str | None = None
+    commit_id: str | None = None

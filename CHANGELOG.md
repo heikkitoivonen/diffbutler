@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add persistent account-scoped review queues, independent followed-PR refresh,
+  request provenance, restart-safe activity watermarks, and duplicate-event suppression.
+- Observe own approvals and closure/merge, retaining cycle history and atomically
+  scheduling cleanup; later pushes or renewed requests create pending attention.
+- Add migration `0002` and backed-up upgrades from known older schema revisions.
+- Replace argparse with Typer; expose `sync`, local queue listing, paginated all-PR
+  browsing, and `follow`, including JSON output and partial-coverage warnings.
+
 - Add the GitHub read adapter: direct/team request discovery with provenance and
   incomplete-coverage reporting, paginated search, and host-scoped PR lookup.
 - Add bounded async HTTP reads, conditional responses, quota/cooldown handling,

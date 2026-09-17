@@ -7,14 +7,26 @@ AI review, your review, or author changes. You decide when an AI review starts,
 discuss findings in the agent's own terminal session, and do the human pass in
 your browser.
 
-**Status: M0 complete; M1 started, not a working review dashboard yet.** Configuration
-loading, the initial SQLite ledger/migration, and `diffbutler doctor` are implemented.
-The [GitHub read adapter](docs/github.md) adds direct/team discovery and PR lookup/search
-APIs, plus configured-account checks in doctor. Queue sync and workflow CLI commands
-remain unimplemented.
-A separate [terminal handoff experiment](docs/terminal-handoff.md)
-is runnable with `make handoff`. GitHub polling, managed agent sessions, SQLite
-history, and automatic cleanup are planned in [SPEC.md](SPEC.md).
+**Status: M0 and M1 implemented; the review dashboard is still planned.**
+Configuration, SQLite migrations, doctor, and the [GitHub adapter](docs/github.md)
+now support a persistent review queue through the Typer CLI. Direct/team requests
+are deduplicated, followed PRs remain monitored after request removal, and observed
+own approval or closure completes a cycle with a durable cleanup job.
+
+```sh
+uv run diffbutler sync
+uv run diffbutler ls
+uv run diffbutler ls --view requested
+uv run diffbutler ls --view following
+uv run diffbutler ls --view all --repo acme/api
+uv run diffbutler follow 'acme/api#1841'
+```
+
+Configure a forge before remote commands. Local listing works offline. `sync` is a
+single refresh; there is no periodic poller yet. These commands never invoke AI or
+post to a forge. Reviews, managed sessions, a history UI, and the cleanup worker
+arrive in later milestones. A separate [terminal handoff experiment](docs/terminal-handoff.md)
+is runnable with `make handoff`.
 
 ## Local setup and diagnostics
 
@@ -104,11 +116,12 @@ tests/          Offline tests
 scripts/        Development and packaging checks
 ```
 
-The config, store, GitHub read adapter, and core doctor service are implemented;
-review workflow packages remain placeholders. The terminal handoff experiment lives in `ui/tui/`.
+The config, store, GitHub read adapter, doctor, and shared queue services are implemented;
+reviewer execution and managed session packages remain placeholders. The terminal
+handoff experiment lives in `ui/tui/`.
 Import-linter enforces their dependency direction from the start. Textual is used by
 the experiment; Pydantic validates configuration, SQLAlchemy/Alembic manage SQLite,
-and HTTPX provides async GitHub reads.
+HTTPX provides async GitHub reads, and Typer powers the CLI.
 
 ## Contributing
 

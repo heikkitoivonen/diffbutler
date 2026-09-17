@@ -45,8 +45,22 @@ def main() -> None:
             result = subprocess.run(
                 args, cwd=directory, env=doctor_env, check=True, capture_output=True, text=True
             )
-            if "Schema 0001 current" not in result.stdout or "FAIL" in result.stdout:
+            if "Schema 0002 current" not in result.stdout or "FAIL" in result.stdout:
                 raise SystemExit(f"Unexpected installed doctor output: {result.stdout!r}")
+        result = subprocess.run(
+            [str(command), "ls", "--json"],
+            cwd=directory,
+            env=doctor_env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if result.stdout.strip() != "[]":
+            raise SystemExit("Installed offline queue should be empty")
+        for name in ("sync", "ls", "follow"):
+            subprocess.run(
+                [str(command), name, "--help"], cwd=directory, check=True, capture_output=True
+            )
         subprocess.run(
             [str(python), "-I", "-m", "diffbutler.ui.tui.handoff_probe", "--help"],
             cwd=directory,

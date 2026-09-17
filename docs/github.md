@@ -1,10 +1,8 @@
-# GitHub read adapter (first M1 task)
+# GitHub discovery and persistent queues (M1)
 
-The GitHub adapter implements identity checks, direct/team review-request discovery,
-PR lookup, and paginated search behind the async `ReadForge` protocol. Doctor uses it
-for authentication, core quota, and team visibility checks. Persistent queue sync,
-followed-PR reconciliation, and Typer browsing/follow commands are the next M1 work;
-the adapter alone does not make M1 complete.
+The async `ReadForge` adapter provides identity checks, direct/team discovery, PR
+lookup, search, and request/review activity. Shared core services persist the queue
+and reconcile followed PRs; Typer exposes these services without starting AI work.
 
 ## Configure and check an account
 
@@ -56,8 +54,9 @@ deliberately limits discovery to direct requests.
 
 Search accepts repository, author, state (`open` by default, `closed`, `merged`, or `all`),
 and literal text filters, with at most 100 results per page. Lookup accepts
-`owner/repo#number` or a PR URL on the configured instance. These are adapter APIs;
-they do not create tasks, change follow membership, or start AI runs.
+`owner/repo#number` or a PR URL on the configured instance. Browsing does not create
+tasks or change follow membership. Explicit follow and
+discovery create pending attention; no operation here starts an AI run.
 
 GitHub's [search API](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests)
 limits each query to 1,000 results and can report incomplete results. Those limitations
@@ -65,11 +64,66 @@ and inaccessible PR details produce warnings and `complete=false`. `next_cursor`
 more pages; `complete` means no known coverage failure, not that all pages were consumed.
 Discovery consumes all available pages. Incomplete results must never authorize removals.
 
+## Queue commands
+
+```sh
+uv run diffbutler sync                      # all configured accounts, once
+uv run diffbutler sync --forge 2            # one-based config entry
+uv run diffbutler ls --json                 # local active queue, no forge access
+uv run diffbutler ls --view requested       # current request membership
+uv run diffbutler ls --view following       # includes completed monitored PRs
+uv run diffbutler ls --login your-login     # filter local account records
+uv run diffbutler ls --view all --repo acme/api --author contributor
+uv run diffbutler ls --view all --state all --text documentation --page-size 10
+uv run diffbutler ls --view all --cursor 2  # use the same filters as the first page
+uv run diffbutler follow 'acme/api#1841'
+uv run diffbutler follow https://github.com/acme/api/pull/1841
+```
+
+All commands accept `--config FILE`; workflow commands accept `--json`. Remote
+browsing and follow use the first configured forge unless `--forge N` selects
+another. `ls` defaults to all locally stored accounts, without resolving tokens.
+`sync` and all-PR browsing exit 1 on incomplete coverage, preserving accessible
+results and printing warnings (or including them in JSON). Follow persists even
+when activity reads fail and includes their warnings. Invalid arguments exit 2.
+
+Discovery and explicit follow retain one monitor per PR/account. Request sources
+are independent of following. A complete discovery clears absent membership; a
+partial discovery retains old sources and merges accessible results. Every followed
+open PR refreshes by identity even after its request disappears. Accounts map by
+API-instance identity plus normalized login; they do not reuse the initial local
+account. Per-account snapshots prevent another account's refresh from hiding a push.
+Concurrent updates use version checks and bounded retries before short atomic commits.
+
+Reconciliation reads paginated [issue request events](https://docs.github.com/en/rest/using-the-rest-api/issue-event-types#review_requested)
+and [PR reviews](https://docs.github.com/en/rest/pulls/reviews#list-reviews-for-a-pull-request).
+Event identity and timestamp watermarks survive restart. A renewed request at the
+same SHA returns a followed PR for attention once. New commits also return it to
+pending AI review, without scheduling a run. Existing requests cannot reactivate a
+completed cycle. Approval by another person never completes an open PR.
+
+Own approval completes a cycle only on its current SHA, with complete activity,
+and after its latest observed request. A later changes-requested or dismissed review
+prevents an older approval from completing it. Ambiguous ordering (a request and
+approval in the same timestamp) conservatively leaves attention pending. Incomplete
+activity, including uncertain team visibility, defers activity-based transitions;
+head changes and observed closure/merge still apply. There is no discussion/posting
+reconciliation yet; that arrives with managed sessions.
+
+Completion retains the task and SHA in history, removes it from active listing, and
+atomically inserts a pending cleanup job. Closed/merged PRs stop routine refresh.
+Completed open PRs remain monitored and get a new cycle on a later push/request.
+No cleanup worker or session resources exist yet, so no filesystem deletion occurs.
+There is no periodic polling loop; run `sync` for each refresh.
+
 ## Transport and remaining work
 
 Requests are serialized. ETag/Last-Modified validators and response representations are
 cached in memory for the adapter lifetime (up to 256 URLs); a 304 reuses the matching
-body and pagination. Persistent `sync_cursor` storage is deferred to queue sync.
+body and pagination. HTTP cache persistence remains deferred. After restart, reads
+start unconditionally;
+no persisted validator can cause a 304 without a usable response body. Activity
+watermarks and account-scoped PR snapshots are persisted separately in SQLite.
 Pagination stays on the original endpoint rather than sending credentials to link targets.
 
 Core/search quotas are tracked separately. Exhausted quotas and server cooldowns prevent
@@ -78,7 +132,7 @@ caller. Network/server retries are bounded, with exponential delays and jitter, 
 GitHub's [rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#handle-rate-limit-errors-appropriately).
 Doctor reports core quota; search quota becomes available after a search request.
 
-Review activity reconciliation, diffs/source retrieval, publishing, package-entry-point
-registration, and GitLab remain future work. This read adapter does not establish
+Diffs/source retrieval, publishing, forge-plugin registration, and GitLab remain
+future work. This read adapter does not establish
 background-agent isolation. Claude and macOS handoff validation remain deferred; see
 [terminal-handoff.md](terminal-handoff.md).
