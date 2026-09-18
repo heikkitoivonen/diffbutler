@@ -2,7 +2,10 @@
 
 import asyncio
 import hashlib
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import UUID
 
 from diffbutler.config.settings import ConfigError, Settings, load_settings
 from diffbutler.core.application import local_store
@@ -18,6 +21,7 @@ from diffbutler.core.process import ProcessRecovery
 from diffbutler.core.review import AIRun, ReviewResult, ReviewService
 from diffbutler.core.sync import PullRequestRow
 from diffbutler.core.worker import ReviewWorker
+from diffbutler.domain.lifecycle import CleanupStatus, ForegroundExitUncertain
 from diffbutler.domain.review import (
     AnalysisIdentity,
     ReviewConflict,
@@ -82,12 +86,18 @@ class ManagedReviews:
                 frozenset(key for key, repo in settings.repos.items() if not repo.enabled),
             ),
         )
-        self.lifecycle = LifecycleService(self.leases, NativeSessionCleaner(directories))
+        self.lifecycle = LifecycleService(
+            self.leases, NativeSessionCleaner(directories), prepare_cleanup=self._prepare_cleanup
+        )
 
-    async def cleanup(self) -> None:
+    async def _prepare_cleanup(self, token: UUID) -> None:
+        await self.recovery.prepare_launch(token, "cleanup")
+
+    async def cleanup(self) -> CleanupStatus:
         await self.recovery.recover_rebooted()
         while await self.lifecycle.cleanup_once():
             pass
+        return await self.leases.cleanup_status()
 
     def reviewer_command(self, reviewer_id: str | None) -> tuple[str, ...]:
         selected = next((item for item in self.settings.reviewers if item.id == reviewer_id), None)
@@ -224,17 +234,44 @@ async def findings_configured(
         return await ReviewService(store, ReviewPolicy(frozenset())).get_result(run.id)
 
 
-async def cleanup_configured(path: Path | None) -> None:
+async def cleanup_configured(path: Path | None) -> CleanupStatus:
     async with local_store(path) as (queue, settings):
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
-        await managed.cleanup()
+        return await managed.cleanup()
 
 
-async def approved_configured(path: Path | None, value: str, login: str | None) -> None:
+async def approved_configured(path: Path | None, value: str, login: str | None) -> CleanupStatus:
     async with local_store(path) as (queue, settings):
         row = await resolve_local(queue, value, login)
         if row.tracked.task_id is None:
             raise ReviewConflict("PR has no persisted review task")
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
         await managed.store.mark_approved(row.tracked.task_id)
+        return await managed.cleanup()
+
+
+@asynccontextmanager
+async def handoff_configured(
+    path: Path | None, value: str, login: str | None
+) -> AsyncGenerator[tuple[SessionLaunch, Callable[[int], Awaitable[None]]]]:
+    """Own the session lifetime; the UI attaches and verifies foreground exit."""
+    async with local_store(path) as (queue, settings):
+        row = await resolve_local(queue, value, login)
+        managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
         await managed.cleanup()
+        launch = await managed.prepare_handoff(row)
+        exited = True
+        try:
+            await managed.recovery.prepare_launch(launch.token, "foreground")
+
+            async def started(pid: int) -> None:
+                await managed.processes.bind_launcher(launch.token, pid)
+
+            yield launch, started
+        except ForegroundExitUncertain:
+            exited = False
+            raise
+        finally:
+            if exited:
+                await managed.lifecycle.release_foreground(launch.token)
+                await managed.cleanup()

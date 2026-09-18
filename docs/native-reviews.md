@@ -4,7 +4,9 @@ The managed review path currently supports **Codex CLI 0.98.0 on Linux**. DiffBu
 selects the agent's native read-only sandbox; it does not create an additional OS
 sandbox or require Bubblewrap. Claude and macOS integration remain deferred.
 The installed Codex version and help were checked locally. Automated acceptance
-uses a synthetic executable, disposable Git repositories, and SQLite; it makes no
+covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
+completion, cleanup, and retained findings across process restarts. It uses a
+synthetic executable, disposable Git repositories, and SQLite; it makes no
 paid model requests. The earlier Linux/Codex terminal experiment was manually
 confirmed, but no live managed review was run during this implementation.
 
@@ -46,6 +48,10 @@ resumes the exact backend ID in the current terminal, retaining it on exit.
 `approved` records the user's completed approval locally; it does not submit a
 forge approval. Completion dispatches cleanup automatically, including when observed
 by `sync`. `cleanup` retries due cleanup jobs after their persisted backoff.
+Both `approved` and `cleanup` report counts of succeeded, pending, running, and
+failed cleanup jobs across all local history. Failed jobs produce exit status 1;
+completion remains recorded even if deletion fails. Pending/running counts do not
+claim deletion succeeded. Retries respect the stored backoff.
 The dashboard, periodic polling, native posting reconciliation, and history UI are M3.
 
 `general.workspace_root` optionally selects the private managed root (default:
@@ -98,8 +104,9 @@ retained until cleanup; normalized results survive deletion.
 The runner terminates/reaps the owned process group before finalizing or releasing
 ownership, including overflow, timeout, and cancellation. It trusts the native CLI
 not to deliberately detach descendants; it is not a hostile-process supervisor.
-Launch intent is durable before spawn. Reboot recovery uses the same local host's
-boot identity; unknown and same-boot orphan ownership stays held for verification,
+Launch intent is durable before spawn. Cleanup also records host/boot intent before
+filesystem deletion, so interrupted cleanup can be retried after a verified reboot.
+Reboot recovery uses the same local host's boot identity; unknown and same-boot orphan ownership stays held for verification,
 never inferred from age or pipe EOF. The database must be local and nonshared, on a
 host with a unique Linux machine-id. macOS process recovery is not implemented.
 

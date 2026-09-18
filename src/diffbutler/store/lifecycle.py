@@ -3,10 +3,16 @@
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from diffbutler.domain.lifecycle import CleanupClaim, CleanupSession, ForegroundLease, HeldOperation
+from diffbutler.domain.lifecycle import (
+    CleanupClaim,
+    CleanupSession,
+    CleanupStatus,
+    ForegroundLease,
+    HeldOperation,
+)
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.store.database import Database
 from diffbutler.store.models import (
@@ -41,6 +47,19 @@ class SQLiteLifecycleStore:
     async def _begin(self, db: AsyncSession) -> None:
         connection = await db.connection()
         await connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+    async def cleanup_status(self) -> CleanupStatus:
+        async with self.database.sessions() as db:
+            rows = await db.execute(
+                select(CleanupJob.status, func.count()).group_by(CleanupJob.status)
+            )
+            counts = dict(rows.tuples().all())
+            return CleanupStatus(
+                succeeded=counts.get("succeeded", 0),
+                pending=counts.get("pending", 0),
+                running=counts.get("running", 0),
+                failed=counts.get("failed", 0),
+            )
 
     async def held_operations(self) -> tuple[HeldOperation, ...]:
         """Expose durable ownership for recovery; ages are not evidence of exit."""

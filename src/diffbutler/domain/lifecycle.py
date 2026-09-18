@@ -37,3 +37,15 @@ class HeldOperation:
     kind: str
     resource_id: UUID
     acquired_at: datetime
+
+
+class ForegroundExitUncertain(RuntimeError):
+    """Ownership must stay held when child exit cannot be established."""
+
+
+@dataclass(frozen=True)
+class CleanupStatus:
+    succeeded: int = 0
+    pending: int = 0
+    running: int = 0
+    failed: int = 0

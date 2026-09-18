@@ -18,22 +18,20 @@ from diffbutler.core.application import (
     browse_configured,
     follow_configured,
     local_queue,
-    local_store,
     sync_configured,
 )
 from diffbutler.core.doctor import run_doctor
 from diffbutler.core.managed import (
-    ManagedReviews,
     approved_configured,
     cleanup_configured,
     findings_configured,
-    owned_directories,
-    resolve_local,
+    handoff_configured,
     review_configured,
 )
 from diffbutler.core.native import foreground_environment
 from diffbutler.core.sync import PullRequestRow
 from diffbutler.domain.forge import PRPage, PRQuery, PullRequest
+from diffbutler.domain.lifecycle import CleanupStatus
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
 from diffbutler.reviewers.native import NativeError
@@ -266,14 +264,25 @@ def findings(pr: str, config: ConfigOption = None, login: str | None = None) -> 
 @app.command()
 def approved(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
     """Record your completed approval locally and clean owned resources; never post it."""
-    run(approved_configured(config, pr, login))
-    typer.echo("Completion recorded; cleanup dispatched.")
+    status = run(approved_configured(config, pr, login))
+    typer.echo("Completion recorded locally.")
+    print_cleanup(status)
+
+
+def print_cleanup(status: CleanupStatus) -> None:
+    typer.echo(
+        f"Cleanup jobs (all history): {status.succeeded} succeeded, {status.pending} pending, "
+        f"{status.running} running, {status.failed} failed."
+    )
+    if status.failed:
+        typer.echo("Cleanup failed; resources retained for retry after backoff.", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
 def cleanup(config: ConfigOption = None) -> None:
     """Retry due completion cleanup jobs without starting reviews."""
-    run(cleanup_configured(config))
+    print_cleanup(run(cleanup_configured(config)))
 
 
 @app.command()
@@ -282,30 +291,16 @@ def session(pr: str, config: ConfigOption = None, login: str | None = None) -> N
     from diffbutler.ui.tui.foreground import ForegroundExitUncertain, run_foreground
 
     async def attach() -> int:
-        async with local_store(config) as (queue, settings):
-            row = await resolve_local(queue, pr, login)
-            managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
-            launch = await managed.prepare_handoff(row)
-            exited = True
-            try:
-                await managed.recovery.prepare_launch(launch.token, "foreground")
-
-                async def started(pid: int) -> None:
-                    await managed.processes.bind_launcher(launch.token, pid)
-
+        try:
+            async with handoff_configured(config, pr, login) as (launch, started):
                 return await run_foreground(
                     launch.argv,
                     cwd=launch.cwd,
                     env=foreground_environment(launch),
                     started=started,
                 )
-            except ForegroundExitUncertain:
-                exited = False
-                raise NativeError("Foreground exit is uncertain; ownership retained") from None
-            finally:
-                if exited:
-                    await managed.lifecycle.release_foreground(launch.token)
-                    await managed.cleanup()
+        except ForegroundExitUncertain:
+            raise NativeError("Foreground exit is uncertain; ownership retained") from None
 
     code = run(attach())
     if code:

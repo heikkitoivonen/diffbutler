@@ -1,5 +1,6 @@
 """UI-independent foreground ownership and automatic completed-task cleanup."""
 
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 from uuid import UUID
 
@@ -19,9 +20,16 @@ class SessionCleaner(Protocol):
 
 
 class LifecycleService:
-    def __init__(self, store: LifecycleStore, cleaner: SessionCleaner) -> None:
+    def __init__(
+        self,
+        store: LifecycleStore,
+        cleaner: SessionCleaner,
+        *,
+        prepare_cleanup: Callable[[UUID], Awaitable[None]] | None = None,
+    ) -> None:
         self.store = store
         self.cleaner = cleaner
+        self.prepare_cleanup = prepare_cleanup
 
     async def held_operations(self) -> tuple[HeldOperation, ...]:
         return await self.store.held_operations()
@@ -50,6 +58,8 @@ class LifecycleService:
         if claim is None:
             return False
         try:
+            if self.prepare_cleanup is not None:
+                await self.prepare_cleanup(claim.token)
             for session in claim.sessions:
                 await self.cleaner.cleanup(session)
         except Exception:

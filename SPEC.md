@@ -19,11 +19,12 @@ tells you where to look.
 
 > **Name:** DiffButler. Python package and CLI command: `diffbutler`.
 
-**Status:** M0 and M1 are implemented; M2 now has a Linux/Codex native path. Configuration,
+**Status:** M0–M2 are implemented for the Linux/Codex native scope. Configuration,
 GitHub queue sync, review execution, pinned source snapshots, durable conversations,
 parsing/anchors, exact native resume, and owned local cleanup are available through
 the CLI. See [native review scope and evidence](docs/native-reviews.md). Codex 0.98.0
-help/version were verified; end-to-end automated tests are offline, with no paid
+help/version were verified; public CLI acceptance includes restart, exact-session
+PTY resume, explicit retry, completion, and cleanup. Automated tests are offline, with no paid
 managed review run. Claude and macOS validation remain deferred. The dashboard,
 periodic polling, full posting reconciliation, and history UI are M3. Design details
 below beyond that documented scope remain targets.

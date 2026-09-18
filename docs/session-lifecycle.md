@@ -90,3 +90,10 @@ a unique machine-id and a local, nonshared database; moved databases do not prov
 The Linux [boot identifier](https://www.kernel.org/doc/html/v6.13/admin-guide/sysctl/kernel.html#random)
 is stable during a boot. Unsupported identity reads fail closed. This mechanism is
 independent of native agent sandboxing and does not validate kernel confinement.
+
+The configured core handoff context owns foreground acquisition, launch intent, PID
+checkpointing, release, and completion cleanup. The CLI only attaches the terminal
+and reports uncertain exit. Cleanup records host/boot intent before filesystem I/O;
+cancellation retains its claim, and verified reboot recovery schedules a retry.
+`approved` and `cleanup` show all-history job counts and return status 1 while failed
+jobs remain. Pending and running jobs remain visible without implying deletion.

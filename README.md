@@ -7,7 +7,7 @@ AI review, your review, or author changes. You decide when an AI review starts,
 discuss findings in the agent's own terminal session, and do the human pass in
 your browser.
 
-**Status: M0/M1 implemented; M2 native reviews available for Linux/Codex. The dashboard is M3.**
+**Status: M0–M2 implemented for the Linux/Codex scope below. The dashboard is M3.**
 Configuration, SQLite migrations, doctor, and the [GitHub adapter](docs/github.md)
 now support a persistent review queue through the Typer CLI. Direct/team requests
 are deduplicated, followed PRs remain monitored after request removal, and observed
@@ -61,8 +61,8 @@ initializes/checks SQLite, checks configured repository/prompt paths, and resolv
 platform browser opener without launching it. Failed checks exit with status 1; invalid
 CLI arguments exit with status 2. Missing browser support is a warning. Configured GitHub
 accounts receive read-only authentication, quota, and team visibility checks; use `--offline`
-to skip them. Reviewer execution/resume/cleanup checks remain deferred to M2. Doctor never
-launches a model or posts to a forge.
+to skip them. Reviewer execution, resume, and cleanup are exercised by offline acceptance
+tests; doctor never launches a model or posts to a forge.
 
 Configuration lives at `$XDG_CONFIG_HOME/diffbutler/config.toml` (default
 `~/.config/diffbutler/config.toml`); a missing default file uses safe defaults.

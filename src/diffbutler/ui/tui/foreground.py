@@ -9,6 +9,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 
+from diffbutler.domain.lifecycle import ForegroundExitUncertain as ForegroundExitUncertain
+
 
 def _give_terminal(fd: int, process_group: int) -> None:
     # Reclaiming the terminal is a background-process operation: block SIGTTOU.
@@ -17,10 +19,6 @@ def _give_terminal(fd: int, process_group: int) -> None:
         os.tcsetpgrp(fd, process_group)
     finally:
         signal.signal(signal.SIGTTOU, previous)
-
-
-class ForegroundExitUncertain(RuntimeError):
-    """Ownership must stay held when child exit cannot be established."""
 
 
 async def run_foreground(
