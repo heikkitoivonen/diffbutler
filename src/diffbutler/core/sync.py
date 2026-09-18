@@ -44,6 +44,7 @@ class DiffButler:
 
     async def sync(self) -> SyncReport:
         account = await self._account()
+        stale_results: dict[PRRef, TrackedPR] = {}
         for attempt in range(3):
             snapshot = await self.store.snapshot(account)
             try:
@@ -68,6 +69,11 @@ class DiffButler:
                 refs, key=lambda ref: (ref.forge, ref.namespace, ref.repository, ref.number)
             ):
                 old = previous.get(ref)
+                stale = stale_results.get(ref)
+                if old and stale and old.manual_after != stale.manual_after:
+                    # Consume evidence fetched before a newer manual choice, even
+                    # if the forge's clock is ahead of this host's clock.
+                    old = replace(old, manual_after=max(old.manual_after, stale.review_key))
                 membership = set(sources.get(ref, ()))
                 if not discovery.complete and old:
                     membership.update(old.sources)
@@ -82,7 +88,9 @@ class DiffButler:
                         f"Could not refresh {ref.namespace}/{ref.repository}#{ref.number}: {exc}"
                     )
                     if old:
-                        updated[ref] = replace(old, sources=tuple(sorted(membership)))
+                        updated[ref] = replace(
+                            old, sources=tuple(sorted(membership)), refresh_pending=True
+                        )
                     continue
                 try:
                     activity = await self.forge.get_review_activity(ref)
@@ -109,6 +117,7 @@ class DiffButler:
                     refreshed=frozenset(refreshed),
                 )
             except SyncConflict:
+                stale_results = updated
                 if attempt == 2:
                     raise ForgeError("Queue changed concurrently; retry sync") from None
                 continue
@@ -124,9 +133,14 @@ class DiffButler:
 
     async def follow_pr(self, ref: PRRef) -> PullRequestRow:
         account = await self._account()
+        stale: TrackedPR | None = None
         for attempt in range(3):
             snapshot = await self.store.snapshot(account)
             previous = next((item for item in snapshot.items if item.pull_request.ref == ref), None)
+            if previous and stale and previous.manual_after != stale.manual_after:
+                previous = replace(
+                    previous, manual_after=max(previous.manual_after, stale.review_key)
+                )
             pr = await self.forge.get_pull_request(ref)
             if pr.ref != ref:
                 raise ForgeError("Forge returned a different PR identity")
@@ -144,6 +158,7 @@ class DiffButler:
                     account, snapshot.version, (item,), refreshed=frozenset({ref})
                 )
             except SyncConflict:
+                stale = item
                 if attempt == 2:
                     raise ForgeError("Queue changed concurrently; retry follow") from None
                 continue

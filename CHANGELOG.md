@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Complete the Linux/Codex M3 native dashboard loop with explicit reviews, same-terminal
+  discussion, forge refresh on return, manual/waiting overrides, completion cleanup and
+  offline cycle history. Add serial polling, accessible-PR search, configurable sorting,
+  pinned diff/log views, browser fallback and persistent AI-dispatch pause.
+- Retain and deduplicate submitted review/inline/discussion receipts in migration `0009`,
+  preserve manual choices against older refreshes, and display incomplete refresh state.
+- Validate synthetic review → discussion/feedback → cleanup/history and repeated production
+  dashboard handoff in a controlling PTY. Live managed-provider acceptance remains unperformed.
+
 - Complete Linux/Codex M2 offline acceptance through the public CLI, including
   explicit retry, exact-session terminal resume after restart, completion cleanup,
   and retained findings. Live managed-provider acceptance remains unperformed.

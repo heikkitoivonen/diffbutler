@@ -89,6 +89,7 @@ class ReviewTask(Base):
     account_id: Mapped[UUID] = mapped_column(ForeignKey("account.id"), default=LOCAL_ACCOUNT_ID)
     cycle_number: Mapped[int] = mapped_column(default=1)
     state: Mapped[str] = mapped_column(String(32), default="PENDING_AI_REVIEW")
+    snapshot_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
     snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     priority: Mapped[int] = mapped_column(default=0)
     notes: Mapped[str | None] = mapped_column(String(16384))
@@ -146,6 +147,9 @@ class PRMonitor(Base):
     following: Mapped[bool] = mapped_column(default=True)
     sources: Mapped[list[str]] = mapped_column(JSON, default=list)
     snapshot_json: Mapped[dict[str, object]] = mapped_column(JSON)
+    activity_json: Mapped[str | None] = mapped_column(Text)
+    refresh_pending: Mapped[bool] = mapped_column(default=False)
+    notice: Mapped[str] = mapped_column(String(255), default="")
     request_key: Mapped[str] = mapped_column(String(1024), default="")
     review_key: Mapped[str] = mapped_column(String(1024), default="")
 
@@ -266,3 +270,20 @@ class ProcessLaunch(Base):
     host_id: Mapped[UUID] = mapped_column()
     boot_id: Mapped[UUID] = mapped_column()
     launcher_pid: Mapped[int | None] = mapped_column()
+
+
+class ObservedActivity(Base):
+    """Published forge evidence, deduplicated across polling and review cycles."""
+
+    __tablename__ = "observed_activity"
+    account_id: Mapped[UUID] = mapped_column(ForeignKey("account.id"), primary_key=True)
+    pull_request_id: Mapped[UUID] = mapped_column(ForeignKey("pull_request.id"), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    review_task_id: Mapped[UUID] = mapped_column(ForeignKey("review_task.id"))
+    payload_json: Mapped[str] = mapped_column(Text)
+
+
+class UIPreference(Base):
+    __tablename__ = "ui_preference"
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)

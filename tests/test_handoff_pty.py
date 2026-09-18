@@ -21,7 +21,11 @@ import pytest
 
 class Terminal:
     def __init__(
-        self, directory: Path, command: list[str] | None = None, failure: str | None = None
+        self,
+        directory: Path,
+        command: list[str] | None = None,
+        failure: str | None = None,
+        app_argv: list[str] | None = None,
     ) -> None:
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 110, 0, 0))
@@ -48,6 +52,8 @@ class Terminal:
             argv = [sys.executable, "-c", bootstrap, "--events", str(self.events)]
         if command:
             argv.extend(["--", *command])
+        if app_argv is not None:
+            argv = app_argv
         # Fresh session + controlling TTY, without preexec_fn in a threaded parent.
         launcher = (
             "import os,sys,fcntl,termios; os.setsid(); "

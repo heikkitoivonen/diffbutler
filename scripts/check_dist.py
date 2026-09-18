@@ -45,7 +45,7 @@ def main() -> None:
             result = subprocess.run(
                 args, cwd=directory, env=doctor_env, check=True, capture_output=True, text=True
             )
-            if "Schema 0008 current" not in result.stdout or "FAIL" in result.stdout:
+            if "Schema 0009 current" not in result.stdout or "FAIL" in result.stdout:
                 raise SystemExit(f"Unexpected installed doctor output: {result.stdout!r}")
         result = subprocess.run(
             [str(command), "ls", "--json"],
@@ -57,6 +57,16 @@ def main() -> None:
         )
         if result.stdout.strip() != "[]":
             raise SystemExit("Installed offline queue should be empty")
+        history = subprocess.run(
+            [str(command), "history", "--json"],
+            cwd=directory,
+            env=doctor_env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if history.stdout.strip() != "[]":
+            raise SystemExit("Installed offline history should be empty")
         for name in (
             "sync",
             "ls",
@@ -66,6 +76,10 @@ def main() -> None:
             "session",
             "approved",
             "cleanup",
+            "dashboard",
+            "history",
+            "open",
+            "waiting",
         ):
             subprocess.run(
                 [str(command), name, "--help"], cwd=directory, check=True, capture_output=True
@@ -76,7 +90,8 @@ def main() -> None:
                 "-I",
                 "-c",
                 "from diffbutler.reviewers.native import codex_preset; "
-                "assert codex_preset().version == 'codex-cli 0.98.0'",
+                "assert codex_preset().version == 'codex-cli 0.98.0'; "
+                "from diffbutler.ui.tui.dashboard import Dashboard",
             ],
             cwd=directory,
             check=True,

@@ -31,6 +31,11 @@ mdurl (MIT), linkify-it-py (MIT), Pygments (BSD-2-Clause),
 platformdirs (MIT), and typing-extensions (PSF-2.0). These remain separate installed
 packages with their own license notices. See [Textual's license](https://github.com/Textualize/textual/blob/main/LICENSE).
 
+M3 declares the already-locked Rich 15.0.0 package as a direct runtime dependency
+because the dashboard imports its literal text renderer. Its installed MIT license
+was reviewed; no package version or transitive dependency changed. Rich retains its
+own notice and does not require changing DiffButler's license.
+
 The direct development/build tools use permissive licenses:
 
 | Tool | License | Upstream |

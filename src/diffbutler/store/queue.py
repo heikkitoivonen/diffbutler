@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from diffbutler.domain.forge import Account as ForgeIdentity
 from diffbutler.domain.forge import PRRef
 from diffbutler.domain.forge import PullRequest as ForgePR
-from diffbutler.domain.sync import QueueSnapshot, TrackedPR
+from diffbutler.domain.sync import (
+    CommentEvent,
+    QueueSnapshot,
+    ReviewActivity,
+    ReviewEvent,
+    TrackedPR,
+)
 from diffbutler.store.base import SyncConflict
 from diffbutler.store.database import Database
 from diffbutler.store.models import (
@@ -17,6 +23,7 @@ from diffbutler.store.models import (
     AIRun,
     CleanupJob,
     ForgeAccount,
+    ObservedActivity,
     PRMonitor,
     PullRequest,
     Repository,
@@ -25,6 +32,8 @@ from diffbutler.store.models import (
 )
 
 PR_ADAPTER = TypeAdapter(ForgePR)
+ACTIVITY_ADAPTER = TypeAdapter(ReviewActivity)
+EVENT_ADAPTER: TypeAdapter[ReviewEvent | CommentEvent] = TypeAdapter(ReviewEvent | CommentEvent)
 
 
 class SQLiteQueueStore:
@@ -69,6 +78,14 @@ class SQLiteQueueStore:
                         monitor.review_key,
                         task.completion_reason,
                         task.completion_event_watermark,
+                        ACTIVITY_ADAPTER.validate_json(monitor.activity_json)
+                        if monitor.activity_json
+                        else None,
+                        monitor.refresh_pending,
+                        task.state_event_watermark or "",
+                        task.opened_at,
+                        monitor.notice,
+                        task.posted_at,
                     )
                     for monitor, task in rows.tuples()
                 ),
@@ -198,11 +215,18 @@ class SQLiteQueueStore:
             if task.state != item.state:
                 task.action_version += 1
                 task.updated_at = utc_now()
+            task.snapshot_json = cast(
+                dict[str, object], PR_ADAPTER.dump_python(remote, mode="json")
+            )
+            if task.state != item.state:
+                task.state_source = "forge"
+            task.posted_at = item.posted_at
             task.state = item.state
             task.following = item.following
             task.request_sources_json = list(item.sources)
             task.last_request_event = item.request_key or None
             task.last_activity_cursor = item.review_key or None
+            task.state_event_watermark = item.manual_after or None
         if item.state == "DONE" and task.completed_at is None:
             task.completed_at = utc_now()
             task.completed_head_sha = remote.head_sha
@@ -222,3 +246,20 @@ class SQLiteQueueStore:
         monitor.snapshot_json = cast(dict[str, object], PR_ADAPTER.dump_python(remote, mode="json"))
         monitor.request_key = item.request_key
         monitor.review_key = item.review_key
+
+        monitor.refresh_pending = item.refresh_pending
+        monitor.notice = item.notice
+        if item.activity is not None:
+            monitor.activity_json = ACTIVITY_ADAPTER.dump_json(item.activity).decode()
+            for event in (*item.activity.reviews, *item.activity.comments):
+                key = (identity.account_id, pr.id, event.id)
+                receipt = await session.get(ObservedActivity, key)
+                if receipt is None:
+                    receipt = ObservedActivity(
+                        account_id=identity.account_id,
+                        pull_request_id=pr.id,
+                        event_id=event.id,
+                        review_task_id=task.id,
+                    )
+                    session.add(receipt)
+                receipt.payload_json = EVENT_ADAPTER.dump_json(event).decode()

@@ -5,7 +5,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
 from pydantic_settings.sources import InitSettingsSource
@@ -78,6 +78,18 @@ class Attention(Section):
 
 
 class UI(Section):
+    browser_command: list[str] | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def known_columns(self) -> Self:
+        from diffbutler.domain.dashboard import COLUMN_IDS
+
+        if not self.columns or len(set(self.columns)) != len(self.columns):
+            raise ValueError("ui.columns must be nonempty and unique")
+        if any(column not in COLUMN_IDS for column in [*self.columns, self.sort_by]):
+            raise ValueError("Unknown column; valid columns: " + ", ".join(COLUMN_IDS))
+        return self
+
     columns: list[str] = Field(
         default_factory=lambda: [
             "state",
@@ -119,6 +131,16 @@ class Settings(BaseSettings):
     ui: UI = Field(default_factory=UI)
     keys: dict[str, list[str]] = Field(default_factory=lambda: {"open_in_browser": ["o", "ctrl+o"]})
     repos: dict[str, Repository] = Field(default_factory=dict)
+
+    @field_validator("keys", mode="before")
+    @classmethod
+    def key_lists(cls, value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: [keys] if isinstance(keys, str) else keys
+                for key, keys in cast(dict[str, object], value).items()
+            }
+        return value
 
     @model_validator(mode="after")
     def reviewer_references(self) -> Self:

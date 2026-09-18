@@ -107,14 +107,15 @@ and after its latest observed request. A later changes-requested or dismissed re
 prevents an older approval from completing it. Ambiguous ordering (a request and
 approval in the same timestamp) conservatively leaves attention pending. Incomplete
 activity, including uncertain team visibility, defers activity-based transitions;
-head changes and observed closure/merge still apply. There is no discussion/posting
-reconciliation yet; that arrives with managed sessions.
+head changes and observed closure/merge still apply. The [M3 dashboard](dashboard.md)
+also reconciles submitted feedback, inline comments and discussion comments, retaining
+receipts and respecting later local manual/waiting choices.
 
 Completion retains the task and SHA in history, removes it from active listing, and
 atomically inserts a pending cleanup job. Closed/merged PRs stop routine refresh.
 Completed open PRs remain monitored and get a new cycle on a later push/request.
-No cleanup worker or session resources exist yet, so no filesystem deletion occurs.
-There is no periodic polling loop; run `sync` for each refresh.
+Completion dispatches owned native-session cleanup, while retaining normalized history.
+The dashboard polls periodically; `sync` remains a single CLI refresh.
 
 ## Transport and remaining work
 
@@ -132,7 +133,8 @@ caller. Network/server retries are bounded, with exponential delays and jitter, 
 GitHub's [rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#handle-rate-limit-errors-appropriately).
 Doctor reports core quota; search quota becomes available after a search request.
 
-Diffs/source retrieval, publishing, forge-plugin registration, and GitLab remain
-future work. This read adapter does not establish
+Remote diffs/source retrieval, dashboard publishing, forge-plugin registration, and
+GitLab remain future work. Pinned local Git source reads and human-instructed native
+agent posting are implemented in the managed workflow. This read adapter does not establish
 background-agent isolation. Claude and macOS handoff validation remain deferred; see
 [terminal-handoff.md](terminal-handoff.md).

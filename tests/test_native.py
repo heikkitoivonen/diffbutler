@@ -35,6 +35,12 @@ pytestmark = [
 FAKE = Path(__file__).parent / "fixtures" / "fake_codex.py"
 
 
+@pytest.fixture(autouse=True)
+def isolated_native_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "synthetic-native-login"))
+    monkeypatch.delenv("CODEX_API_KEY", raising=False)
+
+
 async def prepared(tmp_path: Path) -> tuple[Settings, FakeForge]:
     repo = tmp_path / "repository"
     repo.mkdir()
@@ -377,5 +383,220 @@ async def test_managed_cleanup_failure_and_interruption_are_durable(
         managed.lifecycle.cleaner = cleaner
         status = await managed.cleanup()
         assert status.succeeded == 1 and status.failed == 0
+    finally:
+        await database.close()
+
+
+async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
+    from contextlib import nullcontext
+    from datetime import UTC, datetime
+
+    from textual.widgets import DataTable
+
+    from diffbutler.config.settings import Forge
+    from diffbutler.core.dashboard import HistoryFilter, detail_configured, history_configured
+    from diffbutler.domain.sync import ReviewActivity, ReviewEvent
+    from diffbutler.ui.tui.dashboard import Dashboard
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "empty-login"))
+    settings, forge = await prepared(tmp_path)
+    settings.forges = [
+        Forge(
+            kind="github",
+            base_url="https://api.github.com",
+            token_env="UNUSED",
+            login="reader",
+            include_team_requests=False,
+        )
+    ]
+    config = configuration(tmp_path, settings)
+    with config.open("a") as stream:
+        stream.write(
+            '\n[[forges]]\nkind="github"\nbase_url="https://api.github.com"\ntoken_env="UNUSED"\nlogin="reader"\ninclude_team_requests=false\n'
+        )
+
+    async def open_fake(_: Forge) -> FakeForge:
+        return forge
+
+    monkeypatch.setattr("diffbutler.core.application.open_forge", open_fake)
+    database = Database(settings.db.url)
+    await database.initialize()
+    queue = SQLiteQueueStore(database)
+    await DiffButler(queue, forge).sync()
+    seen: list[tuple[str, ...]] = []
+
+    async def foreground(
+        argv: Sequence[str],
+        *,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
+        started: Callable[[int], Awaitable[None]] | None = None,
+    ) -> int:
+        # Real synthetic native process, headless terminal attachment is the only fake.
+        seen.append(tuple(argv))
+        assert "wait for the human's question" in argv[-1]
+        assert "on-request" in argv and "read-only" in argv
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=cwd,
+            env=env,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        if started:
+            await started(process.pid)
+        stdout, stderr = await process.communicate()
+        assert process.returncode == 0, stderr.decode()
+        assert b"remembered orientation" in stdout
+        forge.activity = ReviewActivity(
+            ACCOUNT,
+            reviews=(
+                ReviewEvent(
+                    "review:submitted",
+                    datetime.now(UTC),
+                    "reader",
+                    "CHANGES_REQUESTED",
+                    forge.prs[REF].head_sha,
+                    "Synthetic human-instructed feedback",
+                ),
+            ),
+        )
+        return 0
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.run_foreground", foreground)
+    app = Dashboard(config, settings, offline=True)
+    monkeypatch.setattr(app, "suspend", nullcontext)
+    try:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                if not app.review_tasks:
+                    break
+            assert not app.review_tasks
+            await pilot.pause()
+            current = (await queue.snapshot(ACCOUNT)).items[0]
+            assert current.state == "PENDING_HUMAN_REVIEW"
+            task_id = current.task_id
+            assert task_id is not None
+            await pilot.press("v")
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                current = (await queue.snapshot(ACCOUNT)).items[0]
+                if (
+                    seen
+                    and not current.refresh_pending
+                    and current.state == "PENDING_AUTHOR_CHANGES"
+                ):
+                    break
+            await pilot.pause()
+            assert current.state == "PENDING_AUTHOR_CHANGES" and not current.refresh_pending
+            assert len(seen) == 1
+            await pilot.press("m")
+            await pilot.pause()
+            assert app.query_one(DataTable[str]).row_count == 0
+        history = await history_configured(config, HistoryFilter())
+        assert len(history) == 1 and history[0].cleanup_status == "succeeded"
+        assert len(history[0].runs) == 1
+        detail = await detail_configured(config, task_id)
+        assert detail.results[0].document is not None
+        assert detail.results[0].document.orientation.intent == "Change behavior"
+        assert detail.cycle.receipts[0].body == "Synthetic human-instructed feedback"
+        assert detail.results[0].stdout is None
+    finally:
+        await database.close()
+
+
+async def test_public_dashboard_native_handoff_restores_controlling_terminal(
+    tmp_path: Path,
+) -> None:
+    from tests.test_handoff_pty import Terminal
+
+    settings, forge = await prepared(tmp_path)
+    config = configuration(tmp_path, settings)
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        await DiffButler(SQLiteQueueStore(database), forge).sync()
+    finally:
+        await database.close()
+    terminal = Terminal(
+        tmp_path,
+        app_argv=[
+            sys.executable,
+            "-m",
+            "diffbutler",
+            "dashboard",
+            "--offline",
+            "--config",
+            str(config),
+        ],
+    )
+    try:
+        await asyncio.to_thread(terminal.wait, lambda: b"Pending AI review" in terminal.output)
+        terminal.send(b"r")
+        await asyncio.to_thread(terminal.wait, lambda: b"Change behavior" in terminal.output)
+        terminal.send(b"v")
+        await asyncio.to_thread(terminal.wait, lambda: b"remembered orientation" in terminal.output)
+        await asyncio.to_thread(terminal.wait, lambda: b"Agent exited 0" in terminal.output)
+        assert os.tcgetpgrp(terminal.master) == terminal.process.pid
+        # Returning leaves a resumable conversation, no approval and no extra AI run.
+        terminal.send(b"v")
+        await asyncio.to_thread(
+            terminal.wait, lambda: terminal.output.count(b"remembered orientation") == 2
+        )
+        await asyncio.to_thread(
+            terminal.wait, lambda: os.tcgetpgrp(terminal.master) == terminal.process.pid
+        )
+        await asyncio.to_thread(terminal.quit)
+    finally:
+        terminal.close()
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        from diffbutler.store.dashboard import SQLiteDashboardStore
+
+        cycles = await SQLiteDashboardStore(database).cycles()
+        assert len(cycles) == 1 and len(cycles[0].runs) == 1
+        assert cycles[0].state == "PENDING_HUMAN_REVIEW"
+    finally:
+        await database.close()
+
+
+async def test_paused_dispatch_and_cancelling_queued_review(tmp_path: Path) -> None:
+    from diffbutler.store.dashboard import SQLiteDashboardStore
+
+    settings, forge = await prepared(tmp_path)
+    database = Database(settings.db.url)
+    await database.initialize()
+    managed = ManagedReviews(database, settings, await owned_directories(settings))
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        row = await resolve_local(queue, "acme/api#1", None)
+        assert row.tracked.task_id is not None
+        await SQLiteDashboardStore(database).set_preference("reviews_paused", "true")
+        task = asyncio.create_task(managed.review(row))
+        run = None
+        try:
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                run = await managed.store.latest_run(row.tracked.task_id)
+                if run is not None:
+                    break
+            assert run is not None and run.status == "queued"
+            assert not await managed.leases.held_operations()
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert (await managed.store.get_run(run.id)).status == "cancelled"
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AI_REVIEW"
     finally:
         await database.close()

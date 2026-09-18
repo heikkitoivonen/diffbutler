@@ -96,3 +96,15 @@ def test_spec_example_parses(tmp_path: Path) -> None:
     path = tmp_path / "example.toml"
     path.write_text(example)
     assert load_settings(path, repo="acme/api").review.default_reviewer == "codex"
+
+
+def test_dashboard_columns_and_single_key_binding(tmp_path: Path) -> None:
+    path = tmp_path / "dashboard.toml"
+    path.write_text(
+        '[ui]\ncolumns=["title", "ci", "files"]\nsort_by="attention"\n[keys]\nresume_session="v"\n'
+    )
+    settings = load_settings(path)
+    assert settings.keys["resume_session"] == ["v"]
+    path.write_text('[ui]\ncolumns=["unknown"]\n')
+    with pytest.raises(ConfigError, match="valid columns"):
+        load_settings(path)

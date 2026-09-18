@@ -3,7 +3,7 @@
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from uuid import UUID
 
@@ -35,6 +35,7 @@ from diffbutler.reviewers.process import LinuxHostBoot
 from diffbutler.reviewers.prompt import PROMPT_VERSION
 from diffbutler.reviewers.resources import OwnedDirectories
 from diffbutler.sources.git import GitSourceReader
+from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.database import Database
 from diffbutler.store.lifecycle import SQLiteLifecycleStore
 from diffbutler.store.process import SQLiteProcessStore
@@ -172,17 +173,24 @@ class ManagedReviews:
             min_confidence=self.settings.review.min_confidence,
             findings_threshold=self.settings.review.findings_threshold,
         )
-        while True:
-            result = await worker.execute_requested(
-                run.id, capacity=self.settings.general.max_concurrent_reviews
-            )
-            if result is not None:
-                await self.cleanup()
-                return result
-            current = await self.reviews.get_run(run.id)
-            if current.status != "queued":
-                return current
-            await asyncio.sleep(0.25)
+        try:
+            while True:
+                preferences = await SQLiteDashboardStore(self.store.database).preferences()
+                result = await worker.execute_requested(
+                    run.id,
+                    capacity=self.settings.general.max_concurrent_reviews,
+                    paused=preferences.get("reviews_paused") == "true",
+                )
+                if result is not None:
+                    await self.cleanup()
+                    return result
+                current = await self.reviews.get_run(run.id)
+                if current.status != "queued":
+                    return current
+                await asyncio.sleep(0.25)
+        except asyncio.CancelledError:
+            await self.reviews.cancel_review(run.id)
+            raise
 
     async def findings(self, row: PullRequestRow) -> ReviewResult | None:
         if row.tracked.task_id is None:
@@ -260,8 +268,15 @@ async def handoff_configured(
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
         await managed.cleanup()
         launch = await managed.prepare_handoff(row)
+        from diffbutler.reviewers.prompt import foreground_prompt
+
+        launch = launch.model_copy(
+            update={"argv": (*launch.argv, foreground_prompt(row.tracked.pull_request))}
+        )
         exited = True
         try:
+            assert row.tracked.task_id is not None
+            await SQLiteDashboardStore(queue.database).refresh_pending(row.tracked.task_id)
             await managed.recovery.prepare_launch(launch.token, "foreground")
 
             async def started(pid: int) -> None:
@@ -274,4 +289,10 @@ async def handoff_configured(
         finally:
             if exited:
                 await managed.lifecycle.release_foreground(launch.token)
+                from diffbutler.core.dashboard import refresh_configured
+                from diffbutler.forges.base import ForgeError
+
+                # Durable refresh_pending remains visible and polling retries reads only.
+                with suppress(ForgeError, ConfigError):
+                    await refresh_configured(path, value, login)
                 await managed.cleanup()

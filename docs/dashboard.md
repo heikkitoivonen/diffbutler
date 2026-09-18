@@ -1,0 +1,135 @@
+# Dashboard, reconciliation, and history (M3)
+
+Run `diffbutler dashboard` (or `diffbutler` in an interactive terminal). The dashboard
+uses the same async core as the CLI. `--config FILE` selects configuration;
+`--offline` loads local records without starting periodic forge sync. Explicit remote
+search, refresh, and native session actions still do their requested I/O.
+
+The managed native workflow remains scoped to **Linux and Codex CLI 0.98.0**.
+[Native review setup and limitations](native-reviews.md) apply unchanged. Every AI
+run requires an explicit review action. Discovery, periodic sync, new commits,
+renewed requests, and returning from a session never request another run.
+
+## Working through the queue
+
+| Key | Action |
+|---|---|
+| `space` | Start review, discuss findings, or open the PR according to its state |
+| `r` | Request a background native review of the selected active PR |
+| `v` | Resume the exact saved conversation in the same terminal |
+| `o` / `ctrl+o` | Choose pending human review and open the browser |
+| `w` | Choose pending author changes |
+| `m` | Record your completed approval locally and dispatch cleanup |
+| `enter` | Full orientation, findings, run/session identities, receipts, and cleanup |
+| `D` | Inspect the last run's pinned diff from the configured local repository |
+| `L` | Inspect captured run output, or its deleted/unavailable indication |
+| `h` | Toggle offline completed-cycle history |
+| `C` | Retry due cleanup jobs, respecting persisted backoff |
+| `b` | Search accessible open PRs; select one with Enter to follow it |
+| `R` | Refresh forge evidence now |
+| `/` | Filter the local queue by repository, number, title, or author |
+| `f` | Cycle active, requested, following, triage, waiting/posted, and history views |
+| `s` / `S` | Cycle displayed sort columns / reverse direction |
+| `1`–`9`, header click | Sort by a displayed column |
+| `P` | Persistently pause/resume AI dispatch; current runs finish and polling continues |
+| `ctrl+c` | Cancel the selected active review; live ownership lasts until exit |
+| `y` | Copy the PR URL using terminal clipboard support |
+| `?` / `q` | Help / quit and settle reviews launched by this dashboard |
+
+Accessible-PR search is paginated (`n`); `f` in that screen chooses the next configured
+forge. Following a result does not start AI. Return to the queue and press `r`.
+The CLI also supports repository/author/state search filters through `ls --view all`.
+
+The clean preview leads with intent, look-here guidance and unverified checks.
+Full details retain all findings, including findings below the configured triage
+threshold. Analyzed and current SHAs are shown separately. Table cell updates preserve
+selection; changed ordering preserves selection by task identity where possible.
+Forge and model text is displayed literally, with terminal control characters removed.
+
+`o` records `opened_at` and pending human review before browser dispatch, then advances
+the cursor. A browser failure retains that choice and shows a copyable URL. SSH or a
+missing graphical browser environment uses the same URL/clipboard fallback. The optional
+`ui.browser_command` is an **argv list**; the URL is appended as one argument, with no
+shell interpolation. History browser actions only open URLs and never change task state.
+
+`m` is a local completion record, not a forge approval submission. Approval on GitHub
+remains the human's browser action. Completed rows disappear immediately; cleanup
+may remain pending while a foreground or background owner is still alive.
+
+## Return reconciliation
+
+Entering a native session records a durable refresh-pending flag. Its resume prompt
+asks the agent to wait for discussion, and permits feedback only after the human
+explicitly specifies what to publish inside that session. Native read-only/on-request
+controls remain in force. DiffButler does not execute or retry any posting operation.
+
+On verified foreground exit, the core refreshes that PR using its configured account
+and reads paginated request events, submitted reviews, inline comments, and discussion
+comments. Successful polling repeats this reconciliation for followed PRs independently
+of current request membership. Agent output claiming publication is never evidence.
+
+- Closure/merge or a newly observed own approval completes the cycle and schedules cleanup.
+- A new head or renewed request returns attention to pending AI review. Feedback on an
+  older head cannot hide that work.
+- A newly observed own submitted COMMENTED/CHANGES_REQUESTED review on the current head
+  defaults to waiting for author changes and shows the observed inline-comment count.
+- Standalone comments and other people's reviews are retained and surfaced as activity;
+  they do not establish waiting or completion. No new feedback preserves the prior state.
+- Incomplete activity reads preserve previous activity evidence and defer feedback
+  transitions. A failed return refresh leaves a visible refresh-pending indication.
+
+Stable event IDs deduplicate receipts across polling and cycles. Receipts retain author,
+body, head association where available, and timestamps. A local `o`/`w` choice increments
+the account's sync generation and saves an event/time watermark. In-flight refreshes
+must retry; older feedback cannot repeatedly undo that choice. Nothing attempts to map
+similar comment text onto finding agreement or rejection.
+
+Polling runs serially at `general.poll_interval_s`, backs off on errors, and uses the
+adapter's rate-limit handling. The app remains responsive while reads and native reviews
+run. Polling never replays writes or requests AI. Pausing AI dispatch also applies to
+configured CLI reviews; an already explicitly requested run may wait queued until resume.
+
+## Offline history and CLI actions
+
+```sh
+diffbutler open 'acme/api#1841'
+diffbutler waiting 'acme/api#1841'
+diffbutler history --repo acme/api --number 1841
+diffbutler history --reason local_approval --since 2026-09-01 --json
+diffbutler history --task CYCLE_UUID
+```
+
+History reads SQLite without forge credentials or native tools. Each completed cycle
+retains its PR snapshot, reviewed SHAs, normalized orientation/findings/anchors, submitted
+feedback receipts, completion reason/time, and cleanup result. `--task` selects a specific
+cycle, including earlier cycles after the PR receives another push. `--login`, `--until`,
+repository, number, reason and date filters are available. Dates without a timezone use UTC.
+
+Cleanup deletes owned native conversations, snapshots and raw output, while these normalized
+records remain. `D` explicitly rereads pinned objects from the user's configured repository;
+it does not recreate a session or fetch missing Git objects. Raw logs are unavailable after
+cleanup. No history pruning is performed. Older pre-M3 completed cycles have their retained
+SHA/completion records but may use the latest known PR title/URL when no cycle snapshot exists.
+
+Migration `0009` adds cycle snapshots, refresh status, forge receipts and UI preferences.
+The existing database upgrade/backup rules apply. Sort and AI-dispatch pause survive restart.
+All configured column IDs are validated and sortable; unavailable numeric metadata sorts
+last. CI currently displays `unknown` because status/check hydration is not implemented.
+
+## Evidence and remaining scope
+
+Offline tests cover submitted feedback, partial/comment pagination failures, manual override
+races, deduplication, history across cycles, headless dashboard actions, browser failure,
+sorting, accessible browsing, paused/cancelled queued runs and native handoff reconciliation.
+An end-to-end synthetic Codex flow starts from the dashboard, resumes the saved conversation,
+observes fake forge feedback on return, completes the cycle, deletes owned resources, and
+reads retained history. The production dashboard also passes repeated same-terminal resume
+in a controlling PTY, with terminal modes restored. These are synthetic acceptance tests;
+no live managed Codex review or GitHub write was performed.
+
+The M3 native discussion/posting loop is implemented. Claude/macOS native integration,
+live-provider acceptance, same-boot orphan supervision, automatic fetching, and large-diff
+splitting remain outside this supported scope. Optional structured finding dispositions
+and dashboard posting, snooze/dismiss conveniences, finding deep links, and CI hydration
+remain future work. The spec's full UI catalogue contains those targets as well as shipped
+features; this guide lists the implemented actions.

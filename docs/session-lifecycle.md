@@ -1,8 +1,8 @@
-# Session ownership and cleanup (M2 internal services)
+# Session ownership and cleanup
 
 `LifecycleService` and `SQLiteLifecycleStore` add durable foreground ownership and
 an internal cleanup worker step. The [native CLI integration](native-reviews.md) supplies launch and owned-home
-cleanup. Periodic workers and the dashboard remain M3.
+cleanup. The [dashboard](dashboard.md) polls forge activity and dispatches due cleanup.
 
 An explicit resume action can acquire a foreground lease only for a current open
 review task with a saved backend identity. A queued/running attempt or retained
@@ -10,7 +10,8 @@ worker claim prevents acquisition. A foreground lease blocks another attachment,
 background requests/claims, and suspension for that task. Revision and task-version
 baselines are saved with the exact backend ID; a push cannot replace the conversation
 under its owner. Acquisition does not create an AI run or authorize publication.
-It is not yet a forge-activity baseline or a complete native handoff record.
+The monitor separately retains the last complete forge-activity baseline; M3 marks
+refresh pending on entry and reconciles actual reviews/comments on verified return.
 
 Migration `0007` retains foreground leases and cleanup claims. They never expire
 based on elapsed time. `held_operations` exposes immutable records after restart.
@@ -92,8 +93,8 @@ is stable during a boot. Unsupported identity reads fail closed. This mechanism 
 independent of native agent sandboxing and does not validate kernel confinement.
 
 The configured core handoff context owns foreground acquisition, launch intent, PID
-checkpointing, release, and completion cleanup. The CLI only attaches the terminal
-and reports uncertain exit. Cleanup records host/boot intent before filesystem I/O;
+checkpointing, release, and completion cleanup. The CLI and TUI attach the terminal and report uncertain exit; the core refreshes
+forge activity after verified return. Cleanup records host/boot intent before filesystem I/O;
 cancellation retains its claim, and verified reboot recovery schedules a retry.
 `approved` and `cleanup` show all-history job counts and return status 1 while failed
 jobs remain. Pending and running jobs remain visible without implying deletion.

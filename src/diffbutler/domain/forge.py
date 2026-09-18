@@ -49,6 +49,11 @@ class PullRequest:
     updated_at: datetime
     requested_users: tuple[str, ...]
     requested_teams: tuple[str, ...]
+    additions: int | None = None
+    deletions: int | None = None
+    files: int | None = None
+    labels: tuple[str, ...] = ()
+    ci: str = "unknown"
 
 
 @dataclass(frozen=True)

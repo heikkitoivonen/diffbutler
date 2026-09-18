@@ -406,6 +406,8 @@ async def test_activity_paginates_requests_and_reviews_and_filters_teams() -> No
                     {"slug": "reviewers", "organization": {"login": "acme"}},
                 ],
             )
+        if path.endswith("/comments"):
+            return httpx.Response(200, json=[])
         page = int(request.url.params["page"])
         headers = {"link": f'<{API}{path}?page=2>; rel="next"'} if page == 1 else {}
         if path.endswith("/events"):

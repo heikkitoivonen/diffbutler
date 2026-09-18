@@ -10,7 +10,7 @@ from diffbutler.ui.cli import main
 def test_no_arguments_explains_project_status(capsys: pytest.CaptureFixture[str]) -> None:
     main([])
     output = capsys.readouterr()
-    assert "Native CLI reviews are available" in " ".join(output.out.split())
+    assert "Run diffbutler dashboard" in " ".join(output.out.split())
     assert output.err == ""
 
 

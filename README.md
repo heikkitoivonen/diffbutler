@@ -7,7 +7,7 @@ AI review, your review, or author changes. You decide when an AI review starts,
 discuss findings in the agent's own terminal session, and do the human pass in
 your browser.
 
-**Status: M0–M2 implemented for the Linux/Codex scope below. The dashboard is M3.**
+**Status: M0–M3 implemented for the Linux/Codex scope below, with offline acceptance.**
 Configuration, SQLite migrations, doctor, and the [GitHub adapter](docs/github.md)
 now support a persistent review queue through the Typer CLI. Direct/team requests
 are deduplicated, followed PRs remain monitored after request removal, and observed
@@ -23,7 +23,7 @@ uv run diffbutler follow 'acme/api#1841'
 ```
 
 Configure a forge before remote commands. Local listing works offline. `sync` is a
-single refresh; there is no periodic poller yet. These commands never invoke AI or
+single refresh; the dashboard polls periodically. These commands never invoke AI or
 post to a forge. [Native reviews and resumable sessions](docs/native-reviews.md) are
 available with a configured Codex reviewer and pinned local Git objects:
 
@@ -69,19 +69,23 @@ Configuration lives at `$XDG_CONFIG_HOME/diffbutler/config.toml` (default
 `doctor --config FILE` requires that file to exist. For settings, examples, environment
 overrides, and database backup behavior, see [configuration and storage](docs/configuration.md).
 
-## Planned workflow
+## Dashboard workflow
 
-- Include review requests addressed to you or your teams, with an all-PR browser.
+Run `diffbutler dashboard` (or `diffbutler` in an interactive terminal). Use
+`diffbutler dashboard --offline` for local queue/history reads without polling.
+See the [dashboard guide](docs/dashboard.md) for keys, configuration, and acceptance evidence.
+
+- Include review requests addressed to you or your teams, with accessible-PR search (`b`).
 - Press `r` to start a background, source-only AI review. Reviews never start automatically.
 - Press `v` to hand the terminal to the resumed agent for discussion and instructed posting.
 - Return to a dashboard refreshed from GitHub. Press `o` for the manual browser review,
   or `w` to mark that you're waiting for author changes.
 - Mark approved with `m`, or let closure/merge finish the task. Clean up the session
-  automatically and retain review history in SQLite.
+  automatically and retain review history in SQLite (`h` or `diffbutler history`).
 
-Background analysis will be read-only. Interactive agents may post only on your
+Background analysis is read-only. Interactive agents may post only on your
 instruction. Source sent to an AI agent may leave your machine for its model provider;
-repository opt-in and credential isolation are part of the design.
+repository opt-in and the native permission/authentication limitations are described above.
 
 ## Development quick start
 
@@ -139,11 +143,11 @@ scripts/        Development and packaging checks
 The config, store, GitHub read adapter, doctor, and shared queue services are implemented;
 M2 now includes reviewer/source protocols, immutable session/run DTOs, and durable
 session/run tables, plus [explicit starts and transactional worker claims](docs/review-scheduling.md).
-The Linux/Codex native adapter connects these services through the shared core and CLI.
+The Linux/Codex native adapter connects these services through the shared core, CLI and dashboard.
 The optional Bubblewrap primitive is not part of that execution path.
 The terminal handoff experiment lives in `ui/tui/`.
 Import-linter enforces their dependency direction from the start. Textual is used by
-the experiment; Pydantic validates configuration, SQLAlchemy/Alembic manage SQLite,
+the dashboard and experiment; Pydantic validates configuration, SQLAlchemy/Alembic manage SQLite,
 HTTPX provides async GitHub reads, and Typer powers the CLI.
 
 ## Contributing

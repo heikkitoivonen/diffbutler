@@ -43,7 +43,7 @@ app = typer.Typer(
     rich_markup_mode=None,
     pretty_exceptions_enable=False,
     help="A terminal dashboard for human-directed AI code reviews.",
-    epilog="Native CLI reviews are available; the dashboard is planned for M3.",
+    epilog="Run diffbutler dashboard for the interactive queue, or history for completed cycles.",
 )
 ConfigOption = Annotated[Path | None, typer.Option(help="Explicit TOML file (must exist)")]
 ForgeOption = Annotated[int, typer.Option(min=1, help="Configured forge, numbered from one")]
@@ -87,7 +87,10 @@ def root(
     ] = False,
 ) -> None:
     if context.invoked_subcommand is None:
-        typer.echo(context.get_help())
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            dashboard()
+        else:
+            typer.echo(context.get_help())
 
 
 @app.command()
@@ -303,6 +306,15 @@ def session(pr: str, config: ConfigOption = None, login: str | None = None) -> N
             raise NativeError("Foreground exit is uncertain; ownership retained") from None
 
     code = run(attach())
+    from diffbutler.core.application import local_store
+    from diffbutler.core.managed import resolve_local
+
+    async def pending() -> bool:
+        async with local_store(config) as (queue, _):
+            return (await resolve_local(queue, pr, login)).tracked.refresh_pending
+
+    if run(pending()):
+        typer.echo("Refresh pending; run sync to reconcile forge activity.", err=True)
     if code:
         raise typer.Exit(code)
 
@@ -315,3 +327,105 @@ def main(argv: Sequence[str] | None = None) -> None:
     except SystemExit as exc:
         if exc.code or any(arg in {"--help", "--version"} for arg in arguments):
             raise
+
+
+@app.command()
+def dashboard(config: ConfigOption = None, offline: bool = False) -> None:
+    """Open the dashboard; --offline reads local state without polling the forge."""
+    from diffbutler.config.settings import load_settings
+    from diffbutler.ui.tui.dashboard import Dashboard
+
+    async def launch() -> None:
+        settings = await asyncio.to_thread(load_settings, config)
+        await Dashboard(config, settings, offline=offline).run_async()
+
+    run(launch())
+
+
+@app.command()
+def waiting(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
+    """Explicitly wait for author changes without posting feedback."""
+    from diffbutler.core.dashboard import state_configured
+
+    run(state_configured(config, pr, login, waiting=True))
+    typer.echo("Waiting for author changes.")
+
+
+@app.command(name="open")
+def open_pr(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
+    """Choose manual review and open the browser; never submit approval."""
+    from diffbutler.config.settings import load_settings
+    from diffbutler.core.dashboard import state_configured
+    from diffbutler.ui.tui.browser import open_browser
+
+    async def open_selected() -> None:
+        url = await state_configured(config, pr, login, waiting=False)
+        settings = await asyncio.to_thread(load_settings, config)
+        try:
+            opened = await open_browser(url, settings.ui.browser_command)
+        except OSError, TimeoutError:
+            opened = False
+        typer.echo(
+            "Manual review chosen. " + ("Browser opened." if opened else "Open: " + safe(url))
+        )
+
+    run(open_selected())
+
+
+@app.command()
+def history(
+    config: ConfigOption = None,
+    repo: str | None = None,
+    number: int | None = None,
+    reason: str | None = None,
+    login: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    task: str | None = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Read completed cycles offline, or --task UUID for retained analysis and receipts."""
+    from datetime import UTC, datetime
+    from uuid import UUID
+
+    from diffbutler.core.dashboard import HistoryFilter, detail_configured, history_configured
+    from diffbutler.domain.dashboard import CycleRecord
+
+    def date(value: str | None) -> datetime | None:
+        if value is None:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+        except ValueError:
+            raise typer.BadParameter("Dates must use ISO format") from None
+
+    if task:
+        try:
+            task_id = UUID(task)
+        except ValueError:
+            raise typer.BadParameter("--task must be a cycle UUID") from None
+        detail = run(detail_configured(config, task_id))
+        typer.echo(detail.model_dump_json())
+        return
+    rows = run(
+        history_configured(
+            config,
+            HistoryFilter(
+                repository=repo,
+                number=number,
+                reason=reason,
+                login=login,
+                since=date(since),
+                until=date(until),
+            ),
+        )
+    )
+    if json_output:
+        typer.echo(TypeAdapter(tuple[CycleRecord, ...]).dump_json(rows).decode())
+    else:
+        for row in rows:
+            print_pr(
+                row.pull_request, f"cycle {row.cycle} · {row.completion_reason}", row.account.login
+            )
+            typer.echo(safe(f"  {row.task_id} · {row.completed_at} · cleanup {row.cleanup_status}"))

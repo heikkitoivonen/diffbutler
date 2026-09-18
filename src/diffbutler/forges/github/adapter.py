@@ -18,10 +18,11 @@ from diffbutler.domain.forge import (
     TeamMembership,
     identity_part,
 )
-from diffbutler.domain.sync import RequestEvent, ReviewActivity, ReviewEvent
+from diffbutler.domain.sync import CommentEvent, RequestEvent, ReviewActivity, ReviewEvent
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.http import GitHubHTTP
 from diffbutler.forges.github.mapping import (
+    Comment,
     IssueEvent,
     Review,
     SearchResult,
@@ -235,8 +236,14 @@ class GitHubForge:
         warnings = list(memberships.warnings)
         requests: dict[str, RequestEvent] = {}
         reviews: dict[str, ReviewEvent] = {}
+        comments: dict[str, CommentEvent] = {}
         prefix = f"repos/{ref.namespace}/{ref.repository}"
-        endpoints = (f"{prefix}/issues/{ref.number}/events", f"{prefix}/pulls/{ref.number}/reviews")
+        endpoints = (
+            f"{prefix}/issues/{ref.number}/events",
+            f"{prefix}/pulls/{ref.number}/reviews",
+            f"{prefix}/pulls/{ref.number}/comments",
+            f"{prefix}/issues/{ref.number}/comments",
+        )
         for endpoint in endpoints:
             for page in range(1, 101):
                 try:
@@ -264,6 +271,20 @@ class GitHubForge:
                             if addressed:
                                 key = f"request:{event.id:020d}"
                                 requests[key] = RequestEvent(key, timestamp(event.created_at))
+                        elif endpoint.endswith("/comments"):
+                            comment = parse(Comment, value)
+                            kind = "inline" if "/pulls/" in endpoint else "discussion"
+                            key = f"{kind}:{comment.id:020d}"
+                            comments[key] = CommentEvent(
+                                key,
+                                timestamp(comment.created_at),
+                                comment.user.login if comment.user else "[deleted]",
+                                comment.body,
+                                comment.commit_id or "",
+                                f"review:{comment.pull_request_review_id:020d}"
+                                if comment.pull_request_review_id is not None
+                                else None,
+                            )
                         else:
                             review = parse(Review, value)
                             if review.submitted_at is None or review.user is None:
@@ -275,6 +296,7 @@ class GitHubForge:
                                 review.user.login,
                                 review.state,
                                 review.commit_id or "",
+                                review.body or "",
                             )
                     if not response.next_page:
                         break
@@ -289,6 +311,7 @@ class GitHubForge:
             tuple(reviews.values()),
             not warnings,
             tuple(dict.fromkeys(warnings)),
+            tuple(comments.values()),
         )
 
     async def health(self) -> ForgeHealth:

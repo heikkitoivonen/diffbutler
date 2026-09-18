@@ -37,7 +37,16 @@ class Branch(ResponseModel):
     repo: Repository | None
 
 
+class Label(ResponseModel):
+    name: str
+
+
 class Pull(ResponseModel):
+    additions: int | None = Field(default=None, ge=0)
+    deletions: int | None = Field(default=None, ge=0)
+    changed_files: int | None = Field(default=None, ge=0)
+    labels: list[Label] = Field(default_factory=list[Label])
+
     number: int = Field(gt=0)
     title: str
     user: User | None
@@ -107,6 +116,10 @@ def pull_request(value: object, *, forge: str, web_base: str) -> PullRequest:
             is_draft=data.draft,
             created_at=timestamp(data.created_at),
             updated_at=timestamp(data.updated_at),
+            additions=data.additions,
+            deletions=data.deletions,
+            files=data.changed_files,
+            labels=tuple(label.name for label in data.labels),
             requested_users=tuple(user.login.lower() for user in data.requested_reviewers),
             requested_teams=tuple(
                 f"{owner.lower()}/{team.slug.lower()}" for team in data.requested_teams
@@ -125,8 +138,18 @@ class IssueEvent(ResponseModel):
 
 
 class Review(ResponseModel):
+    body: str | None = None
     id: int
     user: User | None
     state: str
     submitted_at: str | None = None
     commit_id: str | None = None
+
+
+class Comment(ResponseModel):
+    id: int
+    user: User | None
+    body: str
+    created_at: str
+    commit_id: str | None = None
+    pull_request_review_id: int | None = None

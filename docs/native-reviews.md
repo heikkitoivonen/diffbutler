@@ -1,4 +1,4 @@
-# Native CLI reviews (M2)
+# Native CLI reviews (M2–M3)
 
 The managed review path currently supports **Codex CLI 0.98.0 on Linux**. DiffButler
 selects the agent's native read-only sandbox; it does not create an additional OS
@@ -52,7 +52,8 @@ Both `approved` and `cleanup` report counts of succeeded, pending, running, and
 failed cleanup jobs across all local history. Failed jobs produce exit status 1;
 completion remains recorded even if deletion fails. Pending/running counts do not
 claim deletion succeeded. Retries respect the stored backoff.
-The dashboard, periodic polling, native posting reconciliation, and history UI are M3.
+The [M3 dashboard](dashboard.md) adds periodic polling, native return reconciliation,
+state overrides and offline history.
 
 `general.workspace_root` optionally selects the private managed root (default:
 `$XDG_DATA_HOME/diffbutler/reviews`). Never point it at a repository or existing
@@ -89,7 +90,9 @@ This relies on the installed agent's sandbox and approval implementation. DiffBu
 does not independently restrict every host-file read, every tool, or network egress.
 Source-only review is an instruction, not a ban on all command execution enforced by
 DiffButler. Foreground posting requires explicit instruction inside the agent;
-opening a session grants no publication approval. Credential redaction is heuristic,
+opening a session grants no publication approval. Foreground resume includes a discussion
+prompt that permits feedback only after the human explicitly instructs it; on return, the
+core observes actual forge activity and retains a refresh-pending flag when reads fail. Credential redaction is heuristic,
 and a resumed conversation can contain material from earlier foreground discussion.
 
 ## Ownership, output, and cleanup

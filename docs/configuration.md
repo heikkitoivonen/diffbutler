@@ -37,8 +37,7 @@ path = "~/src/acme/api"
 checkout = "mediated"
 ```
 
-These workflow settings are validated now; manual queue sync is implemented, while
-periodic polling and AI review workflows are not yet implemented. `enabled` is
+These settings configure manual sync, dashboard polling, and explicit native reviews. `enabled` is
 repository AI opt-in metadata, not a trigger to start anything.
 The full planned example in [SPEC.md §11](../SPEC.md#11-configuration) also parses;
 M0 supports configuration for CLI reviewers only. Reviewer IDs must be unique and
@@ -75,7 +74,7 @@ backup; the shipped `0001` is unchanged.
 
 Discovery/follow persist pending attention. Observed completion retains cycle history
 and atomically schedules a cleanup job. Monitor state survives completed cycles and
-request removal. Completion cleanup is implemented; the history interface is M3. Revision `0003`
+request removal. Completion cleanup and the [offline history interface](dashboard.md) are implemented. Revision `0003`
 adds session identity and analysis-attempt tables, including task/reviewer
 foreign-key consistency and unique analysis-key/attempt pairs. No sessions or runs
 are created by queue sync. Revision `0004` adds durable worker claims for the internal
@@ -105,3 +104,14 @@ of model findings; older results remain explicitly unvalidated.
 Revision `0007` adds durable [foreground leases and cleanup claims](session-lifecycle.md).
 
 Revision `0008` retains claim-protected launch intent and host/boot identities for recovery.
+
+
+Revision `0009` adds retained forge receipts, per-cycle PR snapshots, refresh-pending
+status and persistent UI preferences. See [dashboard operation](dashboard.md).
+
+`ui.columns` and `ui.sort_by` accept the registered IDs listed in SPEC §10.2;
+unknown IDs fail validation. `ui.browser_command` accepts an argv list, for example
+`["firefox", "--new-tab"]`; the UI appends the PR URL without a shell. The dashboard
+persists interactive sort and AI-dispatch pause choices in SQLite. It supports active,
+requested, following, triage, posted/waiting, and history presets; `all` opens accessible
+PR search. The future snoozed preset is not yet a separate dashboard view.

@@ -19,15 +19,15 @@ tells you where to look.
 
 > **Name:** DiffButler. Python package and CLI command: `diffbutler`.
 
-**Status:** M0–M2 are implemented for the Linux/Codex native scope. Configuration,
-GitHub queue sync, review execution, pinned source snapshots, durable conversations,
-parsing/anchors, exact native resume, and owned local cleanup are available through
-the CLI. See [native review scope and evidence](docs/native-reviews.md). Codex 0.98.0
-help/version were verified; public CLI acceptance includes restart, exact-session
-PTY resume, explicit retry, completion, and cleanup. Automated tests are offline, with no paid
-managed review run. Claude and macOS validation remain deferred. The dashboard,
-periodic polling, full posting reconciliation, and history UI are M3. Design details
-below beyond that documented scope remain targets.
+**Status:** M0–M3 are implemented for the Linux/Codex native workflow. Configuration,
+GitHub queue sync and polling, explicit reviews, pinned sources, durable conversations,
+parsing/anchors, exact native resume, return reconciliation, state overrides, owned cleanup,
+and offline cycle history are available through the shared core, CLI and Textual dashboard.
+See [dashboard scope and evidence](docs/dashboard.md) and [native review support](docs/native-reviews.md).
+Codex 0.98.0 flags were checked locally. Acceptance includes synthetic review/feedback/history
+and production-dashboard PTY resume with terminal restoration; no live managed-provider
+review or forge write was performed. Claude/macOS native validation and optional UI
+conveniences remain deferred. Details below beyond the documented scope remain targets.
 
 ---
 
@@ -1250,7 +1250,8 @@ requires marked approval or forge completion, §5.2).
 because this is the feature people notice breaking: if `$BROWSER` and `$DISPLAY` are
 unset or `SSH_CONNECTION` is set, fall back to copying the URL via OSC 52 and showing
 a toast with the URL — over SSH, the *local* browser is the one you want, and OSC 52
-reaches it. `[ui] browser_command = "..."` overrides everything.
+reaches it. `[ui] browser_command = ["executable", "argument"]` overrides everything; the URL
+is appended as one argv element, without shell interpolation.
 
 ### 10.5 Responsiveness
 
