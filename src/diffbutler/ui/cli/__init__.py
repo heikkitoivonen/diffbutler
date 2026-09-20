@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import sys
 from collections.abc import Coroutine, Sequence
 from enum import StrEnum
@@ -13,6 +14,7 @@ import typer
 from pydantic import TypeAdapter
 from sqlalchemy.exc import SQLAlchemyError
 
+from diffbutler.config.diagnostics import configure_logging, stop_logging
 from diffbutler.config.file import show_config_file
 from diffbutler.config.settings import ConfigError
 from diffbutler.core.application import (
@@ -64,12 +66,15 @@ def run[T](operation: Coroutine[Any, Any, T]) -> T:
         NativeError,
         SourceError,
     ) as exc:
+        logging.getLogger(__name__).exception("CLI operation failed")
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from None
     except TimeoutError:
+        logging.getLogger(__name__).exception("CLI operation timed out")
         typer.echo("Error: operation timed out; inspect the saved run status", err=True)
         raise typer.Exit(1) from None
     except OSError, SQLAlchemyError:
+        logging.getLogger(__name__).exception("CLI storage operation failed")
         typer.echo(
             "Error: local storage unavailable; check permissions, space, and database integrity",
             err=True,
@@ -90,6 +95,16 @@ def root(
         bool, typer.Option("--version", "-v", callback=show_version, is_eager=True)
     ] = False,
 ) -> None:
+    if context.invoked_subcommand != "reset":
+        try:
+            configure_logging()
+        except OSError:
+            typer.echo(
+                "Warning: diagnostic log unavailable; check state directory permissions.", err=True
+            )
+        logging.getLogger(__name__).info(
+            "Application startup command=%s", context.invoked_subcommand or "default"
+        )
     if context.invoked_subcommand is None:
         if sys.stdin.isatty() and sys.stdout.isatty():
             dashboard()
@@ -118,18 +133,22 @@ def config(
 @app.command()
 def reset(
     force: Annotated[
-        bool, typer.Option("--force", help="Remove configuration and data without confirmation")
+        bool,
+        typer.Option(
+            "--force", help="Remove configuration, data, and diagnostic logs without confirmation"
+        ),
     ] = False,
 ) -> None:
-    """Remove all files in the standard DiffButler configuration and data directories."""
+    """Remove standard DiffButler configuration, data, and state directories."""
     paths = reset_paths()
     typer.echo("This will permanently remove these DiffButler directories and their contents:")
     for path in paths:
         typer.echo(f"  {safe(str(path))}")
     if not force:
         typer.confirm("Are you sure?", default=False, abort=True)
+    stop_logging()
     run(reset_directories(paths))
-    typer.echo("DiffButler configuration and data removed.")
+    typer.echo("DiffButler configuration, data, and diagnostic logs removed.")
 
 
 @app.command()
@@ -363,6 +382,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     arguments = list(argv) if argv is not None else sys.argv[1:]
     try:
         app(args=arguments, prog_name="diffbutler")
+    except Exception:
+        logging.getLogger(__name__).exception("Unhandled application failure")
+        raise
     except SystemExit as exc:
         if exc.code or any(arg in {"-h", "--help", "-v", "--version"} for arg in arguments):
             raise

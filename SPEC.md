@@ -1289,12 +1289,19 @@ the path. Editor arguments are parsed without shell execution.
 
 `diffbutler reset [--force]` removes the standard configuration directory
 (`$XDG_CONFIG_HOME/diffbutler`, default `~/.config/diffbutler`) and data directory
-(`$XDG_DATA_HOME/diffbutler`, default `~/.local/share/diffbutler`), including all
+(`$XDG_DATA_HOME/diffbutler`, default `~/.local/share/diffbutler`), and state directory
+(`$XDG_STATE_HOME/diffbutler`, default `~/.local/state/diffbutler`), including all
 contents. Print the target paths and request confirmation, defaulting to no;
 `--force` skips the prompt. Do not load configuration or initialize storage.
 Missing directories are harmless. Unlink symbolic links rather than deleting their
 targets; custom configuration/database/workspace paths outside these directories
 are out of scope. Report deletion failures with a nonzero exit status.
+
+Application diagnostics use the state directory's `logs/diffbutler.log`, rotating at
+5 MiB with three backups. Log startup, sync/review lifecycle, HTTP timing and quota
+metadata, and exception frames without locals or source text. Exclude credentials,
+PR content, prompts, request URLs/bodies, and arbitrary exception messages; retain
+safe ConfigError messages. Never write diagnostic records into the interactive terminal.
 
 Live dashboard startup with no configured forge performs local Git discovery before
 asking for missing forge/repository choices. Prefer `origin`, otherwise require

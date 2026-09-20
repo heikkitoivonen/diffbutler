@@ -1,6 +1,7 @@
 """Bounded async GET transport with conditional reads and origin confinement."""
 
 import asyncio
+import logging
 import math
 import random
 import time
@@ -118,12 +119,32 @@ class GitHubHTTP:
                     )
                 ready = max(ready, previous + interval)
             if ready > current:
+                logging.getLogger(__name__).info(
+                    "GitHub pacing resource=%s delay_s=%.3f", resource, ready - current
+                )
                 await self.sleep(ready - current)
         started = self.now()
         self.last_request = started
         self.last_resource_request[resource] = started
-        response = await self.client.get(url, headers=headers)
+        began = time.monotonic()
+        try:
+            response = await self.client.get(url, headers=headers)
+        except httpx.RequestError:
+            logging.getLogger(__name__).exception("GitHub transport failed resource=%s", resource)
+            raise
         self.record_limit(response.headers)
+        quota = self.limits.get(resource)
+        logging.getLogger(__name__).info(
+            "GitHub response resource=%s status=%d elapsed_s=%.3f "
+            "limit=%s remaining=%s reset=%s retry_after_s=%s",
+            resource,
+            response.status_code,
+            time.monotonic() - began,
+            quota.limit if quota else None,
+            quota.remaining if quota else None,
+            quota.reset_at.timestamp() if quota else None,
+            self.retry_delay(response),
+        )
         return response
 
     def checked_url(self, value: str | httpx.URL) -> httpx.URL:

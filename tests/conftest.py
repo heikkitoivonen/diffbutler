@@ -14,6 +14,7 @@ def isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             monkeypatch.delenv(key)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
 
 
 @pytest.fixture(autouse=True)

@@ -1,6 +1,7 @@
 """Textual dashboard over the same configured core used by the CLI."""
 
 import asyncio
+import logging
 from collections.abc import Awaitable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,7 +18,7 @@ from textual.events import Resize
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
-from diffbutler.config.settings import Settings
+from diffbutler.config.settings import ConfigError, Settings
 from diffbutler.core.dashboard import (
     CycleDetail,
     DashboardRow,
@@ -499,12 +500,12 @@ class Dashboard(TerminalApp):
     async def guarded(self, operation: Awaitable[None]) -> None:
         try:
             await operation
-        except ForgeError as exc:
+        except (ForgeError, ConfigError) as exc:
+            logging.getLogger(__name__).exception("Dashboard operation failed")
             self.status(f"Operation failed: {exc}")
         except Exception as exc:
-            self.status(
-                f"Operation failed ({type(exc).__name__}); retry or use the CLI for diagnostics."
-            )
+            logging.getLogger(__name__).exception("Dashboard operation failed")
+            self.status(f"Operation failed ({type(exc).__name__}); see diagnostic log for details.")
         finally:
             if not self.attached:
                 await self.reload()
@@ -515,12 +516,16 @@ class Dashboard(TerminalApp):
         async with self.sync_lock:
             try:
                 self.status("Refreshing GitHub; requests are paced to respect rate limits.")
+                logging.getLogger(__name__).info("Forge sync started")
                 await poll_configured(self.path)
+                logging.getLogger(__name__).info("Forge sync completed")
                 self.status("Forge refreshed")
             except ForgeError as exc:
+                logging.getLogger(__name__).exception("Forge sync failed")
                 self.status(f"Refresh pending: {exc}. Previous evidence retained.")
                 raise
             except Exception:
+                logging.getLogger(__name__).exception("Forge sync failed")
                 self.status("Refresh pending; previous evidence retained. Polling will retry.")
                 raise
             finally:
@@ -591,9 +596,13 @@ class Dashboard(TerminalApp):
             return
 
         async def review() -> None:
+            logging.getLogger(__name__).info("Review requested task=%s", key)
             try:
                 result = await review_configured(
                     self.path, row.row.tracked.pull_request.url, row.row.account.login, None
+                )
+                logging.getLogger(__name__).info(
+                    "Review finished task=%s status=%s", key, result.status
                 )
                 self.status(f"AI review {result.status}; no publication or approval implied.")
             finally:
@@ -614,6 +623,7 @@ class Dashboard(TerminalApp):
     async def attach(self, row: DashboardRow) -> None:
         if self.attached:
             return
+        logging.getLogger(__name__).info("Foreground agent requested")
         self.attached = True
         error: BaseException | None = None
         code: int | None = None
@@ -636,6 +646,7 @@ class Dashboard(TerminalApp):
                     raise error
         finally:
             self.attached = False
+        logging.getLogger(__name__).info("Foreground agent exited code=%s", code)
         self.status(f"Agent exited {code}; forge refresh attempted. Check refresh-pending badges.")
 
     def action_resume_session(self) -> None:

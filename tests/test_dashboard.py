@@ -639,3 +639,33 @@ async def test_monitoring_requires_configured_repositories(
     with pytest.raises(ForgeError, match="Set repositories"):
         await toggle_monitoring_configured(path)
     assert "monitor_all_prs" not in await preferences_configured(path)
+
+
+@pytest.mark.asyncio
+async def test_review_configuration_failure_is_visible_and_logged(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from diffbutler.config.diagnostics import configure_logging, stop_logging
+    from diffbutler.config.settings import ConfigError
+
+    _, queue, forge, path = ledger
+    await DiffButler(queue, forge).sync()
+
+    async def fail(*args: object) -> None:
+        raise ConfigError("Native review requires a configured local repository path")
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.review_configured", fail)
+    log = configure_logging()
+    try:
+        app = Dashboard(path, load_settings(path), offline=True)
+        async with app.run_test() as pilot:
+            await pilot.press("r")
+            await pilot.pause()
+            assert "Native review requires" in str(app.query_one("#status", Static).content)
+        content = log.read_text()
+        assert "Review requested task=" in content
+        assert "Dashboard operation failed" in content
+        assert "ConfigError" in content and "in fail" in content
+    finally:
+        stop_logging()

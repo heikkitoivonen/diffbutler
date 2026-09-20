@@ -73,8 +73,8 @@ Configuration lives at `$XDG_CONFIG_HOME/diffbutler/config.toml` (default
 prints its full path at the end. Use `diffbutler config --config FILE` for another
 location. Existing contents and comments are preserved.
 Add `--edit` to open the file in `$EDITOR`, creating it first if missing.
-`diffbutler reset` removes both standard DiffButler config and data directories,
-including databases and saved sessions, after confirmation. Use `diffbutler reset --force`
+`diffbutler reset` removes the standard DiffButler config, data, and state directories,
+including databases, saved sessions, and diagnostic logs, after confirmation. Use `diffbutler reset --force`
 to skip confirmation. Custom files outside those directories are preserved.
 `doctor --config FILE` requires that file to exist. For settings, examples, environment
 overrides, and database backup behavior, see [configuration and storage](docs/configuration.md).
@@ -178,3 +178,15 @@ Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 ## License
 
 [MIT](LICENSE). Dependency licensing notes are in [docs/dependencies.md](docs/dependencies.md).
+
+### Diagnostic logging
+
+Application diagnostics are written to `$XDG_STATE_HOME/diffbutler/logs/diffbutler.log`
+(default `~/.local/state/diffbutler/logs/diffbutler.log`). Logs rotate at 5 MiB with
+three backups. They include startup, dashboard sync/review events, agent process
+start/exit, GitHub request timing and quota metadata, and failure tracebacks.
+They exclude request URLs, bodies, authorization headers, prompts, and agent output.
+Tracebacks omit source text, locals, and arbitrary exception messages; safe
+configuration error messages are retained. Select a PR and press `L` for its separate
+AI run output. Diagnostic logging writes only to files, keeping the terminal free.
+`diffbutler reset` removes diagnostics along with configuration and data.

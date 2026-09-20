@@ -5,21 +5,22 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from diffbutler.config.diagnostics import state_path
 from diffbutler.config.settings import config_path, data_path
 from diffbutler.ui.cli import app
 
 
-def populate() -> tuple[Path, Path]:
+def populate() -> tuple[Path, ...]:
     config = config_path().parent
     data = data_path()
-    for root in (config, data):
+    for root in (config, data, state_path()):
         (root / "nested").mkdir(parents=True, exist_ok=True)
         (root / "nested" / "session.jsonl").write_text("session")
         (root / "diffbutler.db").write_bytes(b"database")
         (root / "diffbutler.db-wal").write_bytes(b"journal")
         (root / ".hidden").write_text("hidden")
     config_path().write_text("[invalid configuration")
-    return config, data
+    return config, data, state_path()
 
 
 @pytest.mark.parametrize("answer", ["n\n", "\n", ""])

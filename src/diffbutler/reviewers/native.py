@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import signal
 import tomllib
@@ -127,6 +128,7 @@ class CapturedProcess:
     ) -> ReviewOutput:
         if self.spawn is not None:
             raise NativeError("A process execution cannot be reused")
+        logging.getLogger(__name__).info("Background agent starting")
         self.spawn = asyncio.create_task(
             asyncio.create_subprocess_exec(
                 *argv,
@@ -189,7 +191,9 @@ class CapturedProcess:
         finally:
             process.stdin.close()
         stdout, stderr = await asyncio.gather(*self.readers)
-        return ReviewOutput(stdout, stderr, await process.wait())
+        code = await process.wait()
+        logging.getLogger(__name__).info("Background agent exited code=%d", code)
+        return ReviewOutput(stdout, stderr, code)
 
     async def stop_and_wait(self) -> None:
         if self.spawn is None:

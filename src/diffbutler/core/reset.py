@@ -4,11 +4,16 @@ import asyncio
 import shutil
 from pathlib import Path
 
+from diffbutler.config.diagnostics import state_path
 from diffbutler.config.settings import ConfigError, config_path, data_path
 
 
 def reset_paths() -> tuple[Path, ...]:
-    return tuple(dict.fromkeys((config_path().parent.absolute(), data_path().absolute())))
+    return tuple(
+        dict.fromkeys(
+            (config_path().parent.absolute(), data_path().absolute(), state_path().absolute())
+        )
+    )
 
 
 def remove_directory(path: Path) -> None:
