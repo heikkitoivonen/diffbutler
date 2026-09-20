@@ -6,7 +6,8 @@ uses the same async core as the CLI. `--config FILE` selects configuration;
 search, refresh, and native session actions still do their requested I/O.
 
 The dashboard defaults to the `ansi-dark` theme. Use the command palette's Theme
-command to select a different theme for the current session.
+command to select a different theme for the current session. The palette's Keys
+command opens keyboard help; press Escape to close that panel.
 
 The managed native workflow supports **Linux with Codex CLI 0.98.0 or Claude Code 2.1.278**.
 [Native review setup and limitations](native-reviews.md) apply unchanged. Every AI

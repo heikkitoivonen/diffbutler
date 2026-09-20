@@ -1,8 +1,10 @@
-"""The terminal interfaces do not expose Textual's screenshot command."""
+"""Shared terminal command and keyboard behavior."""
 
 from pathlib import Path
 
 import pytest
+from textual.command import CommandPalette
+from textual.widgets import HelpPanel
 
 from diffbutler.config.settings import load_settings
 from diffbutler.ui.tui.dashboard import Dashboard
@@ -37,3 +39,30 @@ async def test_screenshots_are_disabled(
         assert {"Theme", "Quit", "Keys"} <= commands
         await app.run_action("screenshot")
         await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_escape_closes_keys_panel_opened_from_palette(tmp_path: Path) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text(f'[db]\nurl = "sqlite+aiosqlite:///{tmp_path}/dashboard.db"\n')
+    app = Dashboard(config, load_settings(config), offline=True)
+    async with app.run_test() as pilot:
+        main_screen = app.screen
+        focused = app.focused
+        await pilot.press("ctrl+p")
+        await pilot.press("K", "e", "y", "s")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.screen is main_screen
+        assert app.screen.query(HelpPanel)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not app.screen.query(HelpPanel)
+        assert app.focused is focused
+
+        # Escape still dismisses the palette when the Keys panel is absent.
+        await pilot.press("ctrl+p")
+        assert isinstance(app.screen, CommandPalette)
+        await pilot.press("escape")
+        assert app.screen is main_screen
