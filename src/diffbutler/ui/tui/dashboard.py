@@ -231,10 +231,10 @@ class Dashboard(TerminalApp):
         ("q", "quit", "Quit"),
     ]
     CSS = """
-    #queue { height: 45%; }
+    #queue { height: 1fr; }
     #status { height: 2; }
-    #preview-scroll { height: 1fr; }
-    #preview { padding: 1 2; }
+    #preview-scroll { height: 4; overflow-x: hidden; }
+    #preview { width: 100%; height: auto; padding: 0 2; }
     #primary { dock: bottom; width: 100%; }
     """
 
@@ -466,7 +466,9 @@ class Dashboard(TerminalApp):
                 describe(detail) if self.view == "history" else preview_summary(detail)
             )
             if content != self.preview_content:
-                self.query_one("#preview", Static).update(Text(content))
+                self.query_one("#preview", Static).update(
+                    Text(content, no_wrap=False, overflow="fold")
+                )
                 self.preview_content = content
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:

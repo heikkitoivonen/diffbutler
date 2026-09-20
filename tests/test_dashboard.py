@@ -477,6 +477,12 @@ async def test_queue_fits_and_truncates_across_terminal_resizes(
         for width in (80, 120, 79, 80):
             await pilot.resize_terminal(width, 24)
             await pilot.pause()
+            preview = app.query_one("#preview", Static)
+            panel = app.query_one("#preview-scroll")
+            assert panel.size.height == 4
+            assert not panel.show_horizontal_scrollbar
+            assert panel.virtual_size.width <= panel.size.width
+            assert preview.size.height > len(app.preview_content.splitlines())
             title = table.get_row_at(0)[1]
             author = table.get_row_at(0)[2]
             assert title.plain.endswith("…")

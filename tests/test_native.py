@@ -568,7 +568,7 @@ async def test_public_dashboard_native_handoff_restores_controlling_terminal(
     try:
         await asyncio.to_thread(terminal.wait, lambda: b"pending" in terminal.output)
         terminal.send(b"r")
-        await asyncio.to_thread(terminal.wait, lambda: b"Change behavior" in terminal.output)
+        await asyncio.to_thread(terminal.wait, lambda: b"AI Status: succeeded" in terminal.output)
         terminal.send(b"v")
         await asyncio.to_thread(terminal.wait, lambda: b"remembered orientation" in terminal.output)
         await asyncio.to_thread(terminal.wait, lambda: b"Agent exited 0" in terminal.output)

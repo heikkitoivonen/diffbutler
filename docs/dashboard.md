@@ -37,6 +37,8 @@ At widths of 80 terminal columns or more, the PR table fits the available width
 and hides its scrollbars; keyboard navigation still reaches every row. Smaller
 windows can show scrollbars. Author names show at most 15 characters plus an
 ellipsis, and titles use the remaining width with an ellipsis when needed.
+The details preview occupies four rows, leaving the remaining space for the PR table.
+Long lines wrap without a horizontal scrollbar; scroll vertically to read more details.
 
 | Key | Action |
 |---|---|
