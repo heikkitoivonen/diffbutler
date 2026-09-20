@@ -102,14 +102,10 @@ class UI(Section):
 
     columns: list[str] = Field(
         default_factory=lambda: [
-            "state",
-            "repo",
             "number",
             "title",
             "author",
-            "ai_status",
-            "findings",
-            "age",
+            "state",
         ]
     )
     sort_by: str = "attention"

@@ -16,6 +16,28 @@ renewed requests, and returning from a session never request another run.
 
 ## Working through the queue
 
+The default columns are PR, Title, Author, and State.
+The selected PR's repository, AI status, findings count, and age appear in the preview
+and full details. Age is the time since the PR was created, shown in hours. Headers use
+Title Case; the `number` column is labeled PR. To apply this layout to an existing
+configuration with explicit `ui.columns`, set:
+
+```toml
+[ui]
+columns = ["number", "title", "author", "state"]
+```
+
+State labels are `pending` (awaiting AI review), `queued`, `running`, `approve`
+(awaiting human review), `post` (findings to triage), `author` (awaiting author
+changes), and `done` (completed cycle). The `approve` and `post` labels indicate
+the next human step; they do not trigger publication or approval.
+A trailing `-` marks a pending forge refresh (for example, `post -`).
+
+At widths of 80 terminal columns or more, the PR table fits the available width
+and hides its scrollbars; keyboard navigation still reaches every row. Smaller
+windows can show scrollbars. Author names show at most 15 characters plus an
+ellipsis, and titles use the remaining width with an ellipsis when needed.
+
 | Key | Action |
 |---|---|
 | `space` | Start review, discuss findings, or open the PR according to its state |
@@ -139,11 +161,15 @@ and dashboard posting, snooze/dismiss conveniences, finding deep links, and CI h
 remain future work. The spec's full UI catalogue contains those targets as well as shipped
 features; this guide lists the implemented actions.
 
-The title bar shows the monitoring scope. Press `a` to switch between review-request
-discovery and all open PRs in every configured forge's `repositories` list. Each forge
+The title bar shows the monitoring scope. Press `a` to switch between your review
+requests and all open PRs in every configured forge's `repositories` list. Each forge
 must have a nonempty repository list before enabling this. The switch is saved in the
 local database, alongside other dashboard preferences, and also applies to CLI sync.
-Live mode refreshes immediately; offline mode saves the choice for the next live sync.
-Switching back stops discovering unrelated PRs; already followed PRs remain monitored.
-PRs without a review request appear in Active/Following, not Requested. No AI review
-starts as a result of this switch.
+Enabling all-PR monitoring refreshes immediately in live mode; offline mode saves the
+choice for the next live sync. Switching back immediately shows the saved Requested
+view without another network request; normal polling updates it. Already followed PRs
+remain monitored and can be viewed in Active/Following. Requested includes direct/team
+review requests; assignees do not affect membership, including stale saved assignment
+entries. When all-PR monitoring is off, the default view and return from History show
+Requested. Refresh failures show the specific safe forge diagnostic
+and preserve saved rows. No AI review starts as a result of this switch.

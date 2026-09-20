@@ -565,7 +565,7 @@ async def test_public_dashboard_native_handoff_restores_controlling_terminal(
         ],
     )
     try:
-        await asyncio.to_thread(terminal.wait, lambda: b"Pending AI review" in terminal.output)
+        await asyncio.to_thread(terminal.wait, lambda: b"pending" in terminal.output)
         terminal.send(b"r")
         await asyncio.to_thread(terminal.wait, lambda: b"Change behavior" in terminal.output)
         terminal.send(b"v")

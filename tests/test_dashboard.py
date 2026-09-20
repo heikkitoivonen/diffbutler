@@ -10,6 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 import pytest_asyncio
+from rich.text import Text
 from sqlalchemy import func, select
 from tests.test_github import adapter
 from tests.test_sync import ACCOUNT, NOW, PR, REF, FakeForge
@@ -28,6 +29,7 @@ from diffbutler.core.dashboard import (
 )
 from diffbutler.core.sync import DiffButler, PullRequestRow
 from diffbutler.domain.dashboard import COLUMN_IDS
+from diffbutler.domain.forge import Discovery, RequestedPR
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.domain.sync import (
     CommentEvent,
@@ -337,6 +339,17 @@ async def test_dashboard_state_actions_history_and_browser_failure(
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         assert app.query_one(DataTable[str]).row_count == 1
+        assert [str(column.label) for column in app.query_one(DataTable[str]).columns.values()] == [
+            "PR",
+            "Title",
+            "Author",
+            "State",
+        ]
+        assert "Repository: acme/api" in str(app.query_one("#preview", Static).content)
+        preview = str(app.query_one("#preview", Static).content)
+        assert "AI Status: Not started" in preview
+        assert "Findings: —" in preview
+        assert "Age: " in preview
         await pilot.press("w")
         await pilot.pause()
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AUTHOR_CHANGES"
@@ -347,7 +360,7 @@ async def test_dashboard_state_actions_history_and_browser_failure(
         await pilot.press("s", "S")
         await pilot.pause()
         prefs = await SQLiteDashboardStore(database).preferences()
-        assert prefs["sort_by"] == "state" and prefs["sort_desc"] == "false"
+        assert prefs["sort_by"] == "number" and prefs["sort_desc"] == "false"
         await pilot.press("m")
         await pilot.pause()
         assert app.query_one(DataTable[str]).row_count == 0
@@ -423,6 +436,9 @@ async def test_browse_screen_and_detail_survive_background_refresh(
         await pilot.press("enter")
         await pilot.pause()
         assert isinstance(app.screen, DetailScreen)
+        assert "AI Status: Not started" in app.screen.content
+        assert "Findings: —" in app.screen.content
+        assert "Age: " in app.screen.content
         await app.local_tick()
         await pilot.press("escape")
         await pilot.pause()
@@ -435,6 +451,50 @@ def test_sort_mixed_empty_and_nonempty_status_strings() -> None:
     pending = DashboardRow(row=PullRequestRow(account=ACCOUNT, tracked=TrackedPR(PR)))
     succeeded = pending.model_copy(update={"run_status": "succeeded"})
     assert sort_rows((pending, succeeded), SortSpec(column="ai_status")) == (succeeded, pending)
+
+
+@pytest.mark.asyncio
+async def test_queue_fits_and_truncates_across_terminal_resizes(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+) -> None:
+    _, queue, forge, path = ledger
+    prs = tuple(
+        replace(
+            PR,
+            ref=replace(REF, number=number),
+            title="界" * 100 + f" {number}",
+            author="abcdefghijklmnopqrst",
+        )
+        for number in range(1, 31)
+    )
+    forge.prs = {pr.ref: pr for pr in prs}
+    forge.discovery = Discovery(tuple(RequestedPR(pr, ("user:reader",)) for pr in prs), True)
+    await DiffButler(queue, forge).sync()
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable[Text])
+        for width in (80, 120, 79, 80):
+            await pilot.resize_terminal(width, 24)
+            await pilot.pause()
+            title = table.get_row_at(0)[1]
+            author = table.get_row_at(0)[2]
+            assert title.plain.endswith("…")
+            assert author.plain == "abcdefghijklmno…"
+            assert table.row_count == 30
+            if width >= 80:
+                assert table.virtual_size.width <= table.size.width
+                assert table.scrollbar_size_vertical == table.scrollbar_size_horizontal == 0
+                assert not table.horizontal_scrollbar.display
+                assert not table.vertical_scrollbar.display
+            else:
+                assert table.show_horizontal_scrollbar
+                assert table.show_vertical_scrollbar
+            await pilot.press("ctrl+end")
+            await pilot.pause()
+            assert table.cursor_row == 29
+            assert table.scroll_y > 0
+        assert "界" * 100 in app.preview_content
 
 
 def test_foreground_prompt_never_authorizes_publication_on_entry() -> None:
@@ -536,6 +596,30 @@ async def test_monitoring_switch_persists_and_drives_sync(
         await pilot.press("a")
         await pilot.pause()
         assert (await preferences_configured(path))["monitor_all_prs"] == "false"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sources", [(), ("assignee:reader",), ("user:someone-else",)])
+async def test_default_personal_view_excludes_followed_prs_without_review_requests(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], sources: tuple[str, ...]
+) -> None:
+    _, queue, _, path = ledger
+    snapshot = await queue.snapshot(ACCOUNT)
+    item = replace(snapshot.items[0], sources=sources, pull_request=replace(PR, requested_users=()))
+    await queue.apply(ACCOUNT, snapshot.version, (item,))
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        assert app.view == "requested"
+        assert app.query_one(DataTable).row_count == 0
+        await pilot.press("h", "h")
+        await pilot.pause()
+        assert app.view == "requested"
+        assert app.query_one(DataTable).row_count == 0
+        await pilot.press("f")
+        await pilot.pause()
+        assert app.view == "following"
+        assert app.query_one(DataTable).row_count == 1
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 from tests.test_github import pull, search
+from textual.widgets import DataTable, Static
 
 from diffbutler.config.settings import ConfigError, config_path, load_settings
 from diffbutler.core.setup import startup_settings
@@ -16,6 +17,7 @@ from diffbutler.forges.github.http import GitHubHTTP
 from diffbutler.forges.github.setup import repository_is_public
 from diffbutler.forges.registry import open_forge
 from diffbutler.ui.cli import main
+from diffbutler.ui.tui.dashboard import Dashboard
 
 
 def install_transport(
@@ -26,6 +28,111 @@ def install_transport(
 
     monkeypatch.setattr("diffbutler.forges.github.setup.GitHubHTTP", http)
     monkeypatch.setattr("diffbutler.forges.registry.GitHubHTTP", http)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("review_requested", [False, True])
+async def test_public_queue_switch_uses_review_requests_not_assignments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, review_requested: bool
+) -> None:
+    from dataclasses import replace
+
+    from diffbutler.core.application import local_queue, local_store, sync_configured
+    from diffbutler.core.dashboard import toggle_monitoring_configured
+
+    expected_rows = int(review_requested)
+    calls: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert "authorization" not in request.headers
+        endpoint = request.url.path
+        calls.append(endpoint)
+        if endpoint == "/users/reader":
+            return httpx.Response(200, json={"login": "reader"})
+        if endpoint == "/search/issues":
+            query = request.url.params["q"]
+            assert "assignee:" not in query
+            # Include stale hits to verify membership against the actual PR.
+            return httpx.Response(200, json=search(1, 2, 3))
+        if endpoint.rsplit("/", 1)[-1].isdigit():
+            number = int(endpoint.rsplit("/", 1)[-1])
+            data = pull(number, users=("reader",) if number == 2 and review_requested else ())
+            data["assignees"] = [{"login": "READER"}] if number == 1 else []
+            return httpx.Response(200, json=data)
+        return httpx.Response(200, json=[])
+
+    install_transport(monkeypatch, handle)
+    path = tmp_path / "public.toml"
+    path.write_text(
+        f'[db]\nurl="sqlite+aiosqlite:///{tmp_path}/public.db"\n'
+        '[[forges]]\nkind="github"\nbase_url="https://api.github.com"\n'
+        'login="reader"\nrepositories=["acme/api"]\ninclude_team_requests=false\n'
+    )
+    await toggle_monitoring_configured(path)
+    await sync_configured(path)
+    requested = await local_queue(path, "requested", None)
+    assert len(requested) == expected_rows
+    if review_requested:
+        assert requested[0].tracked.sources == ("user:reader",)
+        assert requested[0].tracked.pull_request.ref.number == 2
+
+    # Simulate an existing database written by the rejected assignment implementation.
+    async with local_store(path) as (queue, _):
+        account = (await queue.accounts())[0]
+        snapshot = await queue.snapshot(account)
+        await queue.apply(
+            account,
+            snapshot.version,
+            tuple(
+                replace(item, sources=("assignee:reader",))
+                if item.pull_request.ref.number == 1
+                else item
+                for item in snapshot.items
+            ),
+        )
+    assert len(await local_queue(path, "requested", None)) == expected_rows
+
+    refreshes = 0
+
+    async def failing_refresh(_: Path | None) -> None:
+        nonlocal refreshes
+        refreshes += 1
+        raise ForgeError("GitHub rate limit is exhausted", retry_after=60)
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.poll_configured", failing_refresh)
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test(size=(120, 40)) as pilot:
+        assert app.query_one(DataTable).row_count == 3
+        # Enable live actions without starting the periodic poller in this test.
+        app.offline = False
+        before = len(calls)
+        await pilot.press("a")
+        await pilot.pause()
+        assert app.view == "requested"
+        assert app.query_one(DataTable).row_count == expected_rows
+        assert refreshes == 0 and len(calls) == before
+        await pilot.press("R")
+        await pilot.pause()
+        assert refreshes == 1
+        assert "GitHub rate limit is exhausted" in str(app.query_one("#status", Static).content)
+        assert app.query_one(DataTable).row_count == expected_rows
+
+    restarted = Dashboard(path, load_settings(path), offline=True)
+    async with restarted.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        assert restarted.view == "requested"
+        assert restarted.query_one(DataTable).row_count == expected_rows
+        assert not restarted.review_tasks
+        await pilot.press("h", "h")
+        await pilot.pause()
+        assert restarted.view == "requested"
+        assert restarted.query_one(DataTable).row_count == expected_rows
+
+    # A stale search hit must not keep request membership after removal.
+    review_requested = False
+    await sync_configured(path)
+    assert not await local_queue(path, "requested", None)
+    assert len(await local_queue(path, "following", None)) == 3
 
 
 @pytest.mark.asyncio

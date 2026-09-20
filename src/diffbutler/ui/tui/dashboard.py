@@ -2,15 +2,18 @@
 
 import asyncio
 from collections.abc import Awaitable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 from uuid import UUID
 
+from rich.cells import cell_len
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import VerticalScroll
 from textual.coordinate import Coordinate
+from textual.events import Resize
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
@@ -43,7 +46,7 @@ from diffbutler.core.managed import (
     review_configured,
 )
 from diffbutler.core.native import foreground_environment
-from diffbutler.domain.dashboard import STATE_LABELS, CycleRecord
+from diffbutler.domain.dashboard import CycleRecord
 from diffbutler.forges.base import ForgeError
 from diffbutler.ui.tui.app import TerminalApp
 from diffbutler.ui.tui.browse import BrowseScreen
@@ -55,13 +58,59 @@ def safe(value: object) -> str:
     return "".join(char if char.isprintable() or char == "\n" else " " for char in str(value))
 
 
+def queue_widths(
+    ids: list[str], labels: list[str], data: list[tuple[str, tuple[str, ...]]], width: int
+) -> list[int]:
+    """Fit columns in terminal cells, reserving the remaining space for the title."""
+    widths = [
+        max(cell_len(label), *(cell_len(cells[index]) for _, cells in data))
+        if data
+        else cell_len(label)
+        for index, label in enumerate(labels)
+    ]
+    if "author" in ids:
+        index = ids.index("author")
+        widths[index] = min(16, widths[index])
+    available = max(80, width) - 2 * len(ids)
+    if "title" in ids:
+        index = ids.index("title")
+        widths[index] = max(1, available - sum(widths) + widths[index])
+    while sum(widths) > available:
+        index = widths.index(max(widths))
+        widths[index] -= 1
+    return widths
+
+
+def queue_cell(value: str, column: str, width: int) -> Text:
+    value = safe(value).replace("\n", " ")
+    if column == "author" and len(value) > 15:
+        value = value[:15] + "…"
+    text = Text(value, no_wrap=True, overflow="ellipsis")
+    text.truncate(width, overflow="ellipsis")
+    return text
+
+
+def detail_metadata(detail: CycleDetail) -> list[str]:
+    cycle = detail.cycle
+    run = cycle.runs[-1] if cycle.runs else None
+    result = next((result for result in detail.results if run and result.run_id == run.id), None)
+    findings = str(len(result.document.findings)) if result and result.document else "—"
+    age_hours = (datetime.now(UTC) - cycle.pull_request.created_at).total_seconds() / 3600
+    return [
+        f"AI Status: {run.status if run else 'Not started'}",
+        f"Findings: {findings}",
+        f"Age: {age_hours:.0f}h",
+    ]
+
+
 def describe(detail: CycleDetail) -> str:
     cycle = detail.cycle
     pr = cycle.pull_request
     lines = [
         f"{pr.ref.namespace}/{pr.ref.repository}#{pr.ref.number} · cycle {cycle.cycle}",
         pr.title,
-        f"{STATE_LABELS.get(cycle.state, cycle.state)} · {pr.url}",
+        pr.url,
+        *detail_metadata(detail),
         f"Current/saved head: {pr.head_sha}",
         f"Completion: {cycle.completion_reason or 'unfinished'} · {cycle.completed_at or ''}",
         f"Cleanup: {cycle.cleanup_status} · {cycle.cleanup_error or ''}",
@@ -106,7 +155,11 @@ def describe(detail: CycleDetail) -> str:
 def preview_summary(detail: CycleDetail) -> str:
     cycle = detail.cycle
     pr = cycle.pull_request
-    lines = [f"#{pr.ref.number} {pr.title}"]
+    lines = [
+        f"#{pr.ref.number} {pr.title}",
+        f"Repository: {pr.ref.namespace}/{pr.ref.repository}",
+        *detail_metadata(detail),
+    ]
     result = detail.results[-1] if detail.results else None
     if result and result.document:
         doc = result.document
@@ -125,8 +178,6 @@ def preview_summary(detail: CycleDetail) -> str:
         )
     elif result and result.error:
         lines.append(result.error)
-    else:
-        lines.append(STATE_LABELS.get(cycle.state, cycle.state))
     if cycle.runs:
         run = cycle.runs[-1]
         lines.append(f"Analyzed {run.head_sha[:12]} · current {pr.head_sha[:12]} · {run.status}")
@@ -233,6 +284,8 @@ class Dashboard(TerminalApp):
         preferences = await preferences_configured(self.path)
         self.ai_paused = preferences.get("reviews_paused") == "true"
         self.monitor_all_prs = preferences.get("monitor_all_prs") == "true"
+        if not self.monitor_all_prs and self.view == "active":
+            self.view = "requested"
         if (
             preferences.get("sort_by") in self.settings.ui.columns
             or preferences.get("sort_by") == "attention"
@@ -268,6 +321,10 @@ class Dashboard(TerminalApp):
         if self.ready and not self.closing and not self.attached and not self.reload_lock.locked():
             await self.reload()
 
+    def on_resize(self, _: Resize) -> None:
+        if self.ready:
+            self.call_after_refresh(self.reload)
+
     async def reload(self) -> None:
         if self.attached or self.closing or len(self.screen_stack) > 1:
             return
@@ -298,6 +355,7 @@ class Dashboard(TerminalApp):
                     for key, cycle in self.history.items()
                 ]
                 columns = ["PR", "Cycle", "Completion", "Cleanup"]
+                column_ids = ["title", "cycle", "completion", "cleanup"]
             else:
                 rows = sort_rows(await dashboard_rows(self.path, self.view, text), self.sort)
                 self.rows = {str(row.row.tracked.task_id): row for row in rows}
@@ -306,14 +364,27 @@ class Dashboard(TerminalApp):
                     for key, row in self.rows.items()
                 ]
                 columns = [
-                    column + (" ▼" if self.sort.descending else " ▲")
-                    if column == self.sort.column
-                    else column
+                    " ".join(
+                        {"number": "PR", "ai": "AI", "ci": "CI", "url": "URL"}.get(
+                            word, word.title()
+                        )
+                        for word in column.split("_")
+                    )
+                    + (
+                        (" ▼" if self.sort.descending else " ▲")
+                        if column == self.sort.column
+                        else ""
+                    )
                     for column in self.settings.ui.columns
                 ]
+                column_ids = self.settings.ui.columns
             if self.attached:
                 return
             table = self.query_one(DataTable[Text])
+            wide = self.size.width >= 80
+            table.styles.overflow_x = "hidden" if wide else "auto"
+            table.styles.overflow_y = "hidden" if wide else "auto"
+            widths = queue_widths(column_ids, columns, data, self.size.width)
             selected = self.selected_key()
             old_cursor = table.cursor_row
             # Update cells in place while identity/order is unchanged.
@@ -325,11 +396,19 @@ class Dashboard(TerminalApp):
             if (
                 keys != existing
                 or [str(column.label) for column in table.columns.values()] != columns
+                or [column.width for column in table.columns.values()] != widths
             ):
                 table.clear(columns=True)
-                table.add_columns(*columns)
+                for label, width in zip(columns, widths, strict=True):
+                    table.add_column(label, width=width)
                 for key, cells in data:
-                    table.add_row(*(Text(safe(value)) for value in cells), key=key)
+                    table.add_row(
+                        *(
+                            queue_cell(value, column, width)
+                            for value, column, width in zip(cells, column_ids, widths, strict=True)
+                        ),
+                        key=key,
+                    )
                 table.move_cursor(
                     row=keys.index(selected)
                     if selected in keys
@@ -338,7 +417,7 @@ class Dashboard(TerminalApp):
             else:
                 for index, (_, cells) in enumerate(data):
                     for col, value in enumerate(cells):
-                        content = Text(safe(value))
+                        content = queue_cell(value, column_ids[col], widths[col])
                         if table.get_cell_at(Coordinate(index, col)) != content:
                             table.update_cell_at(Coordinate(index, col), content)
             mode = "offline" if self.offline else "paused" if self.poller.paused else "live"
@@ -355,7 +434,7 @@ class Dashboard(TerminalApp):
         if column == "max_severity":
             return row.max_severity or "—"
         if column == "state" and row.row.tracked.refresh_pending:
-            return safe(value) + " · refresh pending"
+            return safe(value) + " -"
         return safe(value) if value is not None else "—"
 
     async def preview(self) -> None:
@@ -417,6 +496,8 @@ class Dashboard(TerminalApp):
     async def guarded(self, operation: Awaitable[None]) -> None:
         try:
             await operation
+        except ForgeError as exc:
+            self.status(f"Operation failed: {exc}")
         except Exception as exc:
             self.status(
                 f"Operation failed ({type(exc).__name__}); retry or use the CLI for diagnostics."
@@ -432,6 +513,9 @@ class Dashboard(TerminalApp):
             try:
                 await poll_configured(self.path)
                 self.status("Forge refreshed")
+            except ForgeError as exc:
+                self.status(f"Refresh pending: {exc}. Previous evidence retained.")
+                raise
             except Exception:
                 self.status("Refresh pending; previous evidence retained. Polling will retry.")
                 raise
@@ -611,20 +695,24 @@ class Dashboard(TerminalApp):
                 self.status(str(exc))
                 return
             self.monitor_all_prs = enabled
-            self.view = "active"
+            self.view = "active" if enabled else "requested"
             self.query_one(Input).value = ""
-            if not self.offline:
+            if enabled and not self.offline:
                 await self.sync()
             self.status(
                 "Monitoring all open PRs in configured repositories."
                 if enabled
-                else "Monitoring review requests; already followed PRs remain monitored."
+                else "Showing review requests; followed PRs remain monitored."
             )
 
         self.start(toggle())
 
     async def action_view_history(self) -> None:
-        self.view = "active" if self.view == "history" else "history"
+        self.view = (
+            ("active" if self.monitor_all_prs else "requested")
+            if self.view == "history"
+            else "history"
+        )
         await self.reload()
 
     async def action_cycle_filter_preset(self) -> None:

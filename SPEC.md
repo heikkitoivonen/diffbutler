@@ -469,7 +469,8 @@ once means neither the reviewers nor the forge adapters need to.
 - The dashboard `a` switch persists broad open-PR monitoring as a database preference.
   It searches all pages in configured repositories, independently of request provenance,
   and follows discoveries without launching AI. Require an explicit repository list for
-  every forge. Turning it off stops broad discovery and preserves existing follow-up.
+  every forge. Turning it off selects the saved review-request view without
+  requiring an immediate network refresh, stops broad discovery, and preserves existing follow-up.
 - Separately refresh every followed open PR by identity: head SHA, direct/team
   requests, review activity (including the user's approval), merge and closure.
   Removing a PR from discovery results must never silently end follow-up.
@@ -1180,7 +1181,7 @@ Built-ins: `state`, `attention`, `repo`, `number`, `title`, `author`, `ai_status
 
 ```toml
 [ui]
-columns = ["state", "repo", "number", "title", "author", "ai_status", "findings", "age"]
+columns = ["number", "title", "author", "state"]
 sort_by = "attention"
 sort_desc = true
 ```
@@ -1203,7 +1204,7 @@ a `ColumnDef` without a working `sort_key` fails a unit test.
   the `SortSpec` DTO is identical either way.
 - Default sort is `attention` (§5.3), which is a *derived* column: it need not be
   displayed to be sorted on, so `sort_by` accepts any registered id, not just one in
-  `columns`. Sorting by `age` or `repo` remains one keypress away.
+  `columns`. Sorting by any displayed column remains one keypress away.
 - Keys: `s` opens a sort picker over currently displayed columns, `S` reverses,
   `1`–`9` sort by the *n*th displayed column, mouse click on a header sorts.
   The indicator (`▲`/`▼`) renders in the header. Sort state persists across restarts.
@@ -1349,7 +1350,7 @@ stdin = "prompt"
 parse = "jsonl_stream"
 
 [ui]
-columns = ["state", "repo", "number", "title", "author", "ai_status", "findings", "age"]
+columns = ["number", "title", "author", "state"]
 sort_by = "attention"
 sort_desc = true
 preview_pane = true

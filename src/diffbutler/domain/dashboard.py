@@ -52,11 +52,11 @@ COLUMN_IDS = (
 )
 
 STATE_LABELS = {
-    "PENDING_AI_REVIEW": "Pending AI review",
-    "QUEUED": "AI queued",
-    "AI_RUNNING": "AI running",
-    "PENDING_HUMAN_REVIEW": "Pending human review",
-    "FINDINGS_TRIAGE": "Findings triage",
-    "PENDING_AUTHOR_CHANGES": "Pending author changes",
-    "DONE": "Completed",
+    "PENDING_AI_REVIEW": "pending",
+    "QUEUED": "queued",
+    "AI_RUNNING": "running",
+    "PENDING_HUMAN_REVIEW": "approve",
+    "FINDINGS_TRIAGE": "post",
+    "PENDING_AUTHOR_CHANGES": "author",
+    "DONE": "done",
 }

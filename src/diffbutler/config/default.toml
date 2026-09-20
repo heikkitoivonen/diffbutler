@@ -27,7 +27,7 @@ checkout = "worktree" # Native reviews currently use pinned source snapshots.
 # prompt = "~/review-instructions.md"
 
 [ui]
-columns = ["state", "repo", "number", "title", "author", "ai_status", "findings", "age"]
+columns = ["number", "title", "author", "state"]
 sort_by = "attention"
 sort_desc = true
 preview_pane = true

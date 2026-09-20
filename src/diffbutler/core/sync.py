@@ -223,7 +223,10 @@ async def list_queue(
             include = (
                 item.state != "DONE"
                 if view == "active"
-                else bool(item.sources)
+                else any(
+                    source == f"user:{account.login.lower()}" or source.startswith("team:")
+                    for source in item.sources
+                )
                 if view == "requested"
                 else item.following
             )
