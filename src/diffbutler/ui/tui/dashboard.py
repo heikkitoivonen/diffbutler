@@ -805,6 +805,14 @@ class Dashboard(TerminalApp):
 
     async def on_unmount(self) -> None:
         self.closing = True
+        # Textual cancels workers on exit but does not await their finalizers.
+        # Keep the event loop alive for polling/action database cleanup as well
+        # as review jobs; do not cancel a worker already finishing cancellation.
+        workers = list(self.workers)
+        for worker in workers:
+            if not worker.is_cancelled:
+                worker.cancel()
+        await asyncio.gather(*(worker.wait() for worker in workers), return_exceptions=True)
         for key, task in list(self.review_tasks.items()):
             await cancel_task_configured(self.path, UUID(key))
             task.cancel()

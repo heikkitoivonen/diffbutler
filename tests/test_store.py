@@ -6,6 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from uuid import uuid4
 
+import aiosqlite
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
@@ -30,6 +31,48 @@ from diffbutler.store.models import (
     ReviewTask,
     utc_now,
 )
+
+
+@pytest.mark.asyncio
+async def test_database_close_finishes_before_propagating_repeated_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path}/closing.db")
+    await database.initialize()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    closed = asyncio.Event()
+    connections: list[aiosqlite.Connection] = []
+    original_close = aiosqlite.Connection.close
+
+    async def delayed_close(connection: aiosqlite.Connection) -> None:
+        connections.append(connection)
+        started.set()
+        await release.wait()
+        await original_close(connection)
+        closed.set()
+
+    monkeypatch.setattr(aiosqlite.Connection, "close", delayed_close)
+    task = asyncio.create_task(database.close())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert not closed.is_set()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+        assert closed.is_set()
+        assert "Exception closing connection" not in caplog.text
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        for connection in connections:
+            await original_close(connection)
+        await database.close()
 
 
 @pytest.mark.asyncio

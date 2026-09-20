@@ -157,4 +157,16 @@ class Database:
             return DatabaseStatus(head, True, backup)
 
     async def close(self) -> None:
-        await self.engine.dispose()
+        # Cancellation during disposal can interrupt aiosqlite.close after the
+        # pool has discarded the connection. Finish closing it before propagating
+        # cancellation, including repeated cancellation during app shutdown.
+        closing = asyncio.create_task(self.engine.dispose())
+        cancelled = False
+        while not closing.done():
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                cancelled = True
+        closing.result()
+        if cancelled:
+            raise asyncio.CancelledError

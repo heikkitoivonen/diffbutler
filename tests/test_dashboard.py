@@ -65,6 +65,48 @@ async def ledger(
         await database.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quit_action", [False, True])
+async def test_shutdown_waits_for_nonreview_worker_cleanup(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], quit_action: bool
+) -> None:
+    _, _, _, path = ledger
+    app = Dashboard(path, load_settings(path), offline=True)
+    running = asyncio.Event()
+    closing = asyncio.Event()
+    release = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def operation() -> None:
+        try:
+            running.set()
+            await asyncio.Event().wait()
+        finally:
+            closing.set()
+            await release.wait()
+            closed.set()
+
+    async with app.run_test(size=(120, 40)):
+        app.start(operation())
+        await asyncio.wait_for(running.wait(), timeout=5)
+        if not quit_action:
+            # Textual initiates cancellation before dispatching Unmount.
+            app.workers.cancel_all()
+            await asyncio.wait_for(closing.wait(), timeout=5)
+        shutdown = asyncio.create_task(app.action_quit() if quit_action else app.on_unmount())
+        try:
+            await asyncio.wait_for(closing.wait(), timeout=5)
+            assert not shutdown.done()
+            assert not closed.is_set()
+            release.set()
+            await asyncio.wait_for(shutdown, timeout=5)
+            assert closed.is_set()
+            assert not list(app.workers)
+        finally:
+            release.set()
+            await asyncio.gather(shutdown, return_exceptions=True)
+
+
 def feedback(
     *, state: str = "COMMENTED", author: str = "reader", head: str = "head", id: str = "review:1"
 ) -> ReviewEvent:
