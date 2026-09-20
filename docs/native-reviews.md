@@ -12,7 +12,15 @@ confirmed, but no live managed review was run during this implementation.
 
 ## Configure and review
 
-Add a native reviewer. A local repository containing the base/head Git objects is optional:
+Live dashboard startup asks for a default Codex or Claude reviewer when none is
+configured, including existing forge-only configurations. It checks Git, resolves the
+selected executable, and runs only `--version` against the supported preset before
+saving. No AI review or model authentication request is made during setup. Sign in
+with the chosen agent CLI before reviewing. Complete configurations skip these prompts;
+`--offline` skips setup entirely.
+
+You can also configure a native reviewer manually. A local repository containing the
+base/head Git objects is optional:
 
 ```toml
 [review]

@@ -1318,6 +1318,13 @@ confirmation as GitHub Enterprise. Save the selected repository in the forge's
 `repos.<owner/repo>.path` when known. Empty repository lists retain account-wide request
 discovery. Preserve existing configuration and independently followed PRs. Offline mode
 and informational commands skip setup; startup never initiates AI reviews.
+Live startup also completes missing native reviewer setup, even when a forge is already
+configured. Ask for Codex or Claude (or an existing native reviewer), an executable for
+new entries, and save the default only after checking Git availability, executable
+resolution, and the preset's exact supported version using `--version`. Preserve existing
+reviewers and commands. Save new forge/reviewer choices together only after validation;
+cancellation or failure must leave existing configuration untouched. Fully configured
+setups skip questions. CLI version checks do not verify model authentication.
 
 Before saving first-run choices, probe repository visibility without credentials and
 ask for the GitHub username, defaulting to the repository owner. Public repositories

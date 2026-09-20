@@ -9,18 +9,35 @@ from typing import Any, cast
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
 
-from diffbutler.config.settings import ConfigError, Forge, config_path
+from diffbutler.config.settings import ConfigError, Forge, Reviewer, config_path
 
 
-def save_setup(path: Path | None, forge: Forge, repository_path: Path | None) -> Path:
+def save_setup(
+    path: Path | None,
+    forge: Forge | None,
+    repository_path: Path | None,
+    reviewer: Reviewer | None = None,
+    default_reviewer: str | None = None,
+) -> Path:
     selected = (path or config_path()).expanduser().resolve()
     try:
         original = selected.read_text(encoding="utf-8") if selected.exists() else None
         document = cast(MutableMapping[str, Any], tomlkit.parse(original or ""))
-        if document.get("forges"):
-            raise ConfigError("Forge configuration changed during setup; restart DiffButler")
-        document["forges"] = [forge.model_dump(exclude_none=True)]
-        if repository_path is not None:
+        if forge is not None:
+            if document.get("forges"):
+                raise ConfigError("Forge configuration changed during setup; restart DiffButler")
+            document["forges"] = [forge.model_dump(exclude_none=True)]
+        if reviewer is not None:
+            entries = document.get("reviewers", [])
+            if any(entry["id"] == reviewer.id for entry in entries):
+                raise ConfigError("Reviewer configuration changed during setup; restart DiffButler")
+            entries.append(reviewer.model_dump(exclude_none=True))
+            document["reviewers"] = entries
+        if default_reviewer is not None:
+            if "review" not in document:
+                document["review"] = tomlkit.table()
+            document["review"]["default_reviewer"] = default_reviewer
+        if repository_path is not None and forge is not None:
             repos = document.get("repos")
             if repos is None:
                 repos = tomlkit.table()

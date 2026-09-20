@@ -30,6 +30,14 @@ def install_transport(
     monkeypatch.setattr("diffbutler.forges.registry.GitHubHTTP", http)
 
 
+@pytest.fixture(autouse=True)
+def synthetic_reviewer_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def checked(*args: object) -> None:
+        pass
+
+    monkeypatch.setattr("diffbutler.core.setup.check_reviewer", checked)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("review_requested", [False, True])
 async def test_public_queue_switch_uses_review_requests_not_assignments(
@@ -164,7 +172,7 @@ async def test_public_setup_and_discovery_never_resolve_or_send_a_token(
     install_transport(monkeypatch, handle)
     monkeypatch.setattr("diffbutler.forges.registry.resolve_token", forbidden)
     monkeypatch.setenv("GITHUB_TOKEN", "unused-secret")
-    answers = iter(["github", "acme/api", "reader"])
+    answers = iter(["github", "acme/api", "reader", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
         if "username" in label:
@@ -218,7 +226,7 @@ async def test_private_setup_validates_token_before_saving(
 
     install_transport(monkeypatch, handle)
     monkeypatch.setenv("TEST_PRIVATE_TOKEN", token)
-    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN"])
+    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
         return next(answers)
@@ -250,7 +258,7 @@ async def test_private_setup_rejects_missing_or_malformed_environment_token(
     monkeypatch.delenv("TEST_PRIVATE_TOKEN", raising=False)
     if value is not None:
         monkeypatch.setenv("TEST_PRIVATE_TOKEN", value)
-    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN"])
+    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
         return next(answers)
@@ -309,7 +317,7 @@ def test_invalid_token_exits_cli_without_saving(
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     monkeypatch.setenv("TEST_PRIVATE_TOKEN", "synthetic-invalid-token")
-    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN"])
+    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
 
     def prompt(label: str, *, default: str | None = None) -> str:
         return next(answers)

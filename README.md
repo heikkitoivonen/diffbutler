@@ -89,7 +89,11 @@ See the [dashboard guide](docs/dashboard.md) for keys, configuration, and accept
 On first launch with no configured forge, DiffButler detects GitHub from the current
 Git repository's `origin` remote (or a single unambiguous remote). It saves the forge,
 repository request filter, and local repository path. Otherwise it asks for the forge
-and repository before opening the dashboard. Setup checks visibility and asks for your
+and repository before opening the dashboard. Startup also asks for a default Codex or
+Claude reviewer when missing, checks Git and the selected CLI version, and saves the
+reviewer command. Existing forge-only configurations get this setup on their next live
+startup. Sign in using the agent CLI before requesting reviews; startup checks do not
+verify model authentication or make model requests. Setup checks visibility and asks for your
 GitHub username, defaulting to the repository owner. Public repositories use no token
 and monitor direct review requests. Private repositories prompt for a token environment
 variable name and validate its token before saving. Authenticated accounts can include

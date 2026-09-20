@@ -26,8 +26,17 @@ def public_repository_checks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("diffbutler.core.setup.repository_is_public", public)
     monkeypatch.setattr("diffbutler.core.setup.validate_access", validate)
 
+    async def checked(*args: object) -> None:
+        pass
+
+    monkeypatch.setattr("diffbutler.core.setup.check_reviewer", checked)
+
 
 async def accept_default(label: str, default: str) -> str:
+    if label == "AI reviewer (codex or claude)":
+        return "codex"
+    if label == "Reviewer executable (name or full path)":
+        return sys.executable
     assert label == "GitHub username for review requests"
     assert default == "acme"
     return default
@@ -53,7 +62,7 @@ def test_remote_identity(remote: str, expected: tuple[str, str] | None) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("custom", [False, True])
-async def test_git_inference_only_asks_for_username(tmp_path: Path, custom: bool) -> None:
+async def test_git_inference_asks_for_username_and_reviewer(tmp_path: Path, custom: bool) -> None:
     repo = tmp_path / "repository"
     repo.mkdir()
     await git(repo, "init", "--template=")
@@ -71,7 +80,8 @@ async def test_git_inference_only_asks_for_username(tmp_path: Path, custom: bool
     assert settings.repos["acme/api"].path == repo
     assert "secret" not in path.read_text()
     assert not (tmp_path / "data").exists()
-    assert settings.reviewers == []
+    assert settings.review.default_reviewer == "codex"
+    assert settings.reviewers[0].preset == "codex"
     # Subsequent launches skip discovery and questions, even outside Git.
     again = await startup_settings(path, directory=tmp_path, ask=None)
     assert again.forges == settings.forges
@@ -85,7 +95,7 @@ async def test_missing_remote_prompts_and_preserves_config(
     path.parent.mkdir(parents=True)
     path.write_text("# my settings\nforges = []\n[general]\npoll_interval_s = 42 # keep\n")
     monkeypatch.setenv("DIFFBUTLER_GENERAL__POLL_INTERVAL_S", "300")
-    answers = iter(["github", "acme/api", "reader"])
+    answers = iter(["github", "acme/api", "reader", "codex", sys.executable])
     questions: list[str] = []
 
     async def ask(label: str, default: str) -> str:
@@ -93,7 +103,7 @@ async def test_missing_remote_prompts_and_preserves_config(
         return next(answers)
 
     settings = await startup_settings(None, directory=tmp_path, ask=ask)
-    assert len(questions) == 3
+    assert len(questions) == 5
     assert settings.general.poll_interval_s == 300
     assert "poll_interval_s = 42 # keep" in path.read_text()
     assert "# my settings" in path.read_text()
@@ -105,7 +115,7 @@ async def test_missing_remote_prompts_and_preserves_config(
 async def test_enterprise_remote_requires_provider_confirmation(tmp_path: Path) -> None:
     await git(tmp_path, "init", "--template=")
     await git(tmp_path, "remote", "add", "origin", "git@git.example.com:acme/api.git")
-    answers = iter(["github-enterprise", "git.example.com", "reader"])
+    answers = iter(["github-enterprise", "git.example.com", "reader", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
         return next(answers)
@@ -142,14 +152,15 @@ async def test_cancelled_questions_do_not_write(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_environment_forge_skips_setup(
+async def test_environment_forge_still_requires_reviewer_setup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(
         "DIFFBUTLER_FORGES",
         '[{"kind":"github","base_url":"https://api.github.com","token_env":"TEST"}]',
     )
-    assert (await startup_settings(None, directory=tmp_path, ask=None)).forges
+    with pytest.raises(ConfigError, match="interactive terminal"):
+        await startup_settings(None, directory=tmp_path, ask=None)
     assert not config_path().exists()
 
 
@@ -170,7 +181,7 @@ def test_dashboard_startup_runs_setup_before_rendering(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    answers = iter(["github", "acme/api", "reader"])
+    answers = iter(["github", "acme/api", "reader", "codex", sys.executable])
     questions: list[str] = []
     rendered: list[bool] = []
 
@@ -190,7 +201,7 @@ def test_dashboard_startup_runs_setup_before_rendering(
     monkeypatch.setattr(Dashboard, "run_async", render)
     main(arguments)
     assert rendered == [True]
-    assert len(questions) == (0 if "--offline" in arguments else 3)
+    assert len(questions) == (0 if "--offline" in arguments else 5)
     assert config_path().exists() == ("--offline" not in arguments)
 
 

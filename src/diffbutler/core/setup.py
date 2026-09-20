@@ -3,13 +3,15 @@
 import asyncio
 import os
 import re
+import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from diffbutler.config.settings import ConfigError, Forge, Settings, load_settings
+from diffbutler.config.settings import ConfigError, Forge, Reviewer, Settings, load_settings
 from diffbutler.config.setup import save_setup
 from diffbutler.domain.forge import PRQuery, identity_part
 from diffbutler.forges.github.setup import repository_is_public, validate_access
+from diffbutler.reviewers.native import NativeError, native_preset, verify_version
 from diffbutler.sources.remotes import discover_repository
 
 
@@ -20,9 +22,6 @@ async def startup_settings(
     ask: Callable[[str, str], Awaitable[str]] | None,
 ) -> Settings:
     settings = await asyncio.to_thread(load_settings, path, missing_ok=True)
-    if settings.forges:
-        return settings
-    detected = await discover_repository(directory)
 
     async def question(label: str, default: str = "") -> str:
         if ask is None:
@@ -31,6 +30,14 @@ async def startup_settings(
                 "start diffbutler in an interactive terminal or edit the config"
             )
         return (await ask(label, default)).strip()
+
+    if settings.forges:
+        reviewer, default = await setup_reviewer(settings, directory, question)
+        if default is not None:
+            await asyncio.to_thread(save_setup, path, None, None, reviewer, default)
+            return await asyncio.to_thread(load_settings, path)
+        return settings
+    detected = await discover_repository(directory)
 
     if detected is not None and detected.host == "github.com":
         host = detected.host
@@ -81,7 +88,74 @@ async def startup_settings(
         include_team_requests=not public,
         repositories=[repository],
     )
+    reviewer, default = await setup_reviewer(settings, directory, question)
     await asyncio.to_thread(
-        save_setup, path, forge, detected.path if detected and matched else None
+        save_setup,
+        path,
+        forge,
+        detected.path if detected and matched else None,
+        reviewer,
+        default,
     )
     return await asyncio.to_thread(load_settings, path)
+
+
+async def check_reviewer(reviewer: Reviewer, directory: Path) -> None:
+    if shutil.which("git") is None:
+        raise ConfigError(
+            "Git is required to prepare PR sources; install Git and restart DiffButler"
+        )
+    if shutil.which(reviewer.command[0]) is None:
+        raise ConfigError("Reviewer executable was not found; install it or enter its full path")
+    assert reviewer.preset is not None
+    preset = native_preset(reviewer.preset)
+    env = {
+        key: os.environ[key]
+        for key in ("PATH", "HOME", "LANG", "XDG_CONFIG_HOME")
+        if key in os.environ
+    }
+    try:
+        await verify_version(tuple(reviewer.command), preset, cwd=directory, env=env)
+    except NativeError, OSError, TimeoutError, UnicodeError:
+        raise ConfigError(
+            f"Reviewer check failed; this preset requires {preset.version}. "
+            "Check the selected executable and restart DiffButler."
+        ) from None
+
+
+async def setup_reviewer(
+    settings: Settings,
+    directory: Path,
+    question: Callable[[str, str], Awaitable[str]],
+) -> tuple[Reviewer | None, str | None]:
+    current = next(
+        (r for r in settings.reviewers if r.id == settings.review.default_reviewer), None
+    )
+    if current is not None and current.preset is not None:
+        return None, None
+    native = [r for r in settings.reviewers if r.preset is not None]
+    if native:
+        choices = ", ".join(r.id for r in native)
+        name = await question(f"Default AI reviewer ({choices})", native[0].id)
+        chosen = next((r for r in native if r.id == name), None)
+        if chosen is None:
+            raise ConfigError("Choose one of the configured native reviewers")
+        await check_reviewer(chosen, directory)
+        return None, chosen.id
+    name = (await question("AI reviewer (codex or claude)", "codex")).lower()
+    if name not in {"codex", "claude"}:
+        raise ConfigError("Choose codex or claude as the AI reviewer")
+    executable = await question("Reviewer executable (name or full path)", name)
+    resolved = shutil.which(executable)
+    if resolved is None:
+        raise ConfigError("Reviewer executable was not found; install it or enter its full path")
+    identifier = name
+    while any(r.id == identifier for r in settings.reviewers):
+        identifier += "-native"
+    reviewer = Reviewer(
+        id=identifier,
+        command=[str(Path(resolved).absolute())],
+        preset="codex" if name == "codex" else "claude",
+    )
+    await check_reviewer(reviewer, directory)
+    return reviewer, reviewer.id
