@@ -5,6 +5,7 @@ import hashlib
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 from diffbutler.config.settings import ConfigError, Settings, load_settings
@@ -30,7 +31,7 @@ from diffbutler.domain.review import (
     RunRecord,
 )
 from diffbutler.reviewers.base import ReviewBudget, ReviewContext
-from diffbutler.reviewers.native import CODEX_OUTPUT
+from diffbutler.reviewers.native import native_preset
 from diffbutler.reviewers.process import LinuxHostBoot
 from diffbutler.reviewers.prompt import PROMPT_VERSION
 from diffbutler.reviewers.resources import OwnedDirectories
@@ -102,11 +103,17 @@ class ManagedReviews:
 
     def reviewer_command(self, reviewer_id: str | None) -> tuple[str, ...]:
         selected = next((item for item in self.settings.reviewers if item.id == reviewer_id), None)
-        if selected is None or selected.preset != "codex":
+        if selected is None or selected.preset not in {"codex", "claude"}:
             raise ConfigError(
-                "M2 native execution requires a configured reviewer with preset = 'codex'"
+                "Native execution requires a reviewer with preset = 'codex' or 'claude'"
             )
         return tuple(selected.command)
+
+    def reviewer_preset(self, reviewer_id: str | None) -> Literal["codex", "claude"]:
+        self.reviewer_command(reviewer_id)
+        selected = next(item for item in self.settings.reviewers if item.id == reviewer_id)
+        assert selected.preset is not None
+        return selected.preset
 
     async def review(self, row: PullRequestRow, reviewer_id: str | None = None) -> AIRun:
         task_id = row.tracked.task_id
@@ -163,13 +170,14 @@ class ManagedReviews:
                 self.recovery,
                 self.processes,
                 lambda: self.reviews.claim_is_current(claim.token),
+                self.reviewer_preset(reviewer_id),
             )
 
         worker = ReviewWorker(
             self.reviews,
             prepare,
             execution,
-            output_format=CODEX_OUTPUT,
+            output_format=native_preset(self.reviewer_preset(reviewer_id)).output_format,
             min_confidence=self.settings.review.min_confidence,
             findings_threshold=self.settings.review.findings_threshold,
         )
@@ -210,6 +218,7 @@ class ManagedReviews:
             self.directories,
             run.session_id,
             self.reviewer_command(run.reviewer_id),
+            self.reviewer_preset(run.reviewer_id),
         )
 
 

@@ -10,7 +10,7 @@ class OwnedDirectory:
     root_id: UUID
     session_id: UUID
     resource_id: UUID
-    purpose: Literal["artifact", "codex_home"] = "artifact"
+    purpose: Literal["artifact", "codex_home", "claude_home"] = "artifact"
 
     def manifest(self) -> dict[str, str]:
         return {
@@ -33,14 +33,14 @@ class OwnedDirectory:
         ):
             raise ValueError("Unsupported resource manifest")
         purpose = value.get("purpose", "artifact")
-        if purpose not in {"artifact", "codex_home"}:
+        if purpose not in {"artifact", "codex_home", "claude_home"}:
             raise ValueError("Unsupported resource purpose")
         try:
             return cls(
                 UUID(value["root_id"]),
                 UUID(value["session_id"]),
                 UUID(value["resource_id"]),
-                cast(Literal["artifact", "codex_home"], purpose),
+                cast(Literal["artifact", "codex_home", "claude_home"], purpose),
             )
         except ValueError:
             raise ValueError("Invalid resource identity") from None

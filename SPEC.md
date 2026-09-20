@@ -1425,14 +1425,18 @@ DiffButler relies on the installed agent CLI's native sandbox and approval contr
 It does not build or provision an additional OS sandbox, network broker, or model
 authentication proxy.
 
-Background launches explicitly select native read-only mode and disable interactive
+The implemented Linux presets support Codex CLI 0.98.0 and Claude Code 2.1.278.
+Claude uses restricted read tools, safe mode, empty MCP configuration, and `dontAsk`
+permissions; Codex uses its native read-only sandbox.
+
+Background launches explicitly select native read-only controls and disable interactive
 approval/escalation. They use captured pipes, an environment allowlist, source-only
 instructions, and session-owned pinned source snapshots. Failures are surfaced; there
 is no retry with sandbox bypass flags. DiffButler trusts the installed agent and its
 sandbox implementation. This is not a claim that DiffButler independently confines
 all filesystem reads, network capabilities, tools, or descendant processes. Source-only
-instructions prohibit tests/builds/edits, but native read-only mode is not an execution
-allowlist. The configured agent remains responsible for honoring those instructions.
+instructions prohibit tests/builds/edits. Codex native read-only mode is not an execution
+allowlist; the Claude preset additionally limits available tools to Read, Glob, and Grep. The configured agent remains responsible for honoring those instructions.
 
 Foreground resume uses the exact saved conversation and native interactive approvals.
 Entering it does not authorize posting. The human must explicitly instruct publication;

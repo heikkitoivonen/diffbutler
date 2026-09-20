@@ -8,7 +8,7 @@ search, refresh, and native session actions still do their requested I/O.
 The dashboard defaults to the `ansi-dark` theme. Use the command palette's Theme
 command to select a different theme for the current session.
 
-The managed native workflow remains scoped to **Linux and Codex CLI 0.98.0**.
+The managed native workflow supports **Linux with Codex CLI 0.98.0 or Claude Code 2.1.278**.
 [Native review setup and limitations](native-reviews.md) apply unchanged. Every AI
 run requires an explicit review action. Discovery, periodic sync, new commits,
 renewed requests, and returning from a session never request another run.

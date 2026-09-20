@@ -1,5 +1,10 @@
 # Terminal handoff experiment
 
+> Update (2026-09-19): Claude Code 2.1.278 is now installed and supported by the
+> [managed native workflow](native-reviews.md), with offline retry, session resume,
+> PTY, and cleanup coverage. A live authenticated Claude continuity check remains
+> outstanding. The original manual experiment below covers Codex.
+
 ## Decision: keep tmux optional; Codex continuity confirmed
 
 The Linux prototype demonstrates dashboard → interactive process → dashboard in
@@ -89,7 +94,7 @@ Textual's headless driver. Tests run offline as part of `make check`.
 | Shrink/grow while attached | Passed; fake and restored dashboard see current dimensions |
 | Full-screen Textual child | Passed; child resizes, exits, and dashboard redraws at current size |
 | Native Codex session continuity | User-confirmed manual pass; details below |
-| Native Claude session continuity | Deferred by user; Claude is not installed here |
+| Native Claude session continuity | Offline managed coverage; live validation outstanding |
 | macOS | Deferred by user; tests included in the existing macOS CI job |
 
 ## User-confirmed Codex check
@@ -131,7 +136,7 @@ The full native acceptance procedure for **each** supported CLI is below. The
 Codex check above covers the basic continuity path; the other cases remain open.
 
 1. Verify installed version, noninteractive invocation, session ID output, and
-   interactive resume syntax. Claude syntax must be checked when it is installed.
+   interactive resume syntax. Claude 2.1.278 syntax is now checked against the installed help.
 2. In a disposable source directory, explicitly start a small synthetic source-only
    review with a distinctive conversation marker; capture the actual backend session
    ID. This is a separate manual integration check and may use model credits.

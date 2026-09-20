@@ -6,6 +6,7 @@ import os
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -17,31 +18,36 @@ from diffbutler.domain.lifecycle import CleanupSession
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import RunClaim
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
-from diffbutler.reviewers.native import CapturedProcess, NativeError, codex_preset, verify_version
+from diffbutler.reviewers.native import CapturedProcess, NativeError, native_preset, verify_version
 from diffbutler.reviewers.prompt import render_prompt
 from diffbutler.reviewers.resources import OwnedDirectories, OwnedSessionCleaner, settled_io
 from diffbutler.sources.git import GitSourceReader
 from diffbutler.store.base import LifecycleStore, ProcessStore, ReviewStore
 
 
-def background_environment(agent_home: Path) -> dict[str, str]:
+def background_environment(agent_home: Path, preset_name: str = "codex") -> dict[str, str]:
+    auth_keys = (
+        ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+        if preset_name == "claude"
+        else ("CODEX_API_KEY",)
+    )
     env = {
         key: os.environ[key]
-        for key in ("PATH", "HOME", "LANG", "LC_ALL", "CODEX_API_KEY")
+        for key in ("PATH", "HOME", "LANG", "LC_ALL", *auth_keys)
         if key in os.environ
     }
-    env["CODEX_HOME"] = str(agent_home)
+    env["CLAUDE_CONFIG_DIR" if preset_name == "claude" else "CODEX_HOME"] = str(agent_home)
     return env
 
 
 async def session_directory(
-    store: ReviewStore, directories: OwnedDirectories, session_id: UUID
+    store: ReviewStore, directories: OwnedDirectories, session_id: UUID, preset_name: str = "codex"
 ) -> Path:
     resources = await store.session_resources(session_id)
     if (
         len(resources) != 1
         or resources[0].root_id != directories.root_id
-        or resources[0].purpose != "codex_home"
+        or resources[0].purpose != f"{preset_name}_home"
     ):
         raise NativeError("Managed native session workspace is unavailable")
     path = directories.path / resources[0].name
@@ -61,7 +67,9 @@ class NativeExecution:
         recovery: ProcessRecovery,
         processes: ProcessStore,
         is_current: Callable[[], Awaitable[bool]],
+        preset_name: Literal["codex", "claude"] = "codex",
     ) -> None:
+        self.preset_name = preset_name
         self.claim = claim
         self.store = store
         self.directories = directories
@@ -85,12 +93,14 @@ class NativeExecution:
                 self.directories,
                 token=self.claim.token,
                 session_id=context.session_id,
-                purpose="codex_home",
+                purpose="claude_home" if self.preset_name == "claude" else "codex_home",
             )
         else:
             if len(resources) == 1 and not (self.directories.path / resources[0].name).exists():
                 await self.directories.create(resources[0])
-            root = await session_directory(self.store, self.directories, context.session_id)
+            root = await session_directory(
+                self.store, self.directories, context.session_id, self.preset_name
+            )
 
         def initialize_home() -> None:
             for name in ("agent-home", "runs"):
@@ -99,8 +109,14 @@ class NativeExecution:
                     raise NativeError("Managed native directory was replaced by a symlink")
                 directory.mkdir(mode=0o700, exist_ok=True)
             # Share only the native login, not user MCP/plugins/rules/configuration.
-            auth = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "auth.json"
-            target = root / "agent-home" / "auth.json"
+            if self.preset_name == "claude":
+                auth = (
+                    Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+                    / ".credentials.json"
+                )
+            else:
+                auth = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "auth.json"
+            target = root / "agent-home" / auth.name
             if auth.is_file() and not target.exists() and not target.is_symlink():
                 target.symlink_to(auth.absolute())
 
@@ -125,8 +141,8 @@ class NativeExecution:
             temporary.replace(root / "current.json")
 
         await settled_io(save_current)
-        env = background_environment(root / "agent-home")
-        preset = codex_preset()
+        env = background_environment(root / "agent-home", self.preset_name)
+        preset = native_preset(self.preset_name)
         await verify_version(self.command, preset, cwd=workdir, env=env)
         if not await self.is_current():
             raise NativeError("Review became stale during source preparation")
@@ -136,17 +152,18 @@ class NativeExecution:
             try:
                 UUID(identity)
             except ValueError:
-                raise NativeError("Invalid Codex conversation identity") from None
+                raise NativeError("Invalid native conversation identity") from None
             await checkpoint(identity)
 
         capture = asyncio.create_task(
             self.execution.capture(
-                preset.argv((*self.command, "-C", str(workdir)), backend_session_id),
+                preset.argv(preset.command_at(self.command, workdir), backend_session_id),
                 cwd=workdir,
                 env=env,
                 input=prompt.content,
                 maximum=context.budget.max_output_bytes,
                 checkpoint=native_checkpoint,
+                output_format=preset.output_format,
             )
         )
         try:
@@ -166,7 +183,7 @@ class NativeExecution:
 
 
 class NativeSessionCleaner:
-    """Codex local state lives wholly inside its session's owned agent home."""
+    """Native local state lives wholly inside its session's owned agent home."""
 
     def __init__(self, directories: OwnedDirectories) -> None:
         self.directories = directories
@@ -176,8 +193,8 @@ class NativeSessionCleaner:
             resources = tuple(
                 OwnedDirectory.from_manifest(dict(item)) for item in session.resources
             )
-            if len(resources) != 1 or resources[0].purpose != "codex_home":
-                raise NativeError("Native cleanup requires an owned Codex home manifest")
+            if len(resources) != 1 or resources[0].purpose not in {"codex_home", "claude_home"}:
+                raise NativeError("Native cleanup requires an owned native home manifest")
         # Deleting the entire dedicated native home removes local conversation state,
         # caches, and indexes without deriving paths from the opaque backend ID.
         await OwnedSessionCleaner(self.directories, {}).cleanup(
@@ -192,6 +209,7 @@ class SessionLaunch(BaseModel):
     argv: tuple[str, ...]
     cwd: Path
     agent_home: Path
+    preset_name: Literal["codex", "claude"] = "codex"
 
 
 async def prepare_native_handoff(
@@ -200,24 +218,28 @@ async def prepare_native_handoff(
     directories: OwnedDirectories,
     session_id: UUID,
     command: tuple[str, ...],
+    preset_name: Literal["codex", "claude"] = "codex",
 ) -> SessionLaunch:
     lease = await lifecycle.acquire_foreground(session_id)
     try:
-        root = await session_directory(store, directories, session_id)
+        root = await session_directory(store, directories, session_id, preset_name)
         run_id = UUID(json.loads((root / "current.json").read_text())["run_id"])
         cwd = root / "runs" / str(run_id)
         if cwd.is_symlink() or not cwd.is_dir():
             raise NativeError("Pinned review workspace is unavailable")
-        preset = codex_preset()
+        preset = native_preset(preset_name)
         await verify_version(
-            command, preset, cwd=cwd, env=background_environment(root / "agent-home")
+            command, preset, cwd=cwd, env=background_environment(root / "agent-home", preset_name)
         )
         return SessionLaunch(
             token=lease.token,
             session_id=session_id,
-            argv=preset.argv((*command, "-C", str(cwd)), lease.backend_session_id, foreground=True),
+            argv=preset.argv(
+                preset.command_at(command, cwd), lease.backend_session_id, foreground=True
+            ),
             cwd=cwd,
             agent_home=root / "agent-home",
+            preset_name=preset_name,
         )
     except BaseException:
         await lifecycle.release_foreground(lease.token)
@@ -225,4 +247,5 @@ async def prepare_native_handoff(
 
 
 def foreground_environment(launch: SessionLaunch) -> Mapping[str, str]:
-    return {**os.environ, "CODEX_HOME": str(launch.agent_home)}
+    home_key = "CLAUDE_CONFIG_DIR" if launch.preset_name == "claude" else "CODEX_HOME"
+    return {**os.environ, home_key: str(launch.agent_home)}

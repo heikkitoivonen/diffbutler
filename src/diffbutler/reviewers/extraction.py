@@ -58,6 +58,12 @@ class StreamFormat:
     assistant_filter_path: tuple[str, ...] | None = None
     assistant_filter_value: str | None = None
     require_session: bool = False
+    session_filter_path: tuple[str, ...] | None = None
+    session_filter_value: str | None = None
+    terminal_text_path: tuple[str, ...] | None = None
+    terminal_success_path: tuple[str, ...] | None = None
+    terminal_success_value: object = None
+    terminal_error_path: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         types = (self.assistant_type, self.session_type, self.complete_type, *self.failure_types)
@@ -134,16 +140,34 @@ def extract_output(
                 event = cast(dict[str, object], event)
                 if kind in format.failure_types:
                     raise ValueError
-                if kind == format.session_type:
+                if kind == format.session_type and (
+                    format.session_filter_path is None
+                    or _at(event, format.session_filter_path) == format.session_filter_value
+                ):
                     session_id = _identity(_at(event, format.session_path), session_id)
-                elif kind == format.assistant_type and (
-                    format.assistant_filter_path is None
-                    or _at(event, format.assistant_filter_path) == format.assistant_filter_value
+                elif (
+                    format.terminal_text_path is None
+                    and kind == format.assistant_type
+                    and (
+                        format.assistant_filter_path is None
+                        or _at(event, format.assistant_filter_path) == format.assistant_filter_value
+                    )
                 ):
                     answer = _at(event, format.text_path)
                     if not isinstance(answer, str):
                         raise ValueError
                 elif kind == format.complete_type:
+                    if format.terminal_success_path is not None and (
+                        _at(event, format.terminal_success_path) != format.terminal_success_value
+                    ):
+                        raise ValueError
+                    if format.terminal_error_path is not None and (
+                        _at(event, format.terminal_error_path) is not False
+                    ):
+                        raise ValueError
+                    if format.terminal_text_path is not None:
+                        answer = _at(event, format.terminal_text_path)
+                        session_id = _identity(_at(event, format.session_path), session_id)
                     complete = True
             if not complete or (format.require_session and session_id is None):
                 raise ValueError

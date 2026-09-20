@@ -25,7 +25,7 @@ uv run diffbutler follow 'acme/api#1841'
 Configure a forge before remote commands. Local listing works offline. `sync` is a
 single refresh; the dashboard polls periodically. These commands never invoke AI or
 post to a forge. [Native reviews and resumable sessions](docs/native-reviews.md) are
-available with a configured Codex reviewer and pinned local Git objects:
+available with a configured Codex or Claude reviewer and pinned local Git objects:
 
 ```sh
 diffbutler review 'acme/api#1841'
@@ -35,11 +35,11 @@ diffbutler approved 'acme/api#1841'
 ```
 
 A review sends redacted source to the configured agent/model provider only after the
-explicit review command. DiffButler relies on the agent's native read-only sandbox;
+explicit review command. DiffButler relies on the agent's native read-only controls;
 it does not add its own OS sandbox. Current version support,
 authentication, source limits, and validation evidence are in the [native review guide](docs/native-reviews.md).
-Claude and macOS integration remain deferred. Tests are offline; no live managed
-review was invoked during implementation.
+Codex CLI 0.98.0 and Claude Code 2.1.278 are supported on Linux; macOS remains
+deferred. Tests are offline; no live managed review was invoked during implementation.
 
 The shared core provides [review scheduling](docs/review-scheduling.md),
 [pinned source preparation](docs/source-context.md), [output parsing](docs/review-parsing.md),

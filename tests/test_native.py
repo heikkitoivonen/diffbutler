@@ -12,15 +12,17 @@ from tests.test_sync import ACCOUNT, PR, REF, FakeForge
 
 from diffbutler.config.settings import Settings
 from diffbutler.core.managed import ManagedReviews, owned_directories, resolve_local
-from diffbutler.core.native import foreground_environment
+from diffbutler.core.native import background_environment, foreground_environment
 from diffbutler.core.sync import DiffButler
 from diffbutler.reviewers.base import ReviewOutput
 from diffbutler.reviewers.extraction import extract_output
 from diffbutler.reviewers.native import (
+    CLAUDE_OUTPUT,
     CODEX_OUTPUT,
     CapturedProcess,
     NativeError,
     codex_preset,
+    native_preset,
     verify_version,
 )
 from diffbutler.store.database import Database
@@ -39,9 +41,12 @@ FAKE = Path(__file__).parent / "fixtures" / "fake_codex.py"
 def isolated_native_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "synthetic-native-login"))
     monkeypatch.delenv("CODEX_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "synthetic-claude-login"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
 
-async def prepared(tmp_path: Path) -> tuple[Settings, FakeForge]:
+async def prepared(tmp_path: Path, preset: str = "codex") -> tuple[Settings, FakeForge]:
     repo = tmp_path / "repository"
     repo.mkdir()
     await git(repo, "init", "--template=")
@@ -58,9 +63,13 @@ async def prepared(tmp_path: Path) -> tuple[Settings, FakeForge]:
         {
             "db": {"url": f"sqlite+aiosqlite:///{tmp_path}/native.db"},
             "general": {"workspace_root": str(tmp_path / "managed")},
-            "review": {"default_reviewer": "codex"},
+            "review": {"default_reviewer": preset},
             "reviewers": [
-                {"id": "codex", "preset": "codex", "command": [sys.executable, str(FAKE)]}
+                {
+                    "id": preset,
+                    "preset": preset,
+                    "command": [sys.executable, str(FAKE.with_name(f"fake_{preset}.py"))],
+                }
             ],
             "repos": {"acme/api": {"path": str(repo)}},
         }
@@ -73,14 +82,23 @@ async def prepared(tmp_path: Path) -> tuple[Settings, FakeForge]:
     return settings, forge
 
 
+@pytest.mark.parametrize("preset", ["codex", "claude"])
 async def test_review_restart_exact_resume_completion_cleanup_and_retained_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    preset: str,
 ) -> None:
     # Never expose a real native login to the synthetic executable.
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "empty-login"))
     monkeypatch.setenv("GH_TOKEN", "synthetic-foreground-only")
-    settings, forge = await prepared(tmp_path)
+    login = tmp_path / "user-login"
+    login.mkdir()
+    home_key = "CLAUDE_CONFIG_DIR" if preset == "claude" else "CODEX_HOME"
+    credential = login / (".credentials.json" if preset == "claude" else "auth.json")
+    credential.write_text("synthetic-auth")
+    (login / "settings.json").write_text("synthetic-user-settings")
+    monkeypatch.setenv(home_key, str(login))
+    settings, forge = await prepared(tmp_path, preset)
     database = Database(settings.db.url)
     await database.initialize()
     try:
@@ -107,6 +125,8 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         managed = ManagedReviews(database, settings, await owned_directories(settings))
         row = await resolve_local(SQLiteQueueStore(database), "acme/api#1", None)
         launch = await managed.prepare_handoff(row)
+        assert (launch.agent_home / credential.name).resolve() == credential
+        assert not (launch.agent_home / "settings.json").exists()
         execution = CapturedProcess()
         try:
             resumed = await execution.capture(
@@ -126,6 +146,8 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         await managed.store.mark_approved(run.task_id)
         await managed.cleanup()
         assert not launch.agent_home.exists() and not launch.cwd.exists()
+        assert credential.read_text() == "synthetic-auth"
+        assert (login / "settings.json").read_text() == "synthetic-user-settings"
         assert (await managed.reviews.get_session(run.session_id)).status == "cleaned"
         result = await managed.reviews.get_result(run.id)
         assert result is not None and result.document is not None and result.stdout is None
@@ -184,18 +206,22 @@ def configuration(tmp_path: Path, settings: Settings) -> Path:
     path.write_text(
         f"[db]\nurl = {json.dumps(settings.db.url)}\n"
         f"[general]\nworkspace_root = {json.dumps(str(settings.general.workspace_root))}\n"
-        '[review]\ndefault_reviewer = "codex"\n'
-        '[[reviewers]]\nid = "codex"\npreset = "codex"\n'
+        f'[review]\ndefault_reviewer = "{settings.review.default_reviewer}"\n'
+        f'[[reviewers]]\nid = "{settings.reviewers[0].id}"\n'
+        f'preset = "{settings.reviewers[0].preset}"\n'
         f"command = {json.dumps(settings.reviewers[0].command)}\n"
         f'[repos."acme/api"]\npath = {json.dumps(str(settings.repos["acme/api"].path))}\n'
     )
     return path
 
 
-async def test_public_cli_review_retry_findings_approval_and_cleanup(tmp_path: Path) -> None:
+@pytest.mark.parametrize("preset", ["codex", "claude"])
+async def test_public_cli_review_retry_findings_approval_and_cleanup(
+    tmp_path: Path, preset: str
+) -> None:
     import json
 
-    settings, forge = await prepared(tmp_path)
+    settings, forge = await prepared(tmp_path, preset)
     config = configuration(tmp_path, settings)
     database = Database(settings.db.url)
     await database.initialize()
@@ -600,3 +626,87 @@ async def test_paused_dispatch_and_cancelling_queued_review(tmp_path: Path) -> N
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AI_REVIEW"
     finally:
         await database.close()
+
+
+@pytest.mark.parametrize("change", ["error", "subtype", "missing", "conflict", "truncated"])
+async def test_claude_rejects_failed_or_incomplete_results(change: str) -> None:
+    import json
+
+    identity = "01234567-89ab-cdef-0123-456789abcdef"
+    init = {"type": "system", "subtype": "init", "session_id": identity}
+    result = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "session_id": identity,
+        "result": "{}",
+    }
+    if change == "error":
+        result["is_error"] = True
+    elif change == "subtype":
+        result["subtype"] = "error_max_turns"
+    elif change == "missing":
+        del result["session_id"]
+    elif change == "conflict":
+        result["session_id"] = "aaaaaaaa-89ab-cdef-0123-456789abcdef"
+    events = [init] if change == "truncated" else [init, result]
+    output = ReviewOutput("\n".join(map(json.dumps, events)).encode(), b"", 0)
+    assert extract_output(output, CLAUDE_OUTPUT).error is not None
+
+
+async def test_claude_environment_and_resume_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
+    monkeypatch.setenv("GH_TOKEN", "synthetic-forge")
+    monkeypatch.setenv("CODEX_API_KEY", "synthetic-codex")
+    env = background_environment(tmp_path, "claude")
+    assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path)
+    assert env["ANTHROPIC_API_KEY"] == "synthetic"
+    assert "GH_TOKEN" not in env and "CODEX_API_KEY" not in env
+    preset = native_preset("claude")
+    identity = "01234567-89ab-cdef-0123-456789abcdef"
+    resumed = preset.argv(("claude",), identity)
+    assert resumed[:-2] == preset.argv(("claude",), None)
+    assert resumed[-2:] == ("--resume", identity)
+    foreground = preset.argv(("claude",), identity, foreground=True)
+    assert "manual" in foreground and "dontAsk" not in foreground
+    with pytest.raises(NativeError, match="identity"):
+        preset.argv(("claude",), "--unsafe")
+
+
+async def test_claude_checkpoints_init_before_completion(tmp_path: Path) -> None:
+    seen: list[str] = []
+    ready = asyncio.Event()
+
+    async def checkpoint(identity: str) -> None:
+        seen.append(identity)
+        ready.set()
+
+    execution = CapturedProcess()
+    code = (
+        "import json,time; "
+        'print(json.dumps({"type":"system","subtype":"status"}),flush=True); '
+        'print(json.dumps({"type":"system","subtype":"init",'
+        '"session_id":"01234567-89ab-cdef-0123-456789abcdef"}),flush=True); '
+        "time.sleep(60)"
+    )
+    task = asyncio.create_task(
+        execution.capture(
+            (sys.executable, "-c", code),
+            cwd=tmp_path,
+            env={"PATH": os.defpath},
+            input=b"",
+            maximum=1000,
+            checkpoint=checkpoint,
+            output_format=CLAUDE_OUTPUT,
+        )
+    )
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        assert seen == ["01234567-89ab-cdef-0123-456789abcdef"]
+        assert not task.done()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await execution.stop_and_wait()

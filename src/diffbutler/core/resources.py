@@ -20,7 +20,7 @@ async def provision_directory(
     *,
     token: UUID,
     session_id: UUID,
-    purpose: Literal["artifact", "codex_home"] = "artifact",
+    purpose: Literal["artifact", "codex_home", "claude_home"] = "artifact",
 ) -> Path:
     """Failures retain the manifest; ordinary completion can clean absent resources."""
     resource = replace(directories.reserve(session_id), purpose=purpose)

@@ -72,3 +72,11 @@ open_in_browser = ["o", "ctrl+o"]
 # parse = "json_envelope" # The Codex preset uses its fixed JSONL protocol.
 # json_path = "result"
 # stdin = "prompt"
+
+# Claude Code can be configured alongside Codex; select with --reviewer claude
+# or set review.default_reviewer = "claude" above.
+# [[reviewers]]
+# id = "claude"
+# kind = "cli"
+# command = ["claude"]
+# preset = "claude"

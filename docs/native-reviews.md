@@ -1,9 +1,9 @@
 # Native CLI reviews (M2–M3)
 
-The managed review path currently supports **Codex CLI 0.98.0 on Linux**. DiffButler
-selects the agent's native read-only sandbox; it does not create an additional OS
-sandbox. Claude and macOS integration remain deferred.
-The installed Codex version and help were checked locally. Automated acceptance
+The managed review path currently supports **Codex CLI 0.98.0 and Claude Code 2.1.278 on Linux**. DiffButler
+selects the agent's native read-only controls; it does not create an additional OS
+sandbox. macOS integration remains deferred.
+The installed versions and help were checked locally for both agents. Automated acceptance
 covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
 completion, cleanup, and retained findings across process restarts. It uses a
 synthetic executable, disposable Git repositories, and SQLite; it makes no
@@ -29,6 +29,19 @@ max_output_bytes = 4000000
 path = "~/src/api"
 enabled = true
 ```
+
+To enable Claude alongside Codex, add another reviewer:
+
+```toml
+[[reviewers]]
+id = "claude"
+preset = "claude"
+command = ["claude"]
+```
+
+Select it with `diffbutler review 'acme/api#1841' --reviewer claude`, or set
+`review.default_reviewer = "claude"`. Each reviewer keeps a separate conversation;
+`session` resumes the most recent run's reviewer.
 
 Keep your existing forge configuration. Sync or follow the PR first, then:
 
@@ -58,7 +71,7 @@ state overrides and offline history.
 `general.workspace_root` optionally selects the private managed root (default:
 `$XDG_DATA_HOME/diffbutler/reviews`). Never point it at a repository or existing
 unrelated directory: initialization refuses to adopt existing directories. Each
-session gets a durably registered owned directory, a dedicated `CODEX_HOME`, and
+session gets a durably registered owned directory, a dedicated `CODEX_HOME` or `CLAUDE_CONFIG_DIR`, and
 per-run `base/` and `head/` source snapshots. Snapshots contain pinned, redacted Git
 blobs, including unchanged source, with no checkout hooks, Git administration, or
 project execution. They ignore local working/index changes. Symlinks become regular
@@ -70,11 +83,27 @@ large-diff splitting remain future enhancements.
 
 ## Native permissions and authentication
 
-The shipped TOML preset selects `read-only` and `never` approval for background
+The shipped Codex TOML preset selects `read-only` and `never` approval for background
 execution, and `read-only` with `on-request` approval for foreground resume. Each
 launch asserts these settings again. Unsupported versions fail before a review
 launch rather than guessing at changed flags. No bypass or full-access fallback is
 used. [Codex documents JSON events, exact-ID resume, and read-only execution](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+Claude background launches use `--restricted` with only `Read,Glob,Grep`,
+`dontAsk` permissions and `--permission-prompts none`. Safe mode disables
+customizations, and strict empty MCP configuration disables external tools.
+The same controls apply on explicit retries. Foreground resume selects `manual`
+permissions and the default tool set so human-authorized forge commands can prompt;
+safe mode and empty MCP configuration remain in effect. These flags were checked
+against the installed CLI and the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
+
+Claude background authentication accepts `ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, or the existing Linux `.credentials.json` login, linked
+from the user's `CLAUDE_CONFIG_DIR` (default `~/.claude`) into the owned config
+folder. User settings and custom providers are not imported. The dedicated config
+folder retains conversations for resume and is removed at cleanup. No live Claude
+model call or authenticated interactive session was used to validate this integration;
+automated tests exercise the launch and output contracts with a fake executable.
 
 Only PATH, HOME, locale, and optional `CODEX_API_KEY` are passed to background Codex;
 forge token variables are omitted. The dedicated native home shares the existing
@@ -88,8 +117,8 @@ Codex configuration is not imported into the managed home.
 
 This relies on the installed agent's sandbox and approval implementation. DiffButler
 does not independently restrict every host-file read, every tool, or network egress.
-Source-only review is an instruction, not a ban on all command execution enforced by
-DiffButler. Foreground posting requires explicit instruction inside the agent;
+Codex source-only review relies on instructions rather than a command-execution
+allowlist. Claude additionally limits background tools to Read, Glob, and Grep. Foreground posting requires explicit instruction inside the agent;
 opening a session grants no publication approval. Foreground resume includes a discussion
 prompt that permits feedback only after the human explicitly instructs it; on return, the
 core observes actual forge activity and retains a refresh-pending flag when reads fail. Credential redaction is heuristic,
@@ -98,8 +127,9 @@ and a resumed conversation can contain material from earlier foreground discussi
 ## Ownership, output, and cleanup
 
 Background stdout/stderr are bounded pipes, never terminal output. The actual
-`thread.started` identity is checkpointed while the worker holds its claim. Only
-completed agent-message items count as answers; tool output cannot replace them.
+`thread.started` (Codex) or `system/init` (Claude) identity is checkpointed while the worker holds its claim. Only
+completed Codex agent-message items or a successful Claude terminal `result` count
+as answers; tool output cannot replace them.
 A successful terminal event and a backend identity are required, followed by strict
 orientation/findings parsing and original-diff anchor validation. Raw capture is
 retained until cleanup; normalized results survive deletion.

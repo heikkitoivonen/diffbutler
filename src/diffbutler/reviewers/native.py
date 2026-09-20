@@ -1,4 +1,4 @@
-"""Native Codex launch contract. Sandboxing belongs to the installed agent CLI."""
+"""Native agent launch contract. Sandboxing belongs to the installed agent CLI."""
 
 import asyncio
 import json
@@ -29,6 +29,21 @@ CODEX_OUTPUT = StreamFormat(
 )
 
 
+CLAUDE_OUTPUT = StreamFormat(
+    assistant_type="assistant",  # Only the final result is an answer.
+    session_type="system",
+    session_path=("session_id",),
+    session_filter_path=("subtype",),
+    session_filter_value="init",
+    complete_type="result",
+    terminal_text_path=("result",),
+    terminal_success_path=("subtype",),
+    terminal_success_value="success",
+    terminal_error_path=("is_error",),
+    require_session=True,
+)
+
+
 class NativeError(RuntimeError):
     """Fixed local diagnostic without captured agent text or credentials."""
 
@@ -39,6 +54,14 @@ class NativePreset:
     background: tuple[str, ...]
     background_resume: tuple[str, ...]
     foreground: tuple[str, ...]
+    name: str = "codex"
+
+    @property
+    def output_format(self) -> StreamFormat:
+        return CLAUDE_OUTPUT if self.name == "claude" else CODEX_OUTPUT
+
+    def command_at(self, command: tuple[str, ...], cwd: Path) -> tuple[str, ...]:
+        return (*command, "-C", str(cwd)) if self.name == "codex" else command
 
     def argv(
         self, command: tuple[str, ...], session_id: str | None, *, foreground: bool = False
@@ -47,7 +70,7 @@ class NativePreset:
             try:
                 UUID(session_id)
             except ValueError:
-                raise NativeError("Invalid Codex conversation identity") from None
+                raise NativeError("Invalid native conversation identity") from None
         if foreground and session_id is None:
             raise NativeError("No saved native conversation to resume")
         arguments = (
@@ -63,14 +86,19 @@ class NativePreset:
 
 
 def codex_preset() -> NativePreset:
-    data = tomllib.loads(files("diffbutler.reviewers").joinpath("presets.toml").read_text())[
-        "codex"
-    ]
+    return native_preset("codex")
+
+
+def native_preset(name: str) -> NativePreset:
+    if name not in {"codex", "claude"}:
+        raise NativeError("Unsupported native reviewer preset")
+    data = tomllib.loads(files("diffbutler.reviewers").joinpath("presets.toml").read_text())[name]
     return NativePreset(
         data["version"],
         tuple(data["background"]),
         tuple(data["background_resume"]),
         tuple(data["foreground"]),
+        name,
     )
 
 
@@ -95,6 +123,7 @@ class CapturedProcess:
         input: bytes,
         maximum: int,
         checkpoint: Callable[[str], Awaitable[None]] | None = None,
+        output_format: StreamFormat = CODEX_OUTPUT,
     ) -> ReviewOutput:
         if self.spawn is not None:
             raise NativeError("A process execution cannot be reused")
@@ -137,8 +166,12 @@ class CapturedProcess:
                             continue  # Strict final extraction rejects malformed output.
                         if isinstance(event, dict):
                             fields = cast(dict[str, object], event)
-                            if fields.get("type") == "thread.started":
-                                identity = fields.get("thread_id")
+                            if fields.get("type") == output_format.session_type and (
+                                output_format.session_filter_path is None
+                                or fields.get(output_format.session_filter_path[0])
+                                == output_format.session_filter_value
+                            ):
+                                identity = fields.get(output_format.session_path[0])
                                 if not isinstance(identity, str):
                                     raise NativeError("Invalid native conversation identity")
                                 await checkpoint(identity)

@@ -157,5 +157,6 @@ Doctor reports core quota; search quota becomes available after a search request
 Remote diffs/source retrieval, dashboard publishing, forge-plugin registration, and
 GitLab remain future work. Pinned local Git source reads and human-instructed native
 agent posting are implemented in the managed workflow. This read adapter does not establish
-background-agent isolation. Claude and macOS handoff validation remain deferred; see
-[terminal-handoff.md](terminal-handoff.md).
+background-agent isolation. Claude has offline managed handoff coverage; live Claude
+and macOS handoff validation remain outstanding. See [native reviews](native-reviews.md)
+and [terminal handoff](terminal-handoff.md).

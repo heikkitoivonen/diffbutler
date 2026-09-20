@@ -72,7 +72,7 @@ class Reviewer(Section):
     id: str = Field(min_length=1)
     kind: Literal["cli"] = "cli"
     command: list[str] = Field(min_length=1)
-    preset: Literal["codex"] | None = None
+    preset: Literal["codex", "claude"] | None = None
     max_output_bytes: int = Field(default=4_000_000, gt=0)
     timeout_s: int = Field(default=900, gt=0)
     parse: Literal["json_envelope", "jsonl_stream"] = "json_envelope"
