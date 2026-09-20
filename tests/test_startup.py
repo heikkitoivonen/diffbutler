@@ -236,3 +236,29 @@ async def test_invalid_answer_leaves_config_untouched(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="owner/name"):
         await startup_settings(None, directory=tmp_path, ask=ask)
     assert not config_path().exists()
+
+
+@pytest.mark.asyncio
+async def test_stalled_access_check_times_out_without_saving(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def no_repository(directory: Path) -> None:
+        return None
+
+    async def stalled(*args: object) -> str:
+        await asyncio.Event().wait()
+        return "unreachable"
+
+    monkeypatch.setattr("diffbutler.core.setup.discover_repository", no_repository)
+    monkeypatch.setattr("diffbutler.core.setup.validate_access", stalled)
+    monkeypatch.setattr("diffbutler.core.setup.SETUP_CHECK_TIMEOUT", 0.01)
+    answers = iter(["github", "acme/api", "reader"])
+    progress: list[str] = []
+
+    async def ask(label: str, default: str) -> str:
+        return next(answers)
+
+    with pytest.raises(ConfigError, match="timed out"):
+        await startup_settings(None, directory=tmp_path, ask=ask, progress=progress.append)
+    assert "Checking GitHub username and PR access" in progress[-1]
+    assert not config_path().exists()

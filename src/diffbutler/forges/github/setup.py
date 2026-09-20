@@ -22,7 +22,7 @@ async def repository_access(http: GitHubHTTP, repository: str) -> RepositoryAcce
 
 
 async def repository_is_public(base_url: str, repository: str) -> bool:
-    http = GitHubHTTP(base_url, None)
+    http = GitHubHTTP(base_url, None, max_pacing_wait=5)
     try:
         access = await repository_access(http, repository)
         return not access.private and access.visibility in {None, "public"}
@@ -41,7 +41,7 @@ async def validate_access(
     token: str | None,
 ) -> str:
     identity_part(login)
-    http = GitHubHTTP(base_url, token)
+    http = GitHubHTTP(base_url, token, max_pacing_wait=5)
     try:
         try:
             response = await http.get("user" if token is not None else f"users/{login}")

@@ -1,6 +1,8 @@
 """First-run configuration with read-only forge validation; no database or AI operations."""
 
 import asyncio
+import logging
+import math
 import os
 import re
 import shutil
@@ -10,9 +12,12 @@ from pathlib import Path
 from diffbutler.config.settings import ConfigError, Forge, Reviewer, Settings, load_settings
 from diffbutler.config.setup import save_setup
 from diffbutler.domain.forge import PRQuery, identity_part
+from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.setup import repository_is_public, validate_access
 from diffbutler.reviewers.native import NativeError, native_preset, verify_version
 from diffbutler.sources.remotes import discover_repository
+
+SETUP_CHECK_TIMEOUT = 30.0
 
 
 async def startup_settings(
@@ -20,8 +25,33 @@ async def startup_settings(
     *,
     directory: Path,
     ask: Callable[[str, str], Awaitable[str]] | None,
+    progress: Callable[[str], None] | None = None,
 ) -> Settings:
     settings = await asyncio.to_thread(load_settings, path, missing_ok=True)
+
+    async def check[T](label: str, operation: Awaitable[T]) -> T:
+        logging.getLogger(__name__).info("Startup check: %s", label)
+        if progress is not None:
+            progress(label + "… (Ctrl+C to cancel)")
+        try:
+            async with asyncio.timeout(SETUP_CHECK_TIMEOUT):
+                return await operation
+        except TimeoutError:
+            raise ConfigError(
+                "Startup check timed out after 30 seconds; check network access and retry. "
+                "No setup changes were saved."
+            ) from None
+        except ForgeError as exc:
+            if exc.retry_after is not None:
+                delay = math.ceil(exc.retry_after)
+                raise ForgeError(
+                    f"GitHub requires a wait of {delay} seconds. Retry setup later; "
+                    "resetting DiffButler does not reset GitHub quota. "
+                    "No setup changes were saved.",
+                    status=exc.status,
+                    retry_after=exc.retry_after,
+                ) from None
+            raise
 
     async def question(label: str, default: str = "") -> str:
         if ask is None:
@@ -32,12 +62,12 @@ async def startup_settings(
         return (await ask(label, default)).strip()
 
     if settings.forges:
-        reviewer, default = await setup_reviewer(settings, directory, question)
+        reviewer, default = await setup_reviewer(settings, directory, question, progress)
         if default is not None:
             await asyncio.to_thread(save_setup, path, None, None, reviewer, default)
             return await asyncio.to_thread(load_settings, path)
         return settings
-    detected = await discover_repository(directory)
+    detected = await check("Checking local repository", discover_repository(directory))
 
     if detected is not None and detected.host == "github.com":
         host = detected.host
@@ -64,7 +94,9 @@ async def startup_settings(
     except ValueError:
         raise ConfigError("Repository must be owner/name") from None
     base_url = "https://api.github.com" if host == "github.com" else f"https://{host}/api/v3"
-    public = await repository_is_public(base_url, repository)
+    public = await check(
+        "Checking GitHub repository visibility", repository_is_public(base_url, repository)
+    )
     login = await question("GitHub username for review requests", repository.split("/")[0])
     try:
         identity_part(login)
@@ -79,7 +111,10 @@ async def startup_settings(
         token = os.environ.get(token_env)
         if not token:
             raise ConfigError("The selected token environment variable is unset or empty")
-    login = await validate_access(base_url, repository, login, token)
+    login = await check(
+        "Checking GitHub username and PR access",
+        validate_access(base_url, repository, login, token),
+    )
     forge = Forge(
         kind="github",
         base_url=base_url,
@@ -88,7 +123,7 @@ async def startup_settings(
         include_team_requests=not public,
         repositories=[repository],
     )
-    reviewer, default = await setup_reviewer(settings, directory, question)
+    reviewer, default = await setup_reviewer(settings, directory, question, progress)
     await asyncio.to_thread(
         save_setup,
         path,
@@ -127,6 +162,7 @@ async def setup_reviewer(
     settings: Settings,
     directory: Path,
     question: Callable[[str, str], Awaitable[str]],
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[Reviewer | None, str | None]:
     current = next(
         (r for r in settings.reviewers if r.id == settings.review.default_reviewer), None
@@ -140,6 +176,8 @@ async def setup_reviewer(
         chosen = next((r for r in native if r.id == name), None)
         if chosen is None:
             raise ConfigError("Choose one of the configured native reviewers")
+        if progress is not None:
+            progress("Checking Git and reviewer CLI version… (Ctrl+C to cancel)")
         await check_reviewer(chosen, directory)
         return None, chosen.id
     name = (await question("AI reviewer (codex or claude)", "codex")).lower()
@@ -157,5 +195,7 @@ async def setup_reviewer(
         command=[str(Path(resolved).absolute())],
         preset="codex" if name == "codex" else "claude",
     )
+    if progress is not None:
+        progress("Checking Git and reviewer CLI version… (Ctrl+C to cancel)")
     await check_reviewer(reviewer, directory)
     return reviewer, reviewer.id

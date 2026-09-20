@@ -23,8 +23,12 @@ from diffbutler.ui.tui.dashboard import Dashboard
 def install_transport(
     monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
 ) -> None:
-    def http(base_url: str, token: str | None) -> GitHubHTTP:
-        return GitHubHTTP(base_url, token, transport=httpx.MockTransport(handler))
+    def http(
+        base_url: str, token: str | None, *, max_pacing_wait: float | None = None
+    ) -> GitHubHTTP:
+        return GitHubHTTP(
+            base_url, token, transport=httpx.MockTransport(handler), max_pacing_wait=max_pacing_wait
+        )
 
     monkeypatch.setattr("diffbutler.forges.github.setup.GitHubHTTP", http)
     monkeypatch.setattr("diffbutler.forges.registry.GitHubHTTP", http)
@@ -281,7 +285,7 @@ async def test_visibility_rate_limit_does_not_trigger_credential_prompt(
     async def ask(label: str, default: str) -> str:
         return next(answers)
 
-    with pytest.raises(ForgeError, match="rate limit"):
+    with pytest.raises(ForgeError, match="GitHub requires a wait of 60 seconds"):
         await startup_settings(None, directory=tmp_path, ask=ask)
     assert not config_path().exists()
 
@@ -329,4 +333,46 @@ def test_invalid_token_exits_cli_without_saving(
     output = capsys.readouterr()
     assert "Invalid GitHub token" in output.err
     assert "synthetic-invalid-token" not in output.err + output.out
+    assert not config_path().exists()
+
+
+@pytest.mark.asyncio
+async def test_low_quota_setup_returns_retry_without_long_sleep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    monkeypatch.setattr("diffbutler.forges.github.http.GitHubHTTP.DEFAULT_REQUEST_INTERVAL", 1.0)
+    requests: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        body = (
+            {"login": "reader"}
+            if request.url.path == "/users/reader"
+            else {"full_name": "acme/api", "private": False}
+        )
+        return httpx.Response(
+            200,
+            json=body,
+            headers={
+                "X-RateLimit-Resource": "core",
+                "X-RateLimit-Limit": "60",
+                "X-RateLimit-Remaining": "6",
+                "X-RateLimit-Reset": str(int(time.time()) + 1200),
+            },
+        )
+
+    install_transport(monkeypatch, handle)
+    answers = iter(["github", "acme/api", "reader"])
+    progress: list[str] = []
+
+    async def ask(label: str, default: str) -> str:
+        return next(answers)
+
+    with pytest.raises(ForgeError, match="GitHub requires a wait") as error:
+        await startup_settings(None, directory=tmp_path, ask=ask, progress=progress.append)
+    assert error.value.retry_after is not None and error.value.retry_after > 1190
+    assert requests == ["/repos/acme/api", "/users/reader"]
+    assert "Checking GitHub username and PR access" in progress[-1]
     assert not config_path().exists()

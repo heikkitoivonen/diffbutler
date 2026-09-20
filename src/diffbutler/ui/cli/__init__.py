@@ -409,6 +409,7 @@ def dashboard(config: ConfigOption = None, offline: bool = False) -> None:
                 config,
                 directory=Path.cwd(),
                 ask=ask if sys.stdin.isatty() and sys.stdout.isatty() else None,
+                progress=lambda message: typer.echo(message, err=True),
             )
         )
         await Dashboard(config, settings, offline=offline).run_async()

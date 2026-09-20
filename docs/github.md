@@ -170,3 +170,8 @@ agent posting are implemented in the managed workflow. This read adapter does no
 background-agent isolation. Claude has offline managed handoff coverage; live Claude
 and macOS handoff validation remain outstanding. See [native reviews](native-reviews.md)
 and [terminal handoff](terminal-handoff.md).
+
+Startup prints the current validation step. GitHub setup checks have a 30-second
+limit per phase; quota pacing waits longer than five seconds return a retry delay
+instead of silently blocking setup. No setup choices are saved on validation failure.
+Reset removes local files, not GitHub's server-side quota.

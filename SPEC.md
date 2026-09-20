@@ -1331,6 +1331,9 @@ ask for the GitHub username, defaulting to the repository owner. Public reposito
 omit `token_env` (loads as `None`) and use anonymous direct-request discovery for that
 login, with team requests disabled. Otherwise ask for the environment variable name
 holding the token; validate the token, matching account, and repository/PR read access.
+Startup displays each validation step. Bound GitHub setup phases to 30 seconds;
+return quota pacing waits longer than five seconds as actionable retry errors rather
+than sleeping. Reset does not reset server-side quota.
 Invalid or missing credentials abort without saving. Never prompt for or persist token
 values. Network and rate-limit failures abort rather than imply private visibility.
 

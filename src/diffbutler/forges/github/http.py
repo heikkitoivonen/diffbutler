@@ -56,6 +56,7 @@ class GitHubHTTP:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         now: Callable[[], float] = time.time,
         request_interval: float | None = None,
+        max_pacing_wait: float | None = None,
     ) -> None:
         self.base_url = api_url(base_url)
         if token is not None and (
@@ -63,6 +64,11 @@ class GitHubHTTP:
         ):
             raise ForgeError("GitHub token is empty or contains whitespace")
         self.authenticated = token is not None
+        self.max_pacing_wait = max_pacing_wait
+        if max_pacing_wait is not None and (
+            not math.isfinite(max_pacing_wait) or max_pacing_wait < 0
+        ):
+            raise ValueError("Maximum pacing wait must be finite and nonnegative")
         self.request_interval = (
             self.DEFAULT_REQUEST_INTERVAL if request_interval is None else request_interval
         )
@@ -122,6 +128,15 @@ class GitHubHTTP:
                 logging.getLogger(__name__).info(
                     "GitHub pacing resource=%s delay_s=%.3f", resource, ready - current
                 )
+                if self.max_pacing_wait is not None and ready - current > self.max_pacing_wait:
+                    delay = math.ceil(
+                        max(ready - current, limit.reset_at.timestamp() - current if limit else 0)
+                    )
+                    raise ForgeError(
+                        f"GitHub quota is low; retry after {delay} seconds. "
+                        "Resetting DiffButler does not reset GitHub quota.",
+                        retry_after=delay,
+                    )
                 await self.sleep(ready - current)
         started = self.now()
         self.last_request = started
