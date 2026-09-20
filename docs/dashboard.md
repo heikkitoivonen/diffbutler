@@ -9,7 +9,7 @@ The dashboard defaults to the `ansi-dark` theme. Use the command palette's Theme
 command to select a different theme for the current session. The palette's Keys
 command opens keyboard help; press Escape to close that panel.
 
-The managed native workflow supports **Linux with Codex CLI 0.98.0 or Claude Code 2.1.278**.
+The managed native presets target **Linux with Codex CLI 0.155.1 or Claude Code 2.1.278**.
 [Native review setup and limitations](native-reviews.md) apply unchanged. Every AI
 run requires an explicit review action. Discovery, periodic sync, new commits,
 renewed requests, and returning from a session never request another run.
@@ -87,8 +87,9 @@ may remain pending while a foreground or background owner is still alive.
 
 Entering a native session records a durable refresh-pending flag. Its resume prompt
 asks the agent to wait for discussion, and permits feedback only after the human
-explicitly specifies what to publish inside that session. Native read-only/on-request
-controls remain in force. DiffButler does not execute or retry any posting operation.
+explicitly specifies what to publish inside that session. Foreground Codex uses
+full access with on-request approvals; Claude uses default tools with manual approvals.
+DiffButler does not execute or retry any posting operation.
 
 On verified foreground exit, the core refreshes that PR using its configured account
 and reads paginated request events, submitted reviews, inline comments, and discussion

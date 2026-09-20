@@ -1,9 +1,9 @@
 # Native CLI reviews (M2–M3)
 
-The managed review path currently supports **Codex CLI 0.98.0 and Claude Code 2.1.278 on Linux**. DiffButler
-selects the agent's native read-only controls; it does not create an additional OS
+The managed review presets target **Codex CLI 0.155.1 and Claude Code 2.1.278 on Linux**. DiffButler
+selects native read-only controls for background analysis; it does not create an additional OS
 sandbox. macOS integration remains deferred.
-The installed versions and help were checked locally for both agents. Automated acceptance
+Claude's installed version and help were checked locally. Automated acceptance
 covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
 completion, cleanup, and retained findings across process restarts. It uses a
 synthetic executable, disposable Git repositories, and SQLite; it makes no
@@ -84,17 +84,20 @@ large-diff splitting remain future enhancements.
 ## Native permissions and authentication
 
 The shipped Codex TOML preset selects `read-only` and `never` approval for background
-execution, and `read-only` with `on-request` approval for foreground resume. Each
+execution, and `danger-full-access` with `on-request` approval for foreground resume. Each
 launch asserts these settings again. Unsupported versions fail before a review
-launch rather than guessing at changed flags. No bypass or full-access fallback is
-used. [Codex documents JSON events, exact-ID resume, and read-only execution](https://learn.chatgpt.com/docs/non-interactive-mode).
+launch rather than guessing at changed flags. Foreground full access permits forge
+commands to post on the human's explicit instruction; background runs remain read-only.
+The 0.155.1 target is covered by synthetic command/session tests; live 0.155.1
+behavior has not been validated here.
+[Codex documents JSON events, exact-ID resume, and read-only execution](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 Claude background launches use `--restricted` with only `Read,Glob,Grep`,
 `dontAsk` permissions and `--permission-prompts none`. Safe mode disables
 customizations, and strict empty MCP configuration disables external tools.
 The same controls apply on explicit retries. Foreground resume selects `manual`
 permissions and the default tool set so human-authorized forge commands can prompt;
-safe mode and empty MCP configuration remain in effect. These flags were checked
+foreground does not pass safe mode or the empty MCP override. Background flags were checked
 against the installed CLI and the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
 
 Claude background authentication accepts `ANTHROPIC_API_KEY`,

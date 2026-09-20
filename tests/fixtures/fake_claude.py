@@ -14,7 +14,9 @@ saved = root / "conversation.json"
 identity = "01234567-89ab-cdef-0123-456789abcdef"
 if "--print" not in sys.argv:
     assert "--resume" in sys.argv and identity in sys.argv
-    assert "manual" in sys.argv and "--safe-mode" in sys.argv
+    assert "manual" in sys.argv and "--safe-mode" not in sys.argv
+    assert "--restricted" not in sys.argv and "--strict-mcp-config" not in sys.argv
+    assert sys.argv[sys.argv.index("--tools") + 1] == "default"
     assert json.loads(saved.read_text())["marker"] == "remembered orientation"
     print("remembered orientation")
     raise SystemExit
@@ -28,7 +30,7 @@ assert sys.argv[sys.argv.index("--permission-prompts") + 1] == "none"
 assert "CODEX_API_KEY" not in os.environ
 assert "GH_TOKEN" not in os.environ and "GITHUB_TOKEN" not in os.environ
 payload = sys.stdin.read()
-assert "Perform a source-only review" in payload
+assert "source-only review of the pinned base/head revisions." in payload
 assert Path("head/changed.py").read_text() == "after\n"
 assert Path("base/changed.py").read_text() == "before\n"
 if "--resume" in sys.argv:

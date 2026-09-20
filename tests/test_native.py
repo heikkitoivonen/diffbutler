@@ -465,7 +465,8 @@ async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_hist
         # Real synthetic native process, headless terminal attachment is the only fake.
         seen.append(tuple(argv))
         assert "wait for the human's question" in argv[-1]
-        assert "on-request" in argv and "read-only" in argv
+        assert "on-request" in argv and "danger-full-access" in argv
+        assert "read-only" not in argv
         process = await asyncio.create_subprocess_exec(
             *argv,
             cwd=cwd,
@@ -671,6 +672,11 @@ async def test_claude_environment_and_resume_permissions(
     assert resumed[-2:] == ("--resume", identity)
     foreground = preset.argv(("claude",), identity, foreground=True)
     assert "manual" in foreground and "dontAsk" not in foreground
+    assert foreground[foreground.index("--tools") + 1] == "default"
+    assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"}.intersection(
+        foreground
+    )
+    assert "--restricted" in resumed and "Read,Glob,Grep" in resumed
     with pytest.raises(NativeError, match="identity"):
         preset.argv(("claude",), "--unsafe")
 

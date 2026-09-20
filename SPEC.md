@@ -1435,9 +1435,12 @@ DiffButler relies on the installed agent CLI's native sandbox and approval contr
 It does not build or provision an additional OS sandbox, network broker, or model
 authentication proxy.
 
-The implemented Linux presets support Codex CLI 0.98.0 and Claude Code 2.1.278.
-Claude uses restricted read tools, safe mode, empty MCP configuration, and `dontAsk`
-permissions; Codex uses its native read-only sandbox.
+The implemented Linux presets target Codex CLI 0.155.1 and Claude Code 2.1.278.
+For background analysis, Claude uses restricted read tools, safe mode, empty MCP
+configuration, and `dontAsk` permissions; Codex uses its native read-only sandbox.
+Foreground Codex uses `danger-full-access` with `on-request` approvals. Foreground
+Claude uses default tools with `manual` approvals, without safe mode or an empty MCP
+override. Codex 0.155.1 launch arguments have offline coverage; live validation remains pending.
 
 Background launches explicitly select native read-only controls and disable interactive
 approval/escalation. They use captured pipes, an environment allowlist, source-only

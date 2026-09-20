@@ -120,7 +120,7 @@ def main() -> None:
                 "-I",
                 "-c",
                 "from diffbutler.reviewers.native import codex_preset; "
-                "assert codex_preset().version == 'codex-cli 0.98.0'; "
+                "assert codex_preset().version == 'codex-cli 0.155.1'; "
                 "from diffbutler.ui.tui.dashboard import Dashboard",
             ],
             cwd=directory,

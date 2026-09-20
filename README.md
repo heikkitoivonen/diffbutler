@@ -38,7 +38,7 @@ A review sends redacted source to the configured agent/model provider only after
 explicit review command. DiffButler relies on the agent's native read-only controls;
 it does not add its own OS sandbox. Current version support,
 authentication, source limits, and validation evidence are in the [native review guide](docs/native-reviews.md).
-Codex CLI 0.98.0 and Claude Code 2.1.278 are supported on Linux; macOS remains
+The presets target Codex CLI 0.155.1 and Claude Code 2.1.278 on Linux; macOS remains
 deferred. Tests are offline; no live managed review was invoked during implementation.
 
 The shared core provides [review scheduling](docs/review-scheduling.md),
