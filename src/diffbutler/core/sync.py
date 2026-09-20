@@ -29,10 +29,18 @@ class SyncReport(BaseModel):
 
 
 class DiffButler:
-    def __init__(self, store: QueueStore, forge: ReadForge, *, expected_login: str | None = None):
+    def __init__(
+        self,
+        store: QueueStore,
+        forge: ReadForge,
+        *,
+        expected_login: str | None = None,
+        monitor_repositories: tuple[str, ...] = (),
+    ):
         self.store = store
         self.forge = forge
         self.expected_login = expected_login
+        self.monitor_repositories = monitor_repositories
 
     async def _account(self) -> Account:
         account = await self.forge.whoami()
@@ -57,6 +65,34 @@ class DiffButler:
             sources: dict[PRRef, set[str]] = {}
             for item in discovery.items:
                 sources.setdefault(item.pull_request.ref, set()).update(item.sources)
+            # Broad monitoring is independent of review-request membership.
+            for repository in self.monitor_repositories:
+                cursor: str | None = None
+                seen: set[str] = set()
+                try:
+                    while True:
+                        page = await self.forge.search_pull_requests(
+                            PRQuery(repository=repository, page_size=100), cursor
+                        )
+                        complete = complete and page.complete
+                        warnings.extend(page.warnings)
+                        for pr in page.items:
+                            if (
+                                pr.state == "open"
+                                and pr.ref.forge == account.forge
+                                and f"{pr.ref.namespace}/{pr.ref.repository}".lower()
+                                == repository.lower()
+                            ):
+                                discovered[pr.ref] = pr
+                        cursor = page.next_cursor
+                        if cursor is None:
+                            break
+                        if cursor in seen:
+                            raise ForgeError("Repeated pagination cursor")
+                        seen.add(cursor)
+                except ForgeError as exc:
+                    complete = False
+                    warnings.append(f"Open-PR monitoring is incomplete: {exc}")
             previous = {item.pull_request.ref: item for item in snapshot.items}
             refs = set(discovered) | {
                 ref

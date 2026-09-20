@@ -46,22 +46,25 @@ class GitHubHTTP:
     def __init__(
         self,
         base_url: str,
-        token: str,
+        token: str | None,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         now: Callable[[], float] = time.time,
     ) -> None:
         self.base_url = api_url(base_url)
-        if not token or not token.isascii() or any(character.isspace() for character in token):
+        if token is not None and (
+            not token or not token.isascii() or any(character.isspace() for character in token)
+        ):
             raise ForgeError("GitHub token is empty or contains whitespace")
+        self.authenticated = token is not None
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             transport=transport,
             timeout=20,
             follow_redirects=False,
             headers={
-                "Authorization": f"Bearer {token}",
+                **({"Authorization": f"Bearer {token}"} if token is not None else {}),
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
                 "User-Agent": "DiffButler",

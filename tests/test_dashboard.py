@@ -498,3 +498,54 @@ async def test_empty_filter_restores_preview_and_rebound_waiting_key(
         await pilot.press("j")
         await pilot.pause()
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AUTHOR_CHANGES"
+
+
+@pytest.mark.asyncio
+async def test_monitoring_switch_persists_and_drives_sync(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from diffbutler.core.application import sync_configured
+    from diffbutler.core.dashboard import preferences_configured
+    from diffbutler.domain.forge import Discovery
+
+    _, queue, forge, path = ledger
+    with path.open("a") as stream:
+        stream.write(
+            '\n[[forges]]\nkind = "github"\nbase_url = "https://api.github.com"\n'
+            'login = "reader"\nrepositories = ["acme/api"]\n'
+        )
+    forge.discovery = Discovery((), True)
+
+    async def open_fake(_config: object) -> FakeForge:
+        return forge
+
+    monkeypatch.setattr("diffbutler.core.application.open_forge", open_fake)
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("a")
+        await pilot.pause()
+        assert (await preferences_configured(path))["monitor_all_prs"] == "true"
+        assert "Monitoring: all open PRs" in app.sub_title
+    await sync_configured(path)
+    assert forge.cursors == [None, "2"]
+    assert (await queue.snapshot(ACCOUNT)).items[0].sources == ()
+    restarted = Dashboard(path, load_settings(path), offline=True)
+    async with restarted.run_test(size=(120, 40)) as pilot:
+        assert "Monitoring: all open PRs" in restarted.sub_title
+        await pilot.press("a")
+        await pilot.pause()
+        assert (await preferences_configured(path))["monitor_all_prs"] == "false"
+
+
+@pytest.mark.asyncio
+async def test_monitoring_requires_configured_repositories(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+) -> None:
+    from diffbutler.core.dashboard import preferences_configured, toggle_monitoring_configured
+    from diffbutler.forges.base import ForgeError
+
+    path = ledger[3]
+    with pytest.raises(ForgeError, match="Set repositories"):
+        await toggle_monitoring_configured(path)
+    assert "monitor_all_prs" not in await preferences_configured(path)

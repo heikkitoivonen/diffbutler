@@ -36,9 +36,18 @@ from diffbutler.forges.github.mapping import (
 
 
 class GitHubForge:
-    def __init__(self, http: GitHubHTTP, *, include_team_requests: bool = True) -> None:
+    def __init__(
+        self,
+        http: GitHubHTTP,
+        *,
+        include_team_requests: bool = True,
+        repositories: tuple[str, ...] = (),
+        public_login: str | None = None,
+    ) -> None:
         self.http = http
         self.include_team_requests = include_team_requests
+        self.repositories = repositories
+        self.public_login = public_login
         self.id = f"github:{str(http.base_url).rstrip('/')}"
         host = "github.com" if http.base_url.host == "api.github.com" else http.base_url.host
         self.web_base = str(http.base_url.copy_with(host=host, path="/")).rstrip("/")
@@ -64,7 +73,16 @@ class GitHubForge:
             raise ForgeError("Invalid GitHub PR reference") from None
 
     async def whoami(self) -> Account:
-        response = await self.http.get("user")
+        endpoint = "user"
+        if not self.http.authenticated:
+            if not self.public_login:
+                raise ForgeError("Set forges.login to your GitHub username for public access")
+            try:
+                identity_part(self.public_login)
+            except ValueError:
+                raise ForgeError("Invalid public GitHub username") from None
+            endpoint = f"users/{self.public_login}"
+        response = await self.http.get(endpoint)
         user = parse(User, response.body)
         try:
             identity_part(user.login)
@@ -73,6 +91,12 @@ class GitHubForge:
         return Account(self.id, user.login, user.name or user.login)
 
     async def team_membership(self) -> TeamMembership:
+        if not self.http.authenticated:
+            return TeamMembership(
+                (),
+                False,
+                ("Team review requests require authentication; only direct requests are visible",),
+            )
         teams: set[str] = set()
         warnings: list[str] = []
         for page in range(1, 101):
@@ -192,6 +216,8 @@ class GitHubForge:
         warnings = list(memberships.warnings)
         queries = [f"is:pr is:open review-requested:{account.login}"]
         queries.extend(f"is:pr is:open team-review-requested:{team}" for team in memberships.teams)
+        if self.repositories:
+            queries = [f"{query} repo:{repo}" for query in queries for repo in self.repositories]
         discovered: dict[PRRef, RequestedPR] = {}
         refreshed: dict[PRRef, PullRequest] = {}
         # Hydration is shared between overlapping direct/team searches during one

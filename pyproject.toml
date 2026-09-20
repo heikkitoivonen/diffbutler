@@ -25,6 +25,7 @@ dependencies = [
     "rich>=15.0.0",
     "sqlalchemy[asyncio]>=2.0.52",
     "textual>=8.2.8",
+    "tomlkit>=0.15.1",
     "typer>=0.27.2",
 ]
 

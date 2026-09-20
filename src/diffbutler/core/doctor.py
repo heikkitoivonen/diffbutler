@@ -148,7 +148,11 @@ async def run_doctor(
                     Check(
                         name,
                         "PASS" if matches else "FAIL",
-                        f"Authenticated as {health.account.login}"
+                        (
+                            f"Authenticated as {health.account.login}"
+                            if configured.token_env is not None
+                            else f"Public access for review requests to {health.account.login}"
+                        )
                         if matches
                         else "Authenticated login does not match configured login",
                     )

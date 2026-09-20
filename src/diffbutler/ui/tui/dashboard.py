@@ -7,7 +7,7 @@ from typing import ClassVar
 from uuid import UUID
 
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import VerticalScroll
 from textual.coordinate import Coordinate
@@ -34,6 +34,7 @@ from diffbutler.core.dashboard import (
     save_sort_configured,
     sort_rows,
     state_configured,
+    toggle_monitoring_configured,
 )
 from diffbutler.core.managed import (
     approved_configured,
@@ -43,6 +44,8 @@ from diffbutler.core.managed import (
 )
 from diffbutler.core.native import foreground_environment
 from diffbutler.domain.dashboard import STATE_LABELS, CycleRecord
+from diffbutler.forges.base import ForgeError
+from diffbutler.ui.tui.app import TerminalApp
 from diffbutler.ui.tui.browse import BrowseScreen
 from diffbutler.ui.tui.browser import open_browser
 from diffbutler.ui.tui.foreground import run_foreground
@@ -149,7 +152,7 @@ class DetailScreen(ModalScreen[None]):
         yield Footer()
 
 
-class Dashboard(App[None]):
+class Dashboard(TerminalApp):
     TITLE = "DiffButler"
     BINDINGS: ClassVar[list[BindingType]] = [
         ("o", "open_in_browser", "Open PR"),
@@ -159,6 +162,7 @@ class Dashboard(App[None]):
         ("m", "mark_approved", "Mark approved"),
         ("h", "view_history", "History"),
         ("b", "browse_prs", "Browse all PRs"),
+        ("a", "toggle_monitoring", "Monitor all PRs"),
         ("R", "refresh", "Refresh"),
         ("space", "primary_action", "Next action"),
         ("enter", "open_detail", "Detail"),
@@ -197,6 +201,7 @@ class Dashboard(App[None]):
         self.sort = SortSpec(column=settings.ui.sort_by, descending=settings.ui.sort_desc)
         self.attached = False
         self.ai_paused = False
+        self.monitor_all_prs = False
         self.reload_lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
         self.review_tasks: dict[str, asyncio.Task[None]] = {}
@@ -227,6 +232,7 @@ class Dashboard(App[None]):
                 self._bindings.bind(",".join(keys), action, action.replace("_", " "))
         preferences = await preferences_configured(self.path)
         self.ai_paused = preferences.get("reviews_paused") == "true"
+        self.monitor_all_prs = preferences.get("monitor_all_prs") == "true"
         if (
             preferences.get("sort_by") in self.settings.ui.columns
             or preferences.get("sort_by") == "attention"
@@ -336,7 +342,8 @@ class Dashboard(App[None]):
                         if table.get_cell_at(Coordinate(index, col)) != content:
                             table.update_cell_at(Coordinate(index, col), content)
             mode = "offline" if self.offline else "paused" if self.poller.paused else "live"
-            self.sub_title = f"{self.view} · {len(keys)} PRs · {mode}" + (
+            scope = "all open PRs" if self.monitor_all_prs else "review requests"
+            self.sub_title = f"{self.view} · {len(keys)} PRs · {mode} · Monitoring: {scope}" + (
                 " · AI paused" if self.ai_paused else ""
             )
             await self.preview()
@@ -596,6 +603,26 @@ class Dashboard(App[None]):
 
         self.push_screen(BrowseScreen(self.path, len(self.settings.forges)), followed)
 
+    def action_toggle_monitoring(self) -> None:
+        async def toggle() -> None:
+            try:
+                enabled = await toggle_monitoring_configured(self.path)
+            except ForgeError as exc:
+                self.status(str(exc))
+                return
+            self.monitor_all_prs = enabled
+            self.view = "active"
+            self.query_one(Input).value = ""
+            if not self.offline:
+                await self.sync()
+            self.status(
+                "Monitoring all open PRs in configured repositories."
+                if enabled
+                else "Monitoring review requests; already followed PRs remain monitored."
+            )
+
+        self.start(toggle())
+
     async def action_view_history(self) -> None:
         self.view = "active" if self.view == "history" else "history"
         await self.reload()
@@ -652,6 +679,7 @@ class Dashboard(App[None]):
                 "o chooses manual review and opens the browser. w chooses waiting for author.\n"
                 "m records your completed approval locally and schedules cleanup.\n"
                 "It does not submit approval.\n"
+                "a toggles monitoring all open PRs in configured repositories.\n"
                 "h browses offline history. C retries due cleanup. R refreshes forge evidence.\n"
                 "s cycles sort columns; S reverses; 1-9 or a column header selects a sort.\n"
                 "/ filters; f cycles views. Ctrl+C cancels the selected run launched here.\n"

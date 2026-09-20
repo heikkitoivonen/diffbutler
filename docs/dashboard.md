@@ -5,6 +5,9 @@ uses the same async core as the CLI. `--config FILE` selects configuration;
 `--offline` loads local records without starting periodic forge sync. Explicit remote
 search, refresh, and native session actions still do their requested I/O.
 
+The dashboard defaults to the `ansi-dark` theme. Use the command palette's Theme
+command to select a different theme for the current session.
+
 The managed native workflow remains scoped to **Linux and Codex CLI 0.98.0**.
 [Native review setup and limitations](native-reviews.md) apply unchanged. Every AI
 run requires an explicit review action. Discovery, periodic sync, new commits,
@@ -25,6 +28,7 @@ renewed requests, and returning from a session never request another run.
 | `L` | Inspect captured run output, or its deleted/unavailable indication |
 | `h` | Toggle offline completed-cycle history |
 | `C` | Retry due cleanup jobs, respecting persisted backoff |
+| `a` | Toggle monitoring all open PRs in configured repositories; saved across restarts |
 | `b` | Search accessible open PRs; select one with Enter to follow it |
 | `R` | Refresh forge evidence now |
 | `/` | Filter the local queue by repository, number, title, or author |
@@ -133,3 +137,12 @@ splitting remain outside this supported scope. Optional structured finding dispo
 and dashboard posting, snooze/dismiss conveniences, finding deep links, and CI hydration
 remain future work. The spec's full UI catalogue contains those targets as well as shipped
 features; this guide lists the implemented actions.
+
+The title bar shows the monitoring scope. Press `a` to switch between review-request
+discovery and all open PRs in every configured forge's `repositories` list. Each forge
+must have a nonempty repository list before enabling this. The switch is saved in the
+local database, alongside other dashboard preferences, and also applies to CLI sync.
+Live mode refreshes immediately; offline mode saves the choice for the next live sync.
+Switching back stops discovering unrelated PRs; already followed PRs remain monitored.
+PRs without a review request appear in Active/Following, not Requested. No AI review
+starts as a result of this switch.

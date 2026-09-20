@@ -36,7 +36,7 @@ diffbutler approved 'acme/api#1841'
 
 A review sends redacted source to the configured agent/model provider only after the
 explicit review command. DiffButler relies on the agent's native read-only sandbox;
-it does not require Bubblewrap or add its own OS sandbox. Current version support,
+it does not add its own OS sandbox. Current version support,
 authentication, source limits, and validation evidence are in the [native review guide](docs/native-reviews.md).
 Claude and macOS integration remain deferred. Tests are offline; no live managed
 review was invoked during implementation.
@@ -45,12 +45,15 @@ The shared core provides [review scheduling](docs/review-scheduling.md),
 [pinned source preparation](docs/source-context.md), [output parsing](docs/review-parsing.md),
 [anchor validation](docs/diff-anchors.md), and [durable session cleanup](docs/session-lifecycle.md).
 The [terminal handoff experiment](docs/terminal-handoff.md) remains independently runnable
-with `make handoff`. The [Bubblewrap experiment](docs/background-isolation.md) is legacy
-optional work, not a prerequisite for native reviews.
+with `make handoff`.
 
 ## Local setup and diagnostics
 
+Use `diffbutler -h` (or `--help`) for help and `diffbutler -v` (or `--version`)
+for the installed version. Subcommands also accept `-h`, such as `diffbutler review -h`.
+
 ```sh
+uv run diffbutler config
 uv run diffbutler doctor
 uv run diffbutler doctor --no-migrate
 uv run diffbutler doctor --offline
@@ -66,6 +69,10 @@ tests; doctor never launches a model or posts to a forge.
 
 Configuration lives at `$XDG_CONFIG_HOME/diffbutler/config.toml` (default
 `~/.config/diffbutler/config.toml`); a missing default file uses safe defaults.
+`diffbutler config` displays the file, creating it with defaults if missing, and
+prints its full path at the end. Use `diffbutler config --config FILE` for another
+location. Existing contents and comments are preserved.
+Add `--edit` to open the file in `$EDITOR`, creating it first if missing.
 `doctor --config FILE` requires that file to exist. For settings, examples, environment
 overrides, and database backup behavior, see [configuration and storage](docs/configuration.md).
 
@@ -75,7 +82,17 @@ Run `diffbutler dashboard` (or `diffbutler` in an interactive terminal). Use
 `diffbutler dashboard --offline` for local queue/history reads without polling.
 See the [dashboard guide](docs/dashboard.md) for keys, configuration, and acceptance evidence.
 
+On first launch with no configured forge, DiffButler detects GitHub from the current
+Git repository's `origin` remote (or a single unambiguous remote). It saves the forge,
+repository request filter, and local repository path. Otherwise it asks for the forge
+and repository before opening the dashboard. Setup checks visibility and asks for your
+GitHub username, defaulting to the repository owner. Public repositories use no token
+and monitor direct review requests. Private repositories prompt for a token environment
+variable name and validate its token before saving. Authenticated accounts can include
+team requests. Setup does not start an AI review.
+
 - Include review requests addressed to you or your teams, with accessible-PR search (`b`).
+- Press `a` to toggle automatic monitoring of all open PRs in configured repositories.
 - Press `r` to start a background, source-only AI review. Reviews never start automatically.
 - Press `v` to hand the terminal to the resumed agent for discussion and instructed posting.
 - Return to a dashboard refreshed from GitHub. Press `o` for the manual browser review,
@@ -144,7 +161,6 @@ The config, store, GitHub read adapter, doctor, and shared queue services are im
 M2 now includes reviewer/source protocols, immutable session/run DTOs, and durable
 session/run tables, plus [explicit starts and transactional worker claims](docs/review-scheduling.md).
 The Linux/Codex native adapter connects these services through the shared core, CLI and dashboard.
-The optional Bubblewrap primitive is not part of that execution path.
 The terminal handoff experiment lives in `ui/tui/`.
 Import-linter enforces their dependency direction from the start. Textual is used by
 the dashboard and experiment; Pydantic validates configuration, SQLAlchemy/Alembic manage SQLite,

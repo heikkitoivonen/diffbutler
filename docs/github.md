@@ -24,12 +24,33 @@ Normal doctor makes read-only HTTP requests to configured GitHub instances. With
 forge configured it remains local. `--offline` skips all forge checks and credential
 resolution. Neither mode launches an AI reviewer or posts anything.
 
-Auth reads the configured environment variable first, then calls
+When `token_env` is set, auth reads the configured environment variable first, then calls
 `gh auth token --hostname HOST` with captured output and a ten-second timeout. The host
 is `github.com` for GitHub.com, or the configured API hostname for Enterprise. Doctor
 never prompts or saves tokens. The spec's keyring/prompt fallback is deferred; use the
-environment or an existing `gh` login. Tokens and raw HTTP/auth error bodies never enter
+environment or an existing `gh` login. First-run setup asks for an environment variable
+name and validates that variable directly; it never asks for a token value. Tokens and raw HTTP/auth error bodies never enter
 diagnostics or persistence.
+
+For public repositories, omit `token_env` to select anonymous access (`None` internally):
+
+```toml
+[[forges]]
+kind = "github"
+base_url = "https://api.github.com"
+login = "your-login"
+repositories = ["owner/repo"]
+include_team_requests = false
+```
+
+Anonymous access sends no Authorization header and never resolves an environment token
+or `gh` credential. The saved login identifies whose direct review requests to discover;
+it is checked using the public user endpoint, not authenticated `/user`. GitHub permits
+public reads through its [repository API](https://docs.github.com/en/rest/repos/repos#get-a-repository)
+and [user API](https://docs.github.com/en/rest/users/users#get-a-user).
+Team membership requires authentication; explicitly enabling team requests in public
+mode produces an incomplete-coverage warning. Anonymous requests use GitHub's anonymous
+quota, which can limit polling frequency.
 
 For Enterprise use `https://YOUR_HOST/api/v3` and a token environment variable specific
 to that host. API URLs require HTTPS with no embedded credentials or query string.

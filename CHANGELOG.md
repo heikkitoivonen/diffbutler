@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Add the dashboard `a` switch to persistently monitor all open PRs in configured
+  repositories, with request membership kept separate and no automatic AI runs.
+
+- Check repository visibility during first-run setup. Ask for a GitHub username
+  defaulting to the repository owner; use anonymous direct-request monitoring for
+  public repositories, or validate a named token environment variable before saving
+  private-repository configuration. Invalid credentials exit without saving secrets.
+- Configure the first live dashboard launch from the current GitHub remote, or prompt
+  for the forge and repository. Preserve existing TOML and scope direct/team review
+  requests with `forges.repositories`; no AI review starts automatically.
+- Add `diffbutler config --edit` to open the selected config file in `$EDITOR`.
+- Add `diffbutler config [--config FILE]` to show configuration, create defaults
+  when the file is missing, and print its path for editing.
+- Support `-h` as an alias for `--help`, including subcommands, and `-v` for `--version`.
+
+- Remove the custom Bubblewrap runner, its probe fixtures, kernel-isolation CI job,
+  Make target, and documentation. Agent-native sandbox and approval flags remain in use.
+
+- Default the dashboard and terminal handoff experiment to the `ansi-dark` theme.
+
+- Remove Textual's built-in screenshot command and action from the dashboard and
+  terminal handoff experiment.
+
 - Complete the Linux/Codex M3 native dashboard loop with explicit reviews, same-terminal
   discussion, forge refresh on return, manual/waiting overrides, completion cleanup and
   offline cycle history. Add serial polling, accessible-PR search, configurable sorting,
@@ -20,7 +43,7 @@
 - Add the Linux/Codex M2 native path: explicit CLI review, pinned redacted
   snapshots, bounded JSONL capture, exact-session resume, local completion and
   automatic owned-home cleanup with retained findings. Use agent-native sandboxing;
-  Bubblewrap is an optional legacy experiment. Codex 0.98.0 flags were checked locally,
+  Codex 0.98.0 flags were checked locally,
   and lifecycle acceptance is offline; Claude/macOS integration remains deferred.
 
 - Add durable pre-launch metadata in migration `0008`, PID checkpoints, complete
@@ -57,11 +80,6 @@
   findings, tiered JSON recovery, bounded input, and safe failure diagnostics. Raw
   output and all valid findings are retained. Backend execution and anchor
   validation remain deferred.
-
-- Add an internal offline Linux sandbox runner with a fixed Bubblewrap isolation
-  profile, captured bounded I/O, and cancellation cleanup. Missing isolation fails
-  closed. Fake lifecycle tests pass; real kernel confinement requires Bubblewrap
-  and remains unvalidated on the development host. Real reviewers stay disconnected.
 
 - Add internal review context assembly with revision checks, bounded pinned Git
   diffs, mediated surrounding source, and explicit context limitations. Unsupported

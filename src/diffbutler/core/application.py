@@ -11,6 +11,7 @@ from diffbutler.core.sync import DiffButler, PullRequestRow, SyncReport, list_qu
 from diffbutler.domain.forge import PRPage, PRQuery
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.registry import open_forge
+from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.database import Database
 from diffbutler.store.queue import SQLiteQueueStore
 
@@ -37,7 +38,15 @@ async def remote_service(
     config = settings.forges[index - 1]
     forge = await open_forge(config)
     try:
-        yield DiffButler(store, forge, expected_login=config.login)
+        preferences = await SQLiteDashboardStore(store.database).preferences()
+        yield DiffButler(
+            store,
+            forge,
+            expected_login=config.login,
+            monitor_repositories=tuple(config.repositories)
+            if preferences.get("monitor_all_prs") == "true"
+            else (),
+        )
     finally:
         await forge.close()
 

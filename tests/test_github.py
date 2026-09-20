@@ -58,7 +58,10 @@ def adapter(
 
 
 @pytest.mark.asyncio
-async def test_direct_and_team_discovery_deduplicates_and_keeps_provenance() -> None:
+@pytest.mark.parametrize("repositories", [(), ("acme/api",)])
+async def test_direct_and_team_discovery_deduplicates_and_keeps_provenance(
+    repositories: tuple[str, ...],
+) -> None:
     calls: list[httpx.Request] = []
 
     def handle(request: httpx.Request) -> httpx.Response:
@@ -73,6 +76,7 @@ async def test_direct_and_team_discovery_deduplicates_and_keeps_provenance() -> 
                 json=[{"slug": "Reviewers", "organization": {"login": "Acme"}}],
             )
         if request.url.path == "/search/issues":
+            assert ("repo:acme/api" in request.url.params["q"]) == bool(repositories)
             return httpx.Response(
                 200,
                 json=search(1, 2)
@@ -85,6 +89,7 @@ async def test_direct_and_team_discovery_deduplicates_and_keeps_provenance() -> 
         )
 
     forge = adapter(handle)
+    forge.repositories = repositories
     contract: ReadForge = forge
     try:
         result = await contract.list_review_requests()

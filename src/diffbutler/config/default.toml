@@ -1,0 +1,74 @@
+# DiffButler configuration. Omitted options use their built-in defaults.
+# No forge or reviewer is configured until you add one below.
+forges = []
+reviewers = []
+
+[general]
+poll_interval_s = 180
+max_concurrent_reviews = 2
+# Omit workspace_root to follow $XDG_DATA_HOME/diffbutler/reviews
+# (default ~/.local/share/diffbutler/reviews).
+# workspace_root = "~/diffbutler-reviews"
+
+[db]
+auto_migrate = true
+# Omit url to follow $XDG_DATA_HOME/diffbutler/diffbutler.db
+# (default ~/.local/share/diffbutler/diffbutler.db).
+# url = "sqlite+aiosqlite:///~/my-data/diffbutler.db"
+
+[review]
+findings_threshold = "minor" # blocking | important | minor | nit | question
+min_confidence = 0.5
+max_diff_bytes = 400000
+exclude_globs = ["**/*.lock", "**/vendor/**", "**/*.min.js", "**/generated/**"]
+mode = "source_only"
+checkout = "worktree" # Native reviews currently use pinned source snapshots.
+# default_reviewer = "codex"
+# prompt = "~/review-instructions.md"
+
+[ui]
+columns = ["state", "repo", "number", "title", "author", "ai_status", "findings", "age"]
+sort_by = "attention"
+sort_desc = true
+preview_pane = true
+default_filter = "active"
+# browser_command = ["firefox", "--new-tab"]
+
+[ui.attention]
+blocking = 100
+important = 40
+age_pressure_per_day = 5
+size_penalty_per_100_lines = 2
+
+[keys]
+open_in_browser = ["o", "ctrl+o"]
+
+[repos]
+# Add per-repository settings, for example:
+# [repos."acme/api"]
+# enabled = true
+# path = "~/src/acme/api"
+# default_reviewer = "codex"
+# prompt = "~/review-instructions.md"
+# checkout = "mediated"
+
+# Remove the top-level forges = [] before adding forge accounts:
+# [[forges]]
+# kind = "github"
+# base_url = "https://api.github.com"
+# token_env = "GITHUB_TOKEN" # Omit for public access (None); login is then required.
+# include_team_requests = true
+# repositories = [] # Empty means review requests from all accessible repositories.
+# login = "your-login"
+
+# Remove the top-level reviewers = [] before adding reviewers:
+# [[reviewers]]
+# id = "codex"
+# kind = "cli"
+# command = ["codex"]
+# preset = "codex"
+# max_output_bytes = 4000000
+# timeout_s = 900
+# parse = "json_envelope" # The Codex preset uses its fixed JSONL protocol.
+# json_path = "result"
+# stdin = "prompt"

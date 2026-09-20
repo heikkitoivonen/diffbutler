@@ -2,7 +2,7 @@
 
 The managed review path currently supports **Codex CLI 0.98.0 on Linux**. DiffButler
 selects the agent's native read-only sandbox; it does not create an additional OS
-sandbox or require Bubblewrap. Claude and macOS integration remain deferred.
+sandbox. Claude and macOS integration remain deferred.
 The installed Codex version and help were checked locally. Automated acceptance
 covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
 completion, cleanup, and retained findings across process restarts. It uses a

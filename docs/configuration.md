@@ -10,6 +10,63 @@ The default file is `$XDG_CONFIG_HOME/diffbutler/config.toml`, falling back to
 `~/.config/diffbutler/config.toml`. `doctor --config FILE` chooses an explicit file.
 An empty file is valid. No forge or reviewer is configured by default.
 
+Run `diffbutler config` to show the file and its full path. If missing, the command
+creates the parent directories and writes an editable default configuration first.
+`diffbutler config --config FILE` does the same for a custom path, including one that
+does not yet exist. Existing files are displayed without validation or rewriting,
+so comments and invalid TOML remain available for inspection. The output is the
+file's contents, not the effective configuration after environment overrides.
+Generated defaults include commented setup examples; data paths remain unset so
+they continue to follow `XDG_DATA_HOME`. This command does not initialize a database,
+contact a forge, or launch an agent.
+
+Use `diffbutler config --edit` to create the file if missing and open it in `$EDITOR`
+instead of displaying its contents. This also accepts `--config FILE`. DiffButler
+waits for the editor to exit and then prints the file path. Set `EDITOR` to an
+editor command, such as `vim` or `code --wait`; quoted arguments are supported and
+the command runs without a shell. An unset/empty `EDITOR`, launch failure, or
+unsuccessful editor exit is reported as an error.
+
+## First-run setup
+
+Starting the live dashboard (`diffbutler` in a terminal or `diffbutler dashboard`)
+with no configured forge runs setup before rendering. It inspects local Git metadata
+without fetching. A GitHub `origin` remote supplies the forge and `owner/repo`; without
+`origin`, all remotes must agree. HTTPS and SSH remote forms are supported, and running
+from a repository subdirectory saves the Git root as its local source path. Credentials
+embedded in remote URLs are never saved. Ambiguous or missing information prompts for
+the forge and repository; unknown hosts require confirmation as GitHub Enterprise.
+GitLab is not implemented. Existing forge configurations skip setup.
+
+Setup checks repository visibility with an anonymous API request, then asks for your
+GitHub username, defaulting to the owner part of `owner/repo`. For an organization-owned
+repository, replace that default with your personal username. Public repositories need
+no token: setup omits `token_env` (TOML has no null; omission loads as Python `None`),
+saves `login`, and disables team-request discovery. Only direct requests to that login
+are monitored without authentication.
+
+For private or anonymously inaccessible repositories, setup asks for the token's
+**environment variable name**, defaulting to `GITHUB_TOKEN`. Set that variable before
+launching DiffButler. Setup validates the token's account against the chosen username,
+repository access, and pull-request read permission. An unset variable, invalid token,
+account mismatch, or inaccessible repository exits with an error before configuration
+is saved. Rate-limit/network errors also abort setup; they are not treated as evidence
+that a repository is private. Only the variable name is saved, never its value.
+
+The selected forge gets `repositories = ["owner/repo"]`, which limits both direct and
+team review-request discovery. An empty list (the default for manually configured
+forges) searches across accessible repositories. Each entry must be `owner/repo`.
+Explicitly followed PRs continue to be monitored independently of this request filter.
+The chosen repository's existing AI opt-in and review settings are preserved.
+
+Setup saves to the default config or the dashboard's `--config FILE`, creating it if
+missing and preserving unrelated settings/comments. It does not save environment
+overrides or prompt for token values. Existing authenticated configurations continue
+to support an environment token or `gh` login. No AI review starts automatically. Offline dashboards,
+help/version, and other CLI commands do not run setup. Without an interactive terminal,
+incomplete detection reports an error rather than prompting. Cancelled prompts do not
+save partial setup.
+
 For GitHub configuration and doctor authentication checks, see the
 [GitHub adapter guide](github.md). `doctor --offline` skips forge checks and credential
 resolution while retaining local configuration, database, and path checks.
@@ -115,3 +172,8 @@ unknown IDs fail validation. `ui.browser_command` accepts an argv list, for exam
 persists interactive sort and AI-dispatch pause choices in SQLite. It supports active,
 requested, following, triage, posted/waiting, and history presets; `all` opens accessible
 PR search. The future snoozed preset is not yet a separate dashboard view.
+
+The dashboard's `a` switch enables monitoring all open PRs in configured repositories.
+This preference is stored in the local database, not the TOML file, and survives restarts.
+Every forge needs a nonempty `repositories` list to enable it. The default is review-request
+discovery only. Existing followed PRs continue to be monitored when it is disabled.

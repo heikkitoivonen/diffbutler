@@ -13,6 +13,7 @@ import typer
 from pydantic import TypeAdapter
 from sqlalchemy.exc import SQLAlchemyError
 
+from diffbutler.config.file import show_config_file
 from diffbutler.config.settings import ConfigError
 from diffbutler.core.application import (
     browse_configured,
@@ -37,15 +38,17 @@ from diffbutler.forges.base import ForgeError
 from diffbutler.reviewers.native import NativeError
 from diffbutler.sources.git import SourceError
 from diffbutler.store.database import DatabaseError
+from diffbutler.ui.cli.editor import edit_file
 
 app = typer.Typer(
     add_completion=False,
     rich_markup_mode=None,
     pretty_exceptions_enable=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
     help="A terminal dashboard for human-directed AI code reviews.",
     epilog="Run diffbutler dashboard for the interactive queue, or history for completed cycles.",
 )
-ConfigOption = Annotated[Path | None, typer.Option(help="Explicit TOML file (must exist)")]
+ConfigOption = Annotated[Path | None, typer.Option(help="Explicit TOML configuration file")]
 ForgeOption = Annotated[int, typer.Option(min=1, help="Configured forge, numbered from one")]
 
 
@@ -83,7 +86,7 @@ def show_version(value: bool) -> None:
 def root(
     context: typer.Context,
     version_flag: Annotated[
-        bool, typer.Option("--version", callback=show_version, is_eager=True)
+        bool, typer.Option("--version", "-v", callback=show_version, is_eager=True)
     ] = False,
 ) -> None:
     if context.invoked_subcommand is None:
@@ -91,6 +94,24 @@ def root(
             dashboard()
         else:
             typer.echo(context.get_help())
+
+
+@app.command()
+def config(
+    config: Annotated[
+        Path | None, typer.Option("--config", help="TOML file to show or create with defaults")
+    ] = None,
+    edit: Annotated[bool, typer.Option("--edit", help="Open the config file in $EDITOR")] = False,
+) -> None:
+    """Show or edit the config file, creating defaults if missing, then print its path."""
+    path, content = run(asyncio.to_thread(show_config_file, config))
+    if edit:
+        run(edit_file(path))
+    else:
+        typer.echo(content, nl=False)
+        if content and not content.endswith("\n"):
+            typer.echo()
+    typer.echo(f"\nConfig file: {path}")
 
 
 @app.command()
@@ -325,7 +346,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         app(args=arguments, prog_name="diffbutler")
     except SystemExit as exc:
-        if exc.code or any(arg in {"--help", "--version"} for arg in arguments):
+        if exc.code or any(arg in {"-h", "--help", "-v", "--version"} for arg in arguments):
             raise
 
 
@@ -336,7 +357,20 @@ def dashboard(config: ConfigOption = None, offline: bool = False) -> None:
     from diffbutler.ui.tui.dashboard import Dashboard
 
     async def launch() -> None:
-        settings = await asyncio.to_thread(load_settings, config)
+        from diffbutler.core.setup import startup_settings
+
+        async def ask(label: str, default: str) -> str:
+            return typer.prompt(label, default=default or None)
+
+        settings = (
+            await asyncio.to_thread(load_settings, config)
+            if offline
+            else await startup_settings(
+                config,
+                directory=Path.cwd(),
+                ask=ask if sys.stdin.isatty() and sys.stdout.isatty() else None,
+            )
+        )
         await Dashboard(config, settings, offline=offline).run_async()
 
     run(launch())

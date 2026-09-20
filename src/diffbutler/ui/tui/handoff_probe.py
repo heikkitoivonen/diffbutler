@@ -13,15 +13,16 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import ClassVar
 
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.events import Resize
 from textual.widgets import DataTable, Footer, Header, Static
 
+from diffbutler.ui.tui.app import TerminalApp
 from diffbutler.ui.tui.foreground import run_foreground
 
 
-class HandoffProbe(App[None]):
+class HandoffProbe(TerminalApp):
     """Three fake PRs, a live heartbeat, and an explicitly launched agent."""
 
     TITLE = "DiffButler — terminal handoff experiment"

@@ -394,3 +394,41 @@ async def test_failed_refresh_cannot_overwrite_other_accounts_newer_cache(
     first.prs[REF] = second.prs[REF]
     await DiffButler(store, first).sync()
     assert (await store.snapshot(ACCOUNT)).items[0].pull_request.head_sha == "newer-head"
+
+
+@pytest.mark.asyncio
+async def test_monitor_all_pages_without_request_membership(database: Database) -> None:
+    forge = FakeForge()
+    forge.discovery = Discovery((), True)
+    forge.prs[REF] = replace(PR, requested_users=())
+    store = SQLiteQueueStore(database)
+    service = DiffButler(store, forge, monitor_repositories=("acme/api",))
+    report = await service.sync()
+    assert report.complete
+    assert report.discovered == 1
+    assert forge.cursors == [None, "2"]
+    item = (await store.snapshot(ACCOUNT)).items[0]
+    assert item.following
+    assert item.sources == ()
+    assert item.state == "PENDING_AI_REVIEW"
+    assert await list_queue(store, view="requested") == ()
+    # Turning off broad discovery retains existing monitors and reconciles closure.
+    forge.prs[REF] = replace(forge.prs[REF], state="closed")
+    await DiffButler(store, forge).sync()
+    assert (await store.snapshot(ACCOUNT)).items[0].state == "DONE"
+
+
+@pytest.mark.asyncio
+async def test_monitor_search_failure_preserves_followed_prs(database: Database) -> None:
+    class BrokenSearch(FakeForge):
+        async def search_pull_requests(self, query: PRQuery, cursor: str | None = None) -> PRPage:
+            raise ForgeError("Synthetic search failure")
+
+    forge = BrokenSearch()
+    store = SQLiteQueueStore(database)
+    await DiffButler(store, forge).sync()
+    report = await DiffButler(store, forge, monitor_repositories=("acme/api",)).sync()
+    assert not report.complete
+    assert report.refreshed == 1
+    assert any("Synthetic search failure" in warning for warning in report.warnings)
+    assert (await store.snapshot(ACCOUNT)).items[0].sources == ("user:reader",)

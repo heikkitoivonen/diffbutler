@@ -10,6 +10,8 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from pydantic_settings.exceptions import SettingsError
 from pydantic_settings.sources import InitSettingsSource
 
+from diffbutler.domain.forge import PRQuery
+
 
 class ConfigError(ValueError):
     """A user-facing configuration error with no input values or secrets."""
@@ -40,9 +42,17 @@ class Database(Section):
 class Forge(Section):
     kind: Literal["github", "gitlab"]
     base_url: str
-    token_env: str
+    token_env: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     include_team_requests: bool = True
     login: str | None = None
+    repositories: list[str] = Field(default_factory=list)
+
+    @field_validator("repositories")
+    @classmethod
+    def valid_repositories(cls, values: list[str]) -> list[str]:
+        for value in values:
+            PRQuery(repository=value)
+        return values
 
 
 class Review(Section):
@@ -167,19 +177,24 @@ def config_path() -> Path:
 
 
 def load_settings(
-    path: Path | None = None, *, repo: str | None = None, overrides: dict[str, Any] | None = None
+    path: Path | None = None,
+    *,
+    repo: str | None = None,
+    overrides: dict[str, Any] | None = None,
+    missing_ok: bool = False,
 ) -> Settings:
     """CLI > environment > selected repo review options > TOML > defaults.
 
-    Only the implicit default config may be missing. No dotenv or repository code
-    is loaded. Relative configured paths are relative to the config directory.
+    Only the implicit default config may be missing unless startup opts in with
+    missing_ok. No dotenv or repository code is loaded. Relative configured paths
+    are relative to the config directory.
     """
     selected = (path or config_path()).expanduser().absolute()
     try:
         with selected.open("rb") as stream:
             document = tomllib.load(stream)
     except FileNotFoundError:
-        if path is not None:
+        if path is not None and not missing_ok:
             raise ConfigError("config: explicitly selected file does not exist") from None
         document = {}
     except tomllib.TOMLDecodeError as exc:

@@ -10,7 +10,14 @@ from diffbutler.forges.github.http import GitHubHTTP
 async def open_forge(config: Forge) -> ReadForge:
     if config.kind != "github":
         raise ForgeError("GitLab adapter is not implemented")
-    token = await resolve_token(config.base_url, config.token_env)
+    token = (
+        await resolve_token(config.base_url, config.token_env)
+        if config.token_env is not None
+        else None
+    )
     return GitHubForge(
-        GitHubHTTP(config.base_url, token), include_team_requests=config.include_team_requests
+        GitHubHTTP(config.base_url, token),
+        include_team_requests=config.include_team_requests,
+        repositories=tuple(config.repositories),
+        public_login=config.login if token is None else None,
     )

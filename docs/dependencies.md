@@ -67,3 +67,7 @@ them requires preserving applicable license/notice files, not relabeling them MI
 Recheck the dependency inventory before distributing such a bundle.
 
 The larger dependency list in SPEC.md is a plan, not the installed dependency set.
+
+First-run setup adds tomlkit 0.15.1 (MIT) to preserve TOML comments and existing
+settings when saving the selected forge and repository. Its installed license was
+reviewed; it adds no transitive dependencies and requires no project license change.

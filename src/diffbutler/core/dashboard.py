@@ -367,3 +367,16 @@ async def pause_configured(path: Path | None, paused: bool) -> None:
         await SQLiteDashboardStore(queue.database).set_preference(
             "reviews_paused", str(paused).lower()
         )
+
+
+async def toggle_monitoring_configured(path: Path | None) -> bool:
+    """Persist discovery scope without starting reviews or contacting a forge."""
+    async with local_store(path) as (queue, settings):
+        store = SQLiteDashboardStore(queue.database)
+        enabled = (await store.preferences()).get("monitor_all_prs") != "true"
+        if enabled and (
+            not settings.forges or any(not forge.repositories for forge in settings.forges)
+        ):
+            raise ForgeError("Set repositories for each forge before monitoring all open PRs")
+        await store.set_preference("monitor_all_prs", str(enabled).lower())
+        return enabled

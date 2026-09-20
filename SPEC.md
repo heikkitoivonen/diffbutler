@@ -466,6 +466,10 @@ once means neither the reviewers nor the forge adapters need to.
   assumption that one API query covers every team case. Verify direct/team discovery
   semantics when implementing the adapter; union and deduplicate by forge/repo/PR,
   preserve request provenance, and surface incomplete team membership access.
+- The dashboard `a` switch persists broad open-PR monitoring as a database preference.
+  It searches all pages in configured repositories, independently of request provenance,
+  and follows discoveries without launching AI. Require an explicit repository list for
+  every forge. Turning it off stops broad discovery and preserves existing follow-up.
 - Separately refresh every followed open PR by identity: head SHA, direct/team
   requests, review activity (including the user's approval), merge and closure.
   Removing a PR from discovery results must never silently end follow-up.
@@ -1271,6 +1275,30 @@ per-repo overrides. Precedence: CLI flags → env (`DIFFBUTLER_*`) → repo sect
 config → defaults. Loaded and validated by **pydantic-settings**; a bad config
 prints the offending key, the reason, and the valid options.
 
+`diffbutler config [--config FILE]` displays the selected file's contents and then
+its absolute path. It creates missing parent directories and a default TOML file
+when absent, without applying environment overrides or initializing storage.
+Existing files are shown without validation or rewriting.
+With `--edit`, it instead opens the file in `$EDITOR`, waits for exit, and prints
+the path. Editor arguments are parsed without shell execution.
+
+Live dashboard startup with no configured forge performs local Git discovery before
+asking for missing forge/repository choices. Prefer `origin`, otherwise require
+unambiguous remotes. GitHub remotes are recognized automatically; unknown hosts require
+confirmation as GitHub Enterprise. Save the selected repository in the forge's
+`repositories` list to scope direct/team review requests, and its local Git root in
+`repos.<owner/repo>.path` when known. Empty repository lists retain account-wide request
+discovery. Preserve existing configuration and independently followed PRs. Offline mode
+and informational commands skip setup; startup never initiates AI reviews.
+
+Before saving first-run choices, probe repository visibility without credentials and
+ask for the GitHub username, defaulting to the repository owner. Public repositories
+omit `token_env` (loads as `None`) and use anonymous direct-request discovery for that
+login, with team requests disabled. Otherwise ask for the environment variable name
+holding the token; validate the token, matching account, and repository/PR read access.
+Invalid or missing credentials abort without saving. Never prompt for or persist token
+values. Network and rate-limit failures abort rather than imply private visibility.
+
 ### 11.2 Example
 
 ```toml
@@ -1395,8 +1423,7 @@ buried in the service layer.
 
 DiffButler relies on the installed agent CLI's native sandbox and approval controls.
 It does not build or provision an additional OS sandbox, network broker, or model
-authentication proxy. Bubblewrap and kernel-confinement validation are not M2
-prerequisites. The earlier custom-isolation experiment is optional legacy work.
+authentication proxy.
 
 Background launches explicitly select native read-only mode and disable interactive
 approval/escalation. They use captured pipes, an environment allowlist, source-only
