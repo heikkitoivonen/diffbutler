@@ -716,3 +716,99 @@ async def test_claude_checkpoints_init_before_completion(tmp_path: Path) -> None
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         await execution.stop_and_wait()
+
+
+@pytest.mark.parametrize("configured", [False, True])
+async def test_managed_fetch_review_resume_and_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool
+) -> None:
+    from diffbutler.core.dashboard import diff_configured
+    from diffbutler.sources.fetch import repository_url
+
+    settings, forge = await prepared(tmp_path)
+    config = configuration(tmp_path, settings)
+    config.write_text(config.read_text().split("[repos.")[0])
+    remote = tmp_path / "repository"
+    pr = forge.prs[REF]
+    await git(remote, "update-ref", "refs/pull/1/head", pr.head_sha)
+    # The PR head is reachable only through the PR ref, as with a fork PR.
+    await git(remote, "update-ref", "HEAD", pr.base_sha)
+    if configured:
+        empty = tmp_path / "empty-local"
+        empty.mkdir()
+        await git(empty, "init", "--template=")
+        settings.repos["acme/api"].path = empty
+    else:
+        settings.repos.clear()
+    calls: list[tuple[str, ...]] = []
+
+    async def local_fetch(repository: Path, *args: str) -> None:
+        calls.append(args)
+        await git(
+            repository, *(remote.as_uri() if arg == repository_url(REF) else arg for arg in args)
+        )
+
+    monkeypatch.setattr("diffbutler.sources.fetch.git_fetch_command", local_fetch)
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        progress: list[str] = []
+        run = await managed.review(row, progress=progress.append)
+        assert run.status == "succeeded"
+        assert "Fetching PR commits…" in progress
+        assert calls[-1][-3:] == (pr.base_sha, pr.head_sha, "refs/pull/1/head")
+        resources = await managed.store.session_resources(run.session_id)
+        assert len(resources) == 1
+        root = managed.directories.path / resources[0].name
+        assert (root / f"source-{run.id}.git").is_dir()
+        assert "+after" in await diff_configured(config, run.task_id)
+        launch = await managed.prepare_handoff(row)
+        assert (launch.cwd / "head" / "changed.py").read_text() == "after\n"
+        await managed.store.mark_approved(run.task_id)
+        await managed.cleanup()
+        assert root.exists()  # Foreground lease protects fetched objects too.
+        await managed.lifecycle.release_foreground(launch.token)
+        await managed.cleanup()
+        assert not root.exists()
+        assert (remote / "changed.py").read_text() == "dirty unrelated work\n"
+    finally:
+        await database.close()
+
+
+async def test_fetch_failure_keeps_owned_cleanup_and_never_launches_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from diffbutler.sources.git import SourceError
+
+    settings, forge = await prepared(tmp_path)
+    settings.repos.clear()
+
+    async def fail(*args: object) -> None:
+        raise SourceError("Check Git HTTPS authentication and retry")
+
+    monkeypatch.setattr("diffbutler.core.managed.fetch_repository", fail)
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        with pytest.raises(SourceError, match="authentication"):
+            await managed.review(row)
+        assert row.tracked.task_id is not None
+        run = await managed.store.latest_run(row.tracked.task_id)
+        assert run is not None
+        session = await managed.reviews.get_session(run.session_id)
+        assert session.backend_session_id is None
+        resources = await managed.store.session_resources(run.session_id)
+        assert len(resources) == 1
+        await managed.store.mark_approved(run.task_id)
+        await managed.cleanup()
+        assert not (managed.directories.path / resources[0].name).exists()
+    finally:
+        await database.close()

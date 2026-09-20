@@ -49,6 +49,7 @@ from diffbutler.core.managed import (
 from diffbutler.core.native import foreground_environment
 from diffbutler.domain.dashboard import CycleRecord
 from diffbutler.forges.base import ForgeError
+from diffbutler.sources.git import SourceError
 from diffbutler.ui.tui.app import TerminalApp
 from diffbutler.ui.tui.browse import BrowseScreen
 from diffbutler.ui.tui.browser import open_browser
@@ -500,7 +501,7 @@ class Dashboard(TerminalApp):
     async def guarded(self, operation: Awaitable[None]) -> None:
         try:
             await operation
-        except (ForgeError, ConfigError) as exc:
+        except (ForgeError, ConfigError, SourceError) as exc:
             logging.getLogger(__name__).exception("Dashboard operation failed")
             self.status(f"Operation failed: {exc}")
         except Exception as exc:
@@ -599,7 +600,11 @@ class Dashboard(TerminalApp):
             logging.getLogger(__name__).info("Review requested task=%s", key)
             try:
                 result = await review_configured(
-                    self.path, row.row.tracked.pull_request.url, row.row.account.login, None
+                    self.path,
+                    row.row.tracked.pull_request.url,
+                    row.row.account.login,
+                    None,
+                    self.status,
                 )
                 logging.getLogger(__name__).info(
                     "Review finished task=%s status=%s", key, result.status

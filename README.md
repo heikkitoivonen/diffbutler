@@ -25,7 +25,8 @@ uv run diffbutler follow 'acme/api#1841'
 Configure a forge before remote commands. Local listing works offline. `sync` is a
 single refresh; the dashboard polls periodically. These commands never invoke AI or
 post to a forge. [Native reviews and resumable sessions](docs/native-reviews.md) are
-available with a configured Codex or Claude reviewer and pinned local Git objects:
+available with a configured Codex or Claude reviewer. Missing sources are fetched automatically
+into a session-owned repository when you request a review:
 
 ```sh
 diffbutler review 'acme/api#1841'

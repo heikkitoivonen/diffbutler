@@ -56,6 +56,26 @@ async def session_directory(
     return path
 
 
+async def ensure_session_directory(
+    store: ReviewStore,
+    directories: OwnedDirectories,
+    claim: RunClaim,
+    preset_name: Literal["codex", "claude"],
+) -> Path:
+    resources = await store.session_resources(claim.run.session_id)
+    if not resources:
+        return await provision_directory(
+            store,
+            directories,
+            token=claim.token,
+            session_id=claim.run.session_id,
+            purpose="claude_home" if preset_name == "claude" else "codex_home",
+        )
+    if len(resources) == 1 and not (directories.path / resources[0].name).exists():
+        await directories.create(resources[0])
+    return await session_directory(store, directories, claim.run.session_id, preset_name)
+
+
 class NativeExecution:
     def __init__(
         self,
@@ -69,7 +89,7 @@ class NativeExecution:
         is_current: Callable[[], Awaitable[bool]],
         preset_name: Literal["codex", "claude"] = "codex",
     ) -> None:
-        self.preset_name = preset_name
+        self.preset_name: Literal["codex", "claude"] = preset_name
         self.claim = claim
         self.store = store
         self.directories = directories
@@ -86,21 +106,9 @@ class NativeExecution:
         backend_session_id: str | None,
         checkpoint: Callable[[str], Awaitable[None]],
     ) -> ReviewOutput:
-        resources = await self.store.session_resources(context.session_id)
-        if not resources:
-            root = await provision_directory(
-                self.store,
-                self.directories,
-                token=self.claim.token,
-                session_id=context.session_id,
-                purpose="claude_home" if self.preset_name == "claude" else "codex_home",
-            )
-        else:
-            if len(resources) == 1 and not (self.directories.path / resources[0].name).exists():
-                await self.directories.create(resources[0])
-            root = await session_directory(
-                self.store, self.directories, context.session_id, self.preset_name
-            )
+        root = await ensure_session_directory(
+            self.store, self.directories, self.claim, self.preset_name
+        )
 
         def initialize_home() -> None:
             for name in ("agent-home", "runs"):

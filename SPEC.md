@@ -74,7 +74,7 @@ per PR is a regression, and this is the tie-breaker for several decisions below:
 ## 2. Non-goals (v1)
 
 - Being a general git client. No authoring, rebase, or merge management. Preparing
-  PR sources from a local repository and cleaning up review workspaces are in scope (§7.2).
+  PR sources from local or managed fetched repositories and cleaning up review workspaces are in scope (§7.2).
 - Replacing human judgement. AI analysis never authorizes publication or approval.
 - Reviewing on the human's behalf. A clean AI pass means *"your turn"*, not *"ship
   it."* Forge approval happens in the browser; marking approved in the dashboard
@@ -588,13 +588,20 @@ stdin   = "prompt"
 parse   = "jsonl_stream"       # last assistant message wins; earlier lines → Progress
 ```
 
-**Repository context is the normal workflow.** Configure or discover the local
+**Repository context is the normal workflow.** Optionally configure or discover the local
 repository home (`repos.<name>.path`); launch the session with that repository as its
 logical working context, as in the user's manual workflow. The managed source view
 must correspond to the reviewed PR head and expose surrounding files, callers,
 tests as text, and project conventions. Do not accidentally review the local branch
 or unrelated uncommitted changes. The dashboard obtains missing PR refs and prepares
 an isolated worktree/snapshot; the agent can request source retrieval through it.
+An explicit review request prepares a session-owned bare repository when no local
+checkout is configured or its pinned objects are unavailable. Fetch exact base/head
+commits and the GitHub PR head ref over HTTPS, including fork PRs. Persist session
+ownership before creating it, stop fetch processes before releasing ownership, and
+retain the fetched repository for resume/diff inspection until normal session cleanup.
+Use Git HTTPS authentication without interactive prompts; surface actionable fetch
+errors and preparation progress. Discovery and polling never initiate these fetches.
 
 `review.checkout = "worktree"` is the default when a repository path is configured.
 `"none"` remains an explicit diff/mediated-file mode, also used when no repository

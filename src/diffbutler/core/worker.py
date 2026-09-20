@@ -58,6 +58,7 @@ class ReviewWorker:
         prepare: Callable[[RunRecord], Awaitable[ReviewContext]],
         execution_factory: Callable[[RunClaim], ReviewExecution],
         *,
+        before_prepare: Callable[[RunClaim], Awaitable[None]] | None = None,
         output_format: OutputFormat | None = None,
         poll_interval: float = 0.25,
         min_confidence: float = 0.5,
@@ -66,6 +67,7 @@ class ReviewWorker:
         if not math.isfinite(poll_interval) or poll_interval <= 0:
             raise ValueError("poll interval must be positive and finite")
         self.reviews = reviews
+        self.before_prepare = before_prepare
         self.prepare = prepare
         self.execution_factory = execution_factory
         self.output_format = output_format
@@ -92,6 +94,8 @@ class ReviewWorker:
             return None
         exited = True  # No execution object/process exists during preparation.
         try:
+            if self.before_prepare is not None:
+                await self.before_prepare(claim)
             context = await self.prepare(claim.run)
             if (context.run_id, context.session_id, context.pr.base_sha, context.pr.head_sha) != (
                 claim.run.id,

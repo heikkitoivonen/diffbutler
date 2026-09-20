@@ -16,6 +16,7 @@ from diffbutler.core.native import (
     NativeExecution,
     NativeSessionCleaner,
     SessionLaunch,
+    ensure_session_directory,
     prepare_native_handoff,
 )
 from diffbutler.core.process import ProcessRecovery
@@ -34,8 +35,9 @@ from diffbutler.reviewers.base import ReviewBudget, ReviewContext
 from diffbutler.reviewers.native import native_preset
 from diffbutler.reviewers.process import LinuxHostBoot
 from diffbutler.reviewers.prompt import PROMPT_VERSION
-from diffbutler.reviewers.resources import OwnedDirectories
-from diffbutler.sources.git import GitSourceReader
+from diffbutler.reviewers.resources import OwnedDirectories, settled_io
+from diffbutler.sources.fetch import fetch_repository
+from diffbutler.sources.git import GitSourceReader, SourceError
 from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.database import Database
 from diffbutler.store.lifecycle import SQLiteLifecycleStore
@@ -115,16 +117,17 @@ class ManagedReviews:
         assert selected.preset is not None
         return selected.preset
 
-    async def review(self, row: PullRequestRow, reviewer_id: str | None = None) -> AIRun:
+    async def review(
+        self,
+        row: PullRequestRow,
+        reviewer_id: str | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> AIRun:
         task_id = row.tracked.task_id
         if task_id is None:
             raise ReviewConflict("PR has no persisted review task")
         pr = row.tracked.pull_request
         repository = self.settings.repos.get(f"{pr.ref.namespace}/{pr.ref.repository}")
-        if repository is None or repository.path is None:
-            raise ConfigError(
-                "Native review requires repos.<owner/repo>.path with pinned local Git objects"
-            )
         reviewer_id = reviewer_id or self.settings.review.default_reviewer
         command = self.reviewer_command(reviewer_id)
         selected = next(item for item in self.settings.reviewers if item.id == reviewer_id)
@@ -138,14 +141,44 @@ class ManagedReviews:
         ).hexdigest()
         identity = AnalysisIdentity(task_id, pr.head_sha, selected.id, PROMPT_VERSION, digest)
         run = await self.reviews.request_review(identity)
-        repository_path = repository.path
+        repository_path = repository.path if repository else None
         sources: GitSourceReader | None = None
+
+        def report(message: str) -> None:
+            if progress is not None:
+                progress(message)
+
+        report("Review queued")
+
+        async def before_prepare(claim: RunClaim) -> None:
+            nonlocal repository_path, sources
+            report("Preparing repository…")
+            if repository_path is not None:
+                try:
+                    sources = await GitSourceReader.open(
+                        repository_path, base_sha=claim.run.base_sha, head_sha=claim.run.head_sha
+                    )
+                    return
+                except SourceError:
+                    # Fetch into our own session, never mutate the user's checkout.
+                    pass
+            root = await ensure_session_directory(
+                self.store, self.directories, claim, self.reviewer_preset(reviewer_id)
+            )
+            destination = root / f"source-{claim.run.id}.git"
+            repository_path = destination
+            await settled_io(lambda: destination.mkdir(mode=0o700, exist_ok=True))
+            report("Fetching PR commits…")
+            await fetch_repository(repository_path, pr.ref, claim.run.base_sha, claim.run.head_sha)
 
         async def prepare(record: RunRecord) -> ReviewContext:
             nonlocal sources
-            sources = await GitSourceReader.open(
-                repository_path, base_sha=record.base_sha, head_sha=record.head_sha
-            )
+            assert repository_path is not None
+            if sources is None:
+                sources = await GitSourceReader.open(
+                    repository_path, base_sha=record.base_sha, head_sha=record.head_sha
+                )
+            report("Preparing AI review…")
             return await assemble_context(
                 run=record,
                 pr=pr,
@@ -177,6 +210,7 @@ class ManagedReviews:
             self.reviews,
             prepare,
             execution,
+            before_prepare=before_prepare,
             output_format=native_preset(self.reviewer_preset(reviewer_id)).output_format,
             min_confidence=self.settings.review.min_confidence,
             findings_threshold=self.settings.review.findings_threshold,
@@ -223,7 +257,11 @@ class ManagedReviews:
 
 
 async def review_configured(
-    path: Path | None, value: str, login: str | None, reviewer: str | None
+    path: Path | None,
+    value: str,
+    login: str | None,
+    reviewer: str | None,
+    progress: Callable[[str], None] | None = None,
 ) -> AIRun:
     async with local_store(path) as (queue, _settings):
         row = await resolve_local(queue, value, login)
@@ -233,7 +271,7 @@ async def review_configured(
         )
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
         await managed.cleanup()
-        return await managed.review(row, reviewer)
+        return await managed.review(row, reviewer, progress)
 
 
 async def findings_configured(

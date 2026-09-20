@@ -12,7 +12,7 @@ confirmed, but no live managed review was run during this implementation.
 
 ## Configure and review
 
-Add a native reviewer and a repository containing the full base/head Git objects:
+Add a native reviewer. A local repository containing the base/head Git objects is optional:
 
 ```toml
 [review]
@@ -77,8 +77,12 @@ blobs, including unchanged source, with no checkout hooks, Git administration, o
 project execution. They ignore local working/index changes. Symlinks become regular
 files containing link text. Missing objects, submodules, unsupported/binary diffs,
 and byte-budget excesses fail with a diagnostic; no partial review is presented as
-complete. Missing objects must be fetched by the user. Endpoint comparison and
-64 MB combined snapshot budget are current limitations; worktrees/fetching and
+complete. On an explicit review request, missing objects are fetched into a session-owned bare
+repository over HTTPS, including GitHub pull refs for fork PRs. A configured local
+checkout is used when it already contains both pinned commits; it is never modified.
+Private repositories require working Git HTTPS authentication (for example, a configured
+credential helper). Fetches never prompt inside the dashboard. Endpoint comparison and
+64 MB combined snapshot budget are current limitations; worktrees and
 large-diff splitting remain future enhancements.
 
 ## Native permissions and authentication

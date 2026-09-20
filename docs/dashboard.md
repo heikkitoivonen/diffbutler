@@ -176,3 +176,7 @@ review requests; assignees do not affect membership, including stale saved assig
 entries. When all-PR monitoring is off, the default view and return from History show
 Requested. Refresh failures show the specific safe forge diagnostic
 and preserve saved rows. No AI review starts as a result of this switch.
+
+Pressing `r` prepares missing repository sources automatically. The status area shows
+queueing, repository preparation, and fetching progress. Fetch failures explain how
+to retry; no agent starts until the pinned base/head source context is ready.

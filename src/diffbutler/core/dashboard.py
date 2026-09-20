@@ -340,10 +340,30 @@ async def diff_configured(path: Path | None, task_id: UUID) -> str:
             raise ReviewConflict("No reviewed revision is available")
         pr = detail.cycle.pull_request
         repo = settings.repos.get(f"{pr.ref.namespace}/{pr.ref.repository}")
-        if repo is None or repo.path is None:
-            raise ReviewConflict("Configure the local repository to inspect pinned source")
         run = detail.cycle.runs[-1]
-        source = await GitSourceReader.open(repo.path, base_sha=run.base_sha, head_sha=run.head_sha)
+        from diffbutler.core.native import session_directory
+        from diffbutler.reviewers.resources import OwnedDirectories
+
+        store = SQLiteReviewStore(queue.database)
+        resources = await store.session_resources(run.session_id)
+        managed_path: Path | None = None
+        if resources:
+            preset = next((r.preset for r in settings.reviewers if r.id == run.reviewer_id), None)
+            root = await session_directory(
+                store,
+                await OwnedDirectories.reopen(settings.general.workspace_root),
+                run.session_id,
+                preset or "codex",
+            )
+            candidate = root / f"source-{run.id}.git"
+            if candidate.is_dir():
+                managed_path = candidate
+        repository_path = managed_path or (repo.path if repo else None)
+        if repository_path is None:
+            raise ReviewConflict("Pinned source is unavailable or has been removed by cleanup")
+        source = await GitSourceReader.open(
+            repository_path, base_sha=run.base_sha, head_sha=run.head_sha
+        )
         diff = await source.read_diff(max_bytes=settings.review.max_diff_bytes)
         return redact_and_report(diff.encode()).decode()
 
