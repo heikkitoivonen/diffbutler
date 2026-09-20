@@ -19,7 +19,13 @@ from diffbutler.domain.review import (
 )
 from diffbutler.reviewers.base import ReviewOutput
 from diffbutler.reviewers.extraction import OutputFormat
-from diffbutler.reviewers.parsing import ReviewDocument, Severity, parse_review
+from diffbutler.reviewers.parsing import (
+    DraftReview,
+    ResponseFormat,
+    ReviewDocument,
+    Severity,
+    parse_review,
+)
 from diffbutler.store.base import ReviewStore
 
 
@@ -66,6 +72,7 @@ class ReviewResult(BaseModel):
     stdout: bytes | None
     stderr: bytes | None
     document: ReviewDocument | None
+    markdown: str | None = None
     parse_tier: str | None
     error: str | None
     notes: tuple[str, ...]
@@ -143,7 +150,12 @@ class ReviewService:
             stderr=result.stderr,
             document=(
                 ReviewDocument.model_validate_json(result.document_json)
-                if result.document_json is not None
+                if result.document_json is not None and result.parse_tier != "markdown"
+                else None
+            ),
+            markdown=(
+                DraftReview.model_validate_json(result.document_json).markdown
+                if result.document_json is not None and result.parse_tier == "markdown"
                 else None
             ),
             parse_tier=result.parse_tier,
@@ -164,6 +176,7 @@ class ReviewService:
         *,
         diff_index: DiffIndex | None = None,
         output_format: OutputFormat | None = None,
+        response_format: ResponseFormat = "json",
         min_confidence: float = 0.5,
         findings_threshold: Severity = "minor",
         max_output_bytes: int = 4_000_000,
@@ -184,7 +197,10 @@ class ReviewService:
         if len(output.stdout) + len(output.stderr) > max_output_bytes:
             raise ValueError("output exceeds persistence byte budget")
         parsed = parse_review(
-            output, max_output_bytes=max_output_bytes, output_format=output_format
+            output,
+            max_output_bytes=max_output_bytes,
+            output_format=output_format,
+            response_format=response_format,
         )
         selected = (
             tuple(
@@ -217,7 +233,11 @@ class ReviewService:
             output.exit_code,
             output.stdout,
             output.stderr,
-            parsed.document.model_dump_json() if parsed.document is not None else None,
+            parsed.draft.model_dump_json()
+            if parsed.draft is not None
+            else parsed.document.model_dump_json()
+            if parsed.document is not None
+            else None,
             parsed.tier,
             parsed.error,
             parsed.notes,

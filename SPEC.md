@@ -6,13 +6,11 @@ Reviewing is the part that did not get automated, and it is drowning.
 
 DiffButler watches for reviews assigned to you and shows what each PR is waiting
 for: AI review, your review, or author changes. AI review starts only when you press
-the review action. When that run finishes, it sorts the result into two piles:
-
-- **Nothing found** → the PR is flagged as ready for you, with the AI's orientation
-  notes on what changed and where the risk is. One keypress opens it in your browser
-  and you do the human pass.
-- **Something found** → the PR is flagged for triage. You agree, disagree, or edit
-  findings with the resumed agent and tell it which ones to post.
+the review action. When that run finishes, the PR is ready for human review. The
+agent provides readable orientation notes and a separate draft comment for each
+issue, suitable for posting or copying and pasting. The human evaluates the
+findings, decides what to do, and can resume the saved conversation to discuss
+or explicitly request publication. A review with no issues says so plainly.
 
 The AI is never the reviewer of record. It is a filter that runs before you and
 tells you where to look.
@@ -21,7 +19,8 @@ tells you where to look.
 
 **Status:** M0–M3 are implemented for the Linux/Codex native workflow. Configuration,
 GitHub queue sync and polling, explicit reviews, pinned sources, durable conversations,
-parsing/anchors, exact native resume, return reconciliation, state overrides, owned cleanup,
+retained review drafts, legacy parsing/anchors, exact native resume, return reconciliation,
+state overrides, owned cleanup,
 and offline cycle history are available through the shared core, CLI and Textual dashboard.
 See [dashboard scope and evidence](docs/dashboard.md) and [native review support](docs/native-reviews.md).
 Codex 0.98.0 flags were checked locally. Acceptance includes synthetic review/feedback/history
@@ -30,6 +29,10 @@ review or forge write was performed. Claude/macOS native validation and optional
 conveniences remain deferred. Details below beyond the documented scope remain targets.
 
 ---
+
+Native prose reviews do not automatically split clean and findings-bearing results;
+state diagrams and severity/threshold rules below describe legacy structured results
+or future structured adapters where applicable.
 
 ## 1. Goals
 
@@ -670,7 +673,32 @@ the TUI and the CLI sit.
 
 ### 7.3 Findings contract
 
-The reviewer is instructed to emit exactly this:
+Native background reviews return readable Markdown for the human, not a JSON
+findings document. Include useful orientation even when no issues are found:
+intent, structure, high-risk locations, low-risk changes, and all limitations,
+including that project checks were not executed.
+
+For each issue, provide a descriptive heading, repository-relative location with
+base/head identified, and a self-contained draft comment suitable for posting or
+copying and pasting. Explain the concrete problem, triggering conditions, impact,
+and suggested fix when clear. Keep one issue per draft and separate reviewer notes
+from the text to publish. Do not invent issues to fill the response. If no issues
+are found, say so plainly. The human reviews the findings and decides what to do;
+generating drafts never authorizes posting or approval.
+
+The backend still emits its native machine-readable event stream for session IDs,
+completion, and errors. Extract only the final assistant answer after successful
+completion. Retain its nonempty UTF-8 Markdown as review analysis, independently
+of raw output, so it survives session cleanup and process restarts. Empty output,
+failed/truncated streams, and nonzero exits remain failures. Do not infer issue
+counts, severity, confidence, anchors, or a clean pass from prose. Native reviews
+route to `PENDING_HUMAN_REVIEW`; the dashboard displays the drafts and the CLI
+`findings` command prints them. Legacy structured results remain readable.
+
+#### Legacy structured findings
+
+The following contract and parsing/filtering rules apply to older JSON results
+and structured adapters, not current native review output:
 
 ```jsonc
 {
@@ -723,7 +751,7 @@ they tell you where to spend attention, what you may skim, and where the AI know
 was blind. `unverified` matters most on a clean pass — it is the honest edge of the
 filter, and it is the difference between "nothing found" and "nothing found, but I
 could not see X." A run whose `orientation.look_here` is empty on a non-trivial diff
-is flagged low-quality in `diffbutler stats`.
+is a target for low-quality flags in `diffbutler stats`.
 
 **"No issues" must be expressible.** `findings: []` is the clean-pass signal, and the
 prompt says so explicitly. The failure mode that kills trust in this kind of tool is
@@ -737,7 +765,10 @@ an AI that invents nits to look useful, so the prompt is precision-first:
 `prompts/review.md.j2` (Jinja2), overridable globally and per-repo. Renders: PR title
 and description, changed-file list with stats, the diff (budgeted — see below), any
 repo `CONTRIBUTING.md`/`CLAUDE.md` review conventions if present, a checklist of what
-to look for, the JSON schema, and the precision instruction.
+to look for, and the precision instruction. Template support remains a target.
+The current native prompt requests the Markdown drafts described in §7.3 and
+frames untrusted PR/source data as JSON input; it supplies no output JSON schema.
+Configured extra instructions refine review focus without granting capabilities.
 
 Diff budgeting when the diff exceeds `max_diff_bytes`: drop lockfiles, generated
 files, and vendored paths (configurable globs) → truncate the largest files, keeping
@@ -811,7 +842,9 @@ arrow keys and press `v` to resume its saved session in the native agent CLI.
 3. Suspend TUI rendering and input, restore ordinary terminal modes, and give the
    interactive subprocess foreground terminal ownership with inherited stdin/out/err.
    Resume the exact backend session in its review workspace with the interactive
-   permission profile (§13.1). Do not capture its terminal stream as background JSON.
+   permission profile (§13.1), without submitting a foreground prompt. The human
+   enters any further instructions manually. Do not capture its terminal stream as
+   background JSON.
 4. Keep DiffButler's async core running: polling and other background reviews continue,
    with output routed to files/events rather than the terminal. Buffer notifications
    until return. Only one foreground handoff may own the terminal.

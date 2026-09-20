@@ -102,7 +102,7 @@ def extract_output(
     """Fail the entire capture on malformed/truncated/error events, retaining raw bytes.
 
     No progress text is returned: tool events and earlier messages can contain
-    secrets. A final assistant message must still pass the findings parser.
+    secrets. Final assistant text is validated and retained by the review parser.
     """
     if max_output_bytes < 1:
         raise ValueError("output budget must be positive")

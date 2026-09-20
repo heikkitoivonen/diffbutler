@@ -102,13 +102,17 @@ team requests. Setup does not start an AI review.
 - Include review requests addressed to you or your teams, with accessible-PR search (`b`).
 - Press `a` to toggle automatic monitoring of all open PRs in configured repositories.
 - Press `r` to start a background, source-only AI review. Reviews never start automatically.
-- Press `v` to hand the terminal to the resumed agent for discussion and instructed posting.
+- Press `v` to resume the saved agent session without sending a prompt. Enter your
+  questions or posting instructions manually.
 - Return to a dashboard refreshed from GitHub. Press `o` for the manual browser review,
   or `w` to mark that you're waiting for author changes.
 - Mark approved with `m`, or let closure/merge finish the task. Clean up the session
   automatically and retain review history in SQLite (`h` or `diffbutler history`).
 
-Background analysis is read-only. Interactive agents may post only on your
+Background analysis is read-only and produces readable draft comments for each issue,
+ready for you to review, post, or copy and paste. Read them in PR details or with
+`diffbutler findings`. Completed reviews await your decision; new prose reviews do
+not receive automatic finding counts or severity filtering. Interactive agents may post only on your
 instruction. Source sent to an AI agent may leave your machine for its model provider;
 repository opt-in and the native permission/authentication limitations are described above.
 

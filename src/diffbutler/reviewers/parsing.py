@@ -65,6 +65,15 @@ class ReviewDocument(_Record):
     findings: tuple[Finding, ...]
 
 
+class DraftReview(_Record):
+    """Human-readable analysis retained independently of raw backend transcripts."""
+
+    markdown: Text
+
+
+type ResponseFormat = Literal["json", "markdown"]
+
+
 @dataclass(frozen=True)
 class ParsedReview:
     """Raw bytes remain available on failure; findings are never silently dropped.
@@ -75,9 +84,10 @@ class ParsedReview:
 
     output: ReviewOutput
     document: ReviewDocument | None
-    tier: Literal["json", "fence", "object"] | None
+    tier: Literal["json", "fence", "object", "markdown"] | None
     notes: tuple[str, ...] = ()
     error: str | None = None
+    draft: DraftReview | None = None
 
 
 class _InvalidJSON(ValueError):
@@ -176,11 +186,12 @@ def parse_review(
     *,
     max_output_bytes: int = 4_000_000,
     output_format: OutputFormat | None = None,
+    response_format: ResponseFormat = "json",
 ) -> ParsedReview:
     """Parse assistant text or a declaratively selected backend envelope/stream.
 
-    Syntax recovery follows SPEC §7.3. Once JSON is decoded, schema errors fail
-    the entire result: an invalid finding must never turn into a clean review.
+    Markdown is retained as written, without inferring issue counts or severity.
+    Legacy JSON schema errors fail the entire result.
     Diagnostics contain no backend text; raw stdout/stderr stay in the result.
     """
     if max_output_bytes < 1:
@@ -200,6 +211,10 @@ def parse_review(
         text = payload.decode("utf-8")
     except UnicodeDecodeError:
         return ParsedReview(output, None, None, error="output is not UTF-8")
+    if response_format == "markdown":
+        if not text.strip():
+            return ParsedReview(output, None, None, error="empty review response")
+        return ParsedReview(output, None, "markdown", draft=DraftReview(markdown=text))
     tier: Literal["json", "fence", "object"] = "json"
     try:
         try:

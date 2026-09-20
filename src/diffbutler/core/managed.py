@@ -212,6 +212,7 @@ class ManagedReviews:
             execution,
             before_prepare=before_prepare,
             output_format=native_preset(self.reviewer_preset(reviewer_id)).output_format,
+            response_format="markdown",
             min_confidence=self.settings.review.min_confidence,
             findings_threshold=self.settings.review.findings_threshold,
         )
@@ -315,11 +316,6 @@ async def handoff_configured(
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
         await managed.cleanup()
         launch = await managed.prepare_handoff(row)
-        from diffbutler.reviewers.prompt import foreground_prompt
-
-        launch = launch.model_copy(
-            update={"argv": (*launch.argv, foreground_prompt(row.tracked.pull_request))}
-        )
         exited = True
         try:
             assert row.tracked.task_id is not None

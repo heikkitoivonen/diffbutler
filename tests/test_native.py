@@ -114,9 +114,10 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         session = await managed.reviews.get_session(run.session_id)
         assert session.backend_session_id == "01234567-89ab-cdef-0123-456789abcdef"
         result = await managed.findings(row)
-        assert result is not None and result.document is not None
-        assert result.document.orientation.intent == "Change behavior"
-        assert not result.document.findings
+        assert result is not None and result.markdown is not None
+        assert "## Change behavior" in result.markdown
+        assert "Draft comment:" in result.markdown
+        assert result.document is None and result.selected_indices == ()
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_HUMAN_REVIEW"
     finally:
         await database.close()
@@ -150,7 +151,8 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         assert (login / "settings.json").read_text() == "synthetic-user-settings"
         assert (await managed.reviews.get_session(run.session_id)).status == "cleaned"
         result = await managed.reviews.get_result(run.id)
-        assert result is not None and result.document is not None and result.stdout is None
+        assert result is not None and result.markdown is not None and result.stdout is None
+        assert "Draft comment:" in result.markdown
         assert (await SQLiteQueueStore(database).snapshot(ACCOUNT)).items[0].state == "DONE"
     finally:
         await database.close()
@@ -290,25 +292,26 @@ async def test_public_cli_review_retry_findings_approval_and_cleanup(
     finally:
         os.close(master)
         os.close(slave)
-    assert "Change behavior" in await cli("findings", "acme/api#1")
+    assert (await cli("findings", "acme/api#1")).startswith("## Change behavior\n")
     assert "1 succeeded, 0 pending, 0 running, 0 failed" in await cli("approved", "acme/api#1")
     assert "1 succeeded" in await cli("cleanup")
-    assert "Change behavior" in await cli("findings", "acme/api#1")
+    assert (await cli("findings", "acme/api#1")).startswith("## Change behavior\n")
     assert not json.loads(await cli("ls", "--json"))
     repository = settings.repos["acme/api"].path
     assert repository is not None
     assert (repository / "changed.py").read_text() == "dirty unrelated work\n"
 
 
+@pytest.mark.parametrize("preset", ["codex", "claude"])
 @pytest.mark.parametrize("uncertain", [False, True])
 async def test_shared_handoff_preserves_uncertain_ownership(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uncertain: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uncertain: bool, preset: str
 ) -> None:
     from diffbutler.core.managed import handoff_configured
     from diffbutler.domain.lifecycle import ForegroundExitUncertain
 
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "empty-login"))
-    settings, forge = await prepared(tmp_path)
+    settings, forge = await prepared(tmp_path, preset)
     config = configuration(tmp_path, settings)
     database = Database(settings.db.url)
     await database.initialize()
@@ -320,7 +323,15 @@ async def test_shared_handoff_preserves_uncertain_ownership(
         run = await managed.review(row)
         error = ForegroundExitUncertain if uncertain else OSError
         with pytest.raises(error):
-            async with handoff_configured(config, "acme/api#1", None):
+            async with handoff_configured(config, "acme/api#1", None) as (launch, _started):
+                session = await managed.reviews.get_session(run.session_id)
+                native = native_preset(preset)
+                # Joining the saved conversation must not submit a new prompt.
+                assert launch.argv == native.argv(
+                    native.command_at(tuple(settings.reviewers[0].command), launch.cwd),
+                    session.backend_session_id,
+                    foreground=True,
+                )
                 # A concurrent local completion must defer deletion until verified exit.
                 await managed.store.mark_approved(run.task_id)
                 assert (await managed.cleanup()).pending == 1
@@ -464,7 +475,7 @@ async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_hist
     ) -> int:
         # Real synthetic native process, headless terminal attachment is the only fake.
         seen.append(tuple(argv))
-        assert "wait for the human's question" in argv[-1]
+        assert argv[-1] == "01234567-89ab-cdef-0123-456789abcdef"
         assert "on-request" in argv and "danger-full-access" in argv
         assert "read-only" not in argv
         process = await asyncio.create_subprocess_exec(
@@ -532,8 +543,14 @@ async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_hist
         assert len(history) == 1 and history[0].cleanup_status == "succeeded"
         assert len(history[0].runs) == 1
         detail = await detail_configured(config, task_id)
-        assert detail.results[0].document is not None
-        assert detail.results[0].document.orientation.intent == "Change behavior"
+        assert detail.results[0].markdown is not None
+        assert "## Change behavior" in detail.results[0].markdown
+        from diffbutler.ui.tui.dashboard import describe, preview_summary
+
+        assert "Draft comment:" in describe(detail)
+        assert "Review ready" in preview_summary(detail)
+        assert "No issues found" not in describe(detail)
+        assert "No issues found" not in preview_summary(detail)
         assert detail.cycle.receipts[0].body == "Synthetic human-instructed feedback"
         assert detail.results[0].stdout is None
     finally:

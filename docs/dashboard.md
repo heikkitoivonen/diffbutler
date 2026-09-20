@@ -69,9 +69,11 @@ Accessible-PR search is paginated (`n`); `f` in that screen chooses the next con
 forge. Following a result does not start AI. Return to the queue and press `r`.
 The CLI also supports repository/author/state search filters through `ls --view all`.
 
-The clean preview leads with intent, look-here guidance and unverified checks.
-Full details retain all findings, including findings below the configured triage
-threshold. Analyzed and current SHAs are shown separately. Table cell updates preserve
+The preview and full details show the saved Markdown review drafts. Each issue
+includes a copyable comment for human evaluation. New native reviews await human
+review and show “Read review drafts” instead of an inferred finding count. Severity
+and confidence thresholds apply only to legacy structured results, whose full details
+retain all findings. Analyzed and current SHAs are shown separately. Table cell updates preserve
 selection; changed ordering preserves selection by task identity where possible.
 Forge and model text is displayed literally, with terminal control characters removed.
 
@@ -87,9 +89,9 @@ may remain pending while a foreground or background owner is still alive.
 
 ## Return reconciliation
 
-Entering a native session records a durable refresh-pending flag. Its resume prompt
-asks the agent to wait for discussion, and permits feedback only after the human
-explicitly specifies what to publish inside that session. Foreground Codex uses
+Entering a native session records a durable refresh-pending flag and resumes the saved
+conversation without sending a prompt. The human enters questions or explicit posting
+instructions inside that session. Foreground Codex uses
 full access with on-request approvals; Claude uses default tools with manual approvals.
 DiffButler does not execute or retry any posting operation.
 
@@ -130,12 +132,12 @@ diffbutler history --task CYCLE_UUID
 ```
 
 History reads SQLite without forge credentials or native tools. Each completed cycle
-retains its PR snapshot, reviewed SHAs, normalized orientation/findings/anchors, submitted
-feedback receipts, completion reason/time, and cleanup result. `--task` selects a specific
+retains its PR snapshot, reviewed SHAs, review drafts (or legacy orientation/findings/anchors),
+submitted feedback receipts, completion reason/time, and cleanup result. `--task` selects a specific
 cycle, including earlier cycles after the PR receives another push. `--login`, `--until`,
 repository, number, reason and date filters are available. Dates without a timezone use UTC.
 
-Cleanup deletes owned native conversations, snapshots and raw output, while these normalized
+Cleanup deletes owned native conversations, snapshots and raw output, while these retained
 records remain. `D` explicitly rereads pinned objects from the user's configured repository;
 it does not recreate a session or fetch missing Git objects. Raw logs are unavailable after
 cleanup. No history pruning is performed. Older pre-M3 completed cycles have their retained

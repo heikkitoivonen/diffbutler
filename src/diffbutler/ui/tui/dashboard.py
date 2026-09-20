@@ -97,6 +97,8 @@ def detail_metadata(detail: CycleDetail) -> list[str]:
     run = cycle.runs[-1] if cycle.runs else None
     result = next((result for result in detail.results if run and result.run_id == run.id), None)
     findings = str(len(result.document.findings)) if result and result.document else "—"
+    if result and result.markdown is not None:
+        findings = "Read review drafts"
     age_hours = (datetime.now(UTC) - cycle.pull_request.created_at).total_seconds() / 3600
     return [
         f"AI Status: {run.status if run else 'Not started'}",
@@ -126,6 +128,8 @@ def describe(detail: CycleDetail) -> str:
             continue
         if result.error:
             lines.append(result.error)
+        if result.markdown is not None:
+            lines.extend(["\nReview drafts:", result.markdown])
         if result.document:
             orientation = result.document.orientation
             lines.extend(["\nIntent: " + orientation.intent, "Shape: " + orientation.shape])
@@ -163,7 +167,10 @@ def preview_summary(detail: CycleDetail) -> str:
         *detail_metadata(detail),
     ]
     result = detail.results[-1] if detail.results else None
-    if result and result.document:
+    if result and result.markdown is not None:
+        lines.append("Review ready · Enter to read drafts · v to discuss")
+        lines.append(result.markdown)
+    elif result and result.document:
         doc = result.document
         lines.append(
             "No issues found — your turn."

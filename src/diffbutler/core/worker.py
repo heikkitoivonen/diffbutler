@@ -11,7 +11,7 @@ from diffbutler.core.review import AIRun, ReviewService
 from diffbutler.domain.review import ReviewConflict, RunClaim, RunRecord
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
 from diffbutler.reviewers.extraction import OutputFormat
-from diffbutler.reviewers.parsing import Severity
+from diffbutler.reviewers.parsing import ResponseFormat, Severity
 
 
 class ReviewExecution(Protocol):
@@ -60,6 +60,7 @@ class ReviewWorker:
         *,
         before_prepare: Callable[[RunClaim], Awaitable[None]] | None = None,
         output_format: OutputFormat | None = None,
+        response_format: ResponseFormat = "json",
         poll_interval: float = 0.25,
         min_confidence: float = 0.5,
         findings_threshold: Severity = "minor",
@@ -71,6 +72,7 @@ class ReviewWorker:
         self.prepare = prepare
         self.execution_factory = execution_factory
         self.output_format = output_format
+        self.response_format: ResponseFormat = response_format
         self.poll_interval = poll_interval
         self.min_confidence = min_confidence
         self.findings_threshold: Severity = findings_threshold
@@ -150,6 +152,7 @@ class ReviewWorker:
                 output,
                 diff_index=context.diff_index,
                 output_format=self.output_format,
+                response_format=self.response_format,
                 max_output_bytes=context.budget.max_output_bytes,
                 min_confidence=self.min_confidence,
                 findings_threshold=self.findings_threshold,

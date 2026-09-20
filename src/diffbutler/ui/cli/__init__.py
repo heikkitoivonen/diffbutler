@@ -313,11 +313,13 @@ def review(
 
 @app.command()
 def findings(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
-    """Read retained orientation/findings from local storage, including after cleanup."""
+    """Read saved review drafts or legacy findings, including after cleanup."""
     result = run(findings_configured(config, pr, login))
     typer.echo(
         "No saved review result."
         if result is None
+        else "\n".join(safe(line) for line in result.markdown.split("\n"))
+        if result.markdown is not None
         else result.model_dump_json(exclude={"stdout", "stderr"})
     )
 

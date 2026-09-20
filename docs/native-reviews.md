@@ -64,8 +64,10 @@ Commands also accept the exact stored PR URL and `--login` to disambiguate accou
 `review` is the explicit AI action and waits for captured execution. A subsequent
 explicit review resumes the saved conversation with a fresh prompt and pinned
 sources. Discovery, sync, pushes, and session return never request another AI run.
-`findings` reads retained results locally without invoking a reviewer. `session`
-resumes the exact backend ID in the current terminal, retaining it on exit.
+`findings` prints retained Markdown review drafts locally without invoking a reviewer.
+Each issue has a location and a self-contained comment for the human to evaluate,
+post, or copy and paste. Older structured reviews retain their JSON representation.
+`session` resumes the exact backend ID in the current terminal, retaining it on exit.
 `approved` records the user's completed approval locally; it does not submit a
 forge approval. Completion dispatches cleanup automatically, including when observed
 by `sync`. `cleanup` retries due cleanup jobs after their persisted backoff.
@@ -134,8 +136,8 @@ This relies on the installed agent's sandbox and approval implementation. DiffBu
 does not independently restrict every host-file read, every tool, or network egress.
 Codex source-only review relies on instructions rather than a command-execution
 allowlist. Claude additionally limits background tools to Read, Glob, and Grep. Foreground posting requires explicit instruction inside the agent;
-opening a session grants no publication approval. Foreground resume includes a discussion
-prompt that permits feedback only after the human explicitly instructs it; on return, the
+opening a session grants no publication approval. Foreground resume sends no prompt;
+the human enters further instructions manually. On return, the
 core observes actual forge activity and retains a refresh-pending flag when reads fail. Credential redaction is heuristic,
 and a resumed conversation can contain material from earlier foreground discussion.
 
@@ -145,9 +147,12 @@ Background stdout/stderr are bounded pipes, never terminal output. The actual
 `thread.started` (Codex) or `system/init` (Claude) identity is checkpointed while the worker holds its claim. Only
 completed Codex agent-message items or a successful Claude terminal `result` count
 as answers; tool output cannot replace them.
-A successful terminal event and a backend identity are required, followed by strict
-orientation/findings parsing and original-diff anchor validation. Raw capture is
-retained until cleanup; normalized results survive deletion.
+A successful terminal event and a backend identity are required. The final answer
+must be nonempty UTF-8 text; it is retained as Markdown review drafts. The native
+event stream is still JSON, but the agent is not asked to emit a JSON review.
+Completed reviews await human review; no finding counts, severity/confidence
+filters, or automatic anchors are inferred from prose. Legacy structured results
+remain readable. Raw capture is retained until cleanup; review drafts survive deletion.
 
 The runner terminates/reaps the owned process group before finalizing or releasing
 ownership, including overflow, timeout, and cancellation. It trusts the native CLI
