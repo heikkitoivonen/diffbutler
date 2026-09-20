@@ -73,6 +73,9 @@ Configuration lives at `$XDG_CONFIG_HOME/diffbutler/config.toml` (default
 prints its full path at the end. Use `diffbutler config --config FILE` for another
 location. Existing contents and comments are preserved.
 Add `--edit` to open the file in `$EDITOR`, creating it first if missing.
+`diffbutler reset` removes both standard DiffButler config and data directories,
+including databases and saved sessions, after confirmation. Use `diffbutler reset --force`
+to skip confirmation. Custom files outside those directories are preserved.
 `doctor --config FILE` requires that file to exist. For settings, examples, environment
 overrides, and database backup behavior, see [configuration and storage](docs/configuration.md).
 

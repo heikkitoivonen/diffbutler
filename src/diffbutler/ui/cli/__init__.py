@@ -30,6 +30,7 @@ from diffbutler.core.managed import (
     review_configured,
 )
 from diffbutler.core.native import foreground_environment
+from diffbutler.core.reset import reset_directories, reset_paths
 from diffbutler.core.sync import PullRequestRow
 from diffbutler.domain.forge import PRPage, PRQuery, PullRequest
 from diffbutler.domain.lifecycle import CleanupStatus
@@ -112,6 +113,23 @@ def config(
         if content and not content.endswith("\n"):
             typer.echo()
     typer.echo(f"\nConfig file: {path}")
+
+
+@app.command()
+def reset(
+    force: Annotated[
+        bool, typer.Option("--force", help="Remove configuration and data without confirmation")
+    ] = False,
+) -> None:
+    """Remove all files in the standard DiffButler configuration and data directories."""
+    paths = reset_paths()
+    typer.echo("This will permanently remove these DiffButler directories and their contents:")
+    for path in paths:
+        typer.echo(f"  {safe(str(path))}")
+    if not force:
+        typer.confirm("Are you sure?", default=False, abort=True)
+    run(reset_directories(paths))
+    typer.echo("DiffButler configuration and data removed.")
 
 
 @app.command()

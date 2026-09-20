@@ -1283,6 +1283,15 @@ Existing files are shown without validation or rewriting.
 With `--edit`, it instead opens the file in `$EDITOR`, waits for exit, and prints
 the path. Editor arguments are parsed without shell execution.
 
+`diffbutler reset [--force]` removes the standard configuration directory
+(`$XDG_CONFIG_HOME/diffbutler`, default `~/.config/diffbutler`) and data directory
+(`$XDG_DATA_HOME/diffbutler`, default `~/.local/share/diffbutler`), including all
+contents. Print the target paths and request confirmation, defaulting to no;
+`--force` skips the prompt. Do not load configuration or initialize storage.
+Missing directories are harmless. Unlink symbolic links rather than deleting their
+targets; custom configuration/database/workspace paths outside these directories
+are out of scope. Report deletion failures with a nonzero exit status.
+
 Live dashboard startup with no configured forge performs local Git discovery before
 asking for missing forge/repository choices. Prefer `origin`, otherwise require
 unambiguous remotes. GitHub remotes are recognized automatically; unknown hosts require

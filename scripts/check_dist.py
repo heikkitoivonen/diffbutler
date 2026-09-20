@@ -86,6 +86,7 @@ def main() -> None:
             raise SystemExit("Installed offline history should be empty")
         for name in (
             "config",
+            "reset",
             "sync",
             "ls",
             "follow",
@@ -103,6 +104,16 @@ def main() -> None:
                 subprocess.run(
                     [str(command), name, flag], cwd=directory, check=True, capture_output=True
                 )
+        for args in entry_points:
+            subprocess.run(
+                [*args, "reset", "--force"],
+                cwd=directory,
+                env=doctor_env,
+                check=True,
+                capture_output=True,
+            )
+        if config_path.parent.exists() or (Path(directory) / "data" / "diffbutler").exists():
+            raise SystemExit("Installed reset command did not remove configuration and data")
         subprocess.run(
             [
                 str(python),

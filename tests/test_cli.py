@@ -28,7 +28,7 @@ def test_information_options(argument: str, capsys: pytest.CaptureFixture[str]) 
         assert "--version" in output
 
 
-@pytest.mark.parametrize("command", ["config", "doctor", "review", "dashboard", "ls"])
+@pytest.mark.parametrize("command", ["config", "reset", "doctor", "review", "dashboard", "ls"])
 def test_short_help_matches_long_help(command: str, capsys: pytest.CaptureFixture[str]) -> None:
     outputs: list[str] = []
     for flag in ("-h", "--help"):

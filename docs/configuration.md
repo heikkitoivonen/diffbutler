@@ -29,6 +29,15 @@ unsuccessful editor exit is reported as an error.
 
 ## First-run setup
 
+To start over, close running DiffButler sessions and run `diffbutler reset`.
+It prints and removes both `$XDG_CONFIG_HOME/diffbutler` (default
+`~/.config/diffbutler`) and `$XDG_DATA_HOME/diffbutler` (default
+`~/.local/share/diffbutler`), including configs, databases, history, and session
+files. Confirmation defaults to **No**; `diffbutler reset --force` skips it.
+Missing directories are harmless, and invalid configuration does not block reset.
+Custom paths outside these directories are preserved. Symbolic links are removed
+without deleting their targets.
+
 Starting the live dashboard (`diffbutler` in a terminal or `diffbutler dashboard`)
 with no configured forge runs setup before rendering. It inspects local Git metadata
 without fetching. A GitHub `origin` remote supplies the forge and `owner/repo`; without
