@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from typing import ClassVar
 
 import httpx
 
@@ -43,6 +44,8 @@ class ReadResponse:
 
 
 class GitHubHTTP:
+    DEFAULT_REQUEST_INTERVAL: ClassVar[float] = 1.0
+
     def __init__(
         self,
         base_url: str,
@@ -51,6 +54,7 @@ class GitHubHTTP:
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         now: Callable[[], float] = time.time,
+        request_interval: float | None = None,
     ) -> None:
         self.base_url = api_url(base_url)
         if token is not None and (
@@ -58,6 +62,11 @@ class GitHubHTTP:
         ):
             raise ForgeError("GitHub token is empty or contains whitespace")
         self.authenticated = token is not None
+        self.request_interval = (
+            self.DEFAULT_REQUEST_INTERVAL if request_interval is None else request_interval
+        )
+        if not math.isfinite(self.request_interval) or self.request_interval < 0:
+            raise ValueError("Request interval must be finite and nonnegative")
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             transport=transport,
@@ -72,10 +81,50 @@ class GitHubHTTP:
         )
         self.sleep = sleep
         self.now = now
+        self.last_request: float | None = None
+        self.last_resource_request: dict[str, float] = {}
         self.limits: dict[str, RateLimit] = {}
         self.cache: OrderedDict[str, ReadResponse] = OrderedDict()
         self.blocked_until = 0.0
         self.lock = asyncio.Lock()
+
+    async def paced_get(self, url: httpx.URL, headers: dict[str, str]) -> httpx.Response:
+        """Pace every wire request, including redirects and retry attempts."""
+        resource = "search" if url.path.endswith("/search/issues") else "core"
+        limit = self.limits.get(resource)
+        if limit and limit.remaining <= 0 and limit.reset_at.timestamp() > self.now():
+            raise ForgeError(
+                "GitHub rate limit is exhausted",
+                retry_after=limit.reset_at.timestamp() - self.now(),
+            )
+        if self.blocked_until > self.now():
+            raise ForgeError(
+                "GitHub rate limit cooldown is active",
+                retry_after=self.blocked_until - self.now(),
+            )
+        if self.request_interval:
+            current = self.now()
+            ready = current
+            if self.last_request is not None:
+                ready = max(ready, self.last_request + self.request_interval)
+            previous = self.last_resource_request.get(resource)
+            if previous is not None:
+                interval = self.request_interval
+                if resource == "search":
+                    interval = max(interval, 2.1 if self.authenticated else 6.1)
+                if limit and 0 < limit.remaining <= limit.limit * 0.2:
+                    interval = max(
+                        interval, (limit.reset_at.timestamp() - previous) / limit.remaining
+                    )
+                ready = max(ready, previous + interval)
+            if ready > current:
+                await self.sleep(ready - current)
+        started = self.now()
+        self.last_request = started
+        self.last_resource_request[resource] = started
+        response = await self.client.get(url, headers=headers)
+        self.record_limit(response.headers)
+        return response
 
     def checked_url(self, value: str | httpx.URL) -> httpx.URL:
         try:
@@ -135,22 +184,6 @@ class GitHubHTTP:
         if params:
             url = url.copy_merge_params(params)
         async with self.lock:
-            resource = "search" if url.path.endswith("/search/issues") else "core"
-            limit = self.limits.get(resource)
-            if (
-                limit is not None
-                and limit.remaining <= 0
-                and limit.reset_at.timestamp() > self.now()
-            ):
-                raise ForgeError(
-                    "GitHub rate limit is exhausted",
-                    retry_after=limit.reset_at.timestamp() - self.now(),
-                )
-            if self.blocked_until > self.now():
-                raise ForgeError(
-                    "GitHub rate limit cooldown is active",
-                    retry_after=self.blocked_until - self.now(),
-                )
             return await self.read(url)
 
     async def read(self, url: httpx.URL) -> ReadResponse:
@@ -165,14 +198,14 @@ class GitHubHTTP:
         redirects = 0
         for attempt in range(3):
             try:
-                response = await self.client.get(url, headers=headers)
+                response = await self.paced_get(url, headers)
                 while response.status_code in {301, 302, 303, 307, 308}:
                     redirects += 1
                     if redirects > 3 or "location" not in response.headers:
                         raise ForgeError("GitHub redirect limit exceeded or location missing")
                     url = self.checked_url(url.join(response.headers["location"]))
                     headers = {}
-                    response = await self.client.get(url)
+                    response = await self.paced_get(url, {})
             except httpx.RequestError:
                 if attempt < 2:
                     await self.sleep(2**attempt + random.random())
@@ -180,7 +213,6 @@ class GitHubHTTP:
                 raise ForgeError(
                     "GitHub request failed; check network, TLS, and API availability"
                 ) from None
-            self.record_limit(response.headers)
             delay = self.retry_delay(response)
             if delay is not None:
                 delay = max(delay, 1)

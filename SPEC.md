@@ -485,6 +485,10 @@ once means neither the reviewers nor the forge adapters need to.
   a 304 costs no rate limit. Honour `X-RateLimit-Remaining` and `Retry-After` with
   exponential backoff and jitter; surface remaining quota in the TUI status bar.
 - GitHub Enterprise: `base_url` config, nothing else changes.
+- Pace read requests asynchronously within each adapter, including retries and redirects:
+  at least one second between requests, with longer search spacing (6.1 seconds anonymous,
+  2.1 seconds authenticated). At 20% remaining quota or below, spread requests toward the
+  reported reset time. Cancellation must prevent a waiting request from being sent.
 
 ### 6.5 Adding a forge
 

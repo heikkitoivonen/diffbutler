@@ -512,6 +512,7 @@ class Dashboard(TerminalApp):
             return
         async with self.sync_lock:
             try:
+                self.status("Refreshing GitHub; requests are paced to respect rate limits.")
                 await poll_configured(self.path)
                 self.status("Forge refreshed")
             except ForgeError as exc:

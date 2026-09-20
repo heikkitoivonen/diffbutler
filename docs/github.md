@@ -140,7 +140,17 @@ The dashboard polls periodically; `sync` remains a single CLI refresh.
 
 ## Transport and remaining work
 
-Requests are serialized. ETag/Last-Modified validators and response representations are
+Requests are serialized within each adapter, with at least one second between request
+starts. Search requests are spaced by at least 6.1 seconds for anonymous access or
+2.1 seconds for authenticated access. Redirects and retry attempts use the same pacing.
+When a response reports 20% or less of its quota remaining, remaining requests are
+spread toward the reported reset time. These waits are asynchronous and cancellable;
+refreshes can take substantially longer when the anonymous quota is nearly exhausted.
+Pacing cannot restore an already-exhausted quota, and separate application processes
+do not share a pacer. GitHub's anonymous quota is 60 requests per hour per IP address,
+as described in its [rate-limit documentation](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+
+ETag/Last-Modified validators and response representations are
 cached in memory for the adapter lifetime (up to 256 URLs); a 304 reuses the matching
 body and pagination. HTTP cache persistence remains deferred. After restart, reads
 start unconditionally;

@@ -173,9 +173,12 @@ async def test_long_rate_limit_returns_cooldown_without_early_retry(
 @pytest.mark.asyncio
 async def test_short_retry_after_is_honored() -> None:
     delays: list[float] = []
+    current = 1000.0
 
     async def sleep(value: float) -> None:
+        nonlocal current
         delays.append(value)
+        current += value
 
     def handle(_: httpx.Request) -> httpx.Response:
         return (
@@ -189,6 +192,7 @@ async def test_short_retry_after_is_honored() -> None:
         "synthetic-token",
         transport=httpx.MockTransport(handle),
         sleep=sleep,
+        now=lambda: current,
     )
     try:
         await http.get("user")
