@@ -232,7 +232,6 @@ class Dashboard(TerminalApp):
     ]
     CSS = """
     #queue { height: 45%; }
-    #filter { height: 3; }
     #status { height: 2; }
     #preview-scroll { height: 1fr; }
     #preview { padding: 1 2; }
@@ -264,7 +263,9 @@ class Dashboard(TerminalApp):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("Local queue", id="status", markup=False)
-        yield Input(placeholder="Filter by repository, number, title or author", id="filter")
+        yield Input(
+            placeholder="Filter by repository, number, title or author", id="filter", compact=True
+        )
         yield DataTable[Text](cursor_type="row", id="queue")
         with VerticalScroll(id="preview-scroll"):
             yield Static("Select a PR", id="preview", markup=False)
