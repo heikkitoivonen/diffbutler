@@ -116,8 +116,9 @@ the account's sync generation and saves an event/time watermark. In-flight refre
 must retry; older feedback cannot repeatedly undo that choice. Nothing attempts to map
 similar comment text onto finding agreement or rejection.
 
-Polling runs serially at `general.poll_interval_s`, backs off on errors, and uses the
-adapter's rate-limit handling. The app remains responsive while reads and native reviews
+Polling runs serially at `general.poll_interval_s` (600 seconds / 10 minutes by default),
+backs off on errors, and uses the adapter's rate-limit handling. The app remains
+responsive while reads and native reviews
 run. Polling never replays writes or requests AI. Pausing AI dispatch also applies to
 configured CLI reviews; an already explicitly requested run may wait queued until resume.
 

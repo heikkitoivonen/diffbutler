@@ -4,7 +4,7 @@ forges = []
 reviewers = []
 
 [general]
-poll_interval_s = 180
+poll_interval_s = 600
 max_concurrent_reviews = 2
 # Omit workspace_root to follow $XDG_DATA_HOME/diffbutler/reviews
 # (default ~/.local/share/diffbutler/reviews).

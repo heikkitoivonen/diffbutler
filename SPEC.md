@@ -1374,7 +1374,7 @@ values. Network and rate-limit failures abort rather than imply private visibili
 
 ```toml
 [general]
-poll_interval_s = 180
+poll_interval_s = 600
 max_concurrent_reviews = 2
 # AI runs start only from an explicit user action; no automatic-review settings.
 # Posting occurs only on explicit instruction in the interactive agent session.

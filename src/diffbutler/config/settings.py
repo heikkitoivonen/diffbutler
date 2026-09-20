@@ -23,7 +23,7 @@ class Section(BaseModel):
 
 class General(Section):
     workspace_root: Path = Field(default_factory=lambda: data_path() / "reviews")
-    poll_interval_s: int = Field(default=180, gt=0)
+    poll_interval_s: int = Field(default=600, gt=0)
     max_concurrent_reviews: int = Field(default=2, gt=0)
 
 

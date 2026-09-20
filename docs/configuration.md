@@ -82,7 +82,7 @@ resolution while retaining local configuration, database, and path checks.
 
 ```toml
 [general]
-poll_interval_s = 180
+poll_interval_s = 600
 max_concurrent_reviews = 2
 
 [db]
