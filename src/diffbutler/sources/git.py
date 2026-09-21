@@ -6,8 +6,8 @@ import os
 import re
 import shutil
 import signal
+import sys
 from collections.abc import Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -17,6 +17,22 @@ from diffbutler.domain.review import ChangedFile, Side, SourceFile
 
 class SourceError(Exception):
     """Safe source diagnostic; never include Git stderr or local credentials."""
+
+
+async def _terminate_group(pid: int) -> None:
+    # Darwin returns EPERM for a group containing only unreaped zombies. Give
+    # the child watcher time to reap, then require successful signalling or ESRCH.
+    # Never interpret persistent EPERM as proof that the group has exited.
+    for attempt in range(100):
+        try:
+            os.killpg(pid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            if sys.platform != "darwin" or attempt == 99:
+                raise
+            await asyncio.sleep(0.01)
 
 
 @dataclass(frozen=True)
@@ -261,8 +277,7 @@ class GitSourceReader:
             raise SourceError("Git source retrieval timed out") from None
         finally:
             # Terminate the owned group even if a child retained the output pipes.
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
+            await _terminate_group(process.pid)
             stdout.cancel()
             stderr.cancel()
             await asyncio.gather(stdout, stderr, return_exceptions=True)

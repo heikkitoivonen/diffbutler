@@ -34,10 +34,10 @@ The offline PTY tests also cover repeated conversation resume, selection retenti
 background output isolation, resize, interruptions, crashes, and launch failures.
 Their terminal-mode check runs before the session leader exits because macOS
 revokes the slave terminal at that point.
-All ten PTY cases passed in isolated runs, but full-suite runs still showed
-intermittent dashboard shutdown timeouts. Full validation also found two Git
-source byte-limit tests failing with `PermissionError` during process-group
-cleanup. These failures remain unresolved; macOS validation is not fully green.
+The PTY harness rechecks completion when process exit races its wait condition.
+Git cleanup retries macOS's transient permission error while exited processes
+are being reaped; persistent permission errors still fail cleanup. These regression
+checks run as part of `make check` on Linux and macOS.
 
 Managed launches now read the macOS platform UUID and boot-session UUID before
 source preparation and again before launch. Offline native acceptance runs on

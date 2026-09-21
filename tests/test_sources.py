@@ -3,14 +3,48 @@
 import asyncio
 import os
 import shutil
+import signal
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from diffbutler.domain.review import Side, SourceFile
 from diffbutler.reviewers.base import SourceReader
 from diffbutler.sources.git import GitSourceReader, SourceError, SourceLimits
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["gone", "signalled", "denied"])
+async def test_macos_group_cleanup_retries_zombie_race_but_not_permanent_denial(
+    monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    from diffbutler.sources.git import _terminate_group  # pyright: ignore[reportPrivateUsage]
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    calls = 0
+
+    def killpg(pid: int, sig: int) -> None:
+        nonlocal calls
+        assert pid == 12345 and sig == signal.SIGKILL
+        calls += 1
+        if calls == 1 or outcome == "denied":
+            raise PermissionError("synthetic permission failure")
+        if outcome == "gone":
+            raise ProcessLookupError
+
+    async def yield_to_reaper(delay: float) -> None:
+        pass
+
+    monkeypatch.setattr(os, "killpg", killpg)
+    monkeypatch.setattr(asyncio, "sleep", yield_to_reaper)
+    if outcome == "denied":
+        with pytest.raises(PermissionError):
+            await _terminate_group(12345)
+    else:
+        await _terminate_group(12345)
+    assert calls > 1
 
 
 async def git(repository: Path, *args: str) -> bytes:
@@ -169,7 +203,18 @@ async def test_byte_limits_reject_instead_of_truncating(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
-async def test_timeout_and_cancellation_reap_process(tmp_path: Path, cancel: bool) -> None:
+async def test_timeout_and_cancellation_reap_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancel: bool
+) -> None:
+    created: list[asyncio.subprocess.Process] = []
+    spawn = asyncio.create_subprocess_exec
+
+    async def track_spawn(*argv: str, **kwargs: Any) -> asyncio.subprocess.Process:
+        process = await spawn(*argv, **kwargs)
+        created.append(process)
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", track_spawn)
     pid_file = tmp_path / "pid"
     executable = tmp_path / "fake-git"
     executable.write_text(
@@ -192,7 +237,10 @@ async def test_timeout_and_cancellation_reap_process(tmp_path: Path, cancel: boo
     else:
         with pytest.raises(SourceError, match="timed out"):
             await task
-    pid = int(pid_file.read_text())
+    # A short timeout may kill Python before it writes its marker. Check the
+    # actual spawned PID in either case, without assuming interpreter startup speed.
+    assert len(created) == 1 and created[0].returncode is not None
+    pid = created[0].pid
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
 

@@ -15,6 +15,7 @@ import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -98,6 +99,10 @@ class Terminal:
                 return
             if self.process.poll() is not None:
                 break
+        # Exit can occur between the predicate and poll checks. Recheck the
+        # requested condition before reporting failure (especially when quitting).
+        if predicate():
+            return
         raise AssertionError(f"Terminal condition timed out. Output: {self.output[-6000:]!r}")
 
     def records(self, event: str) -> list[dict[str, Any]]:
@@ -142,6 +147,31 @@ def terminal(tmp_path: Path) -> Iterator[Terminal]:
         yield terminal
     finally:
         terminal.close()
+
+
+def test_wait_accepts_exit_between_condition_and_liveness_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    terminal = Terminal.__new__(Terminal)
+    process = Mock(spec=subprocess.Popen)
+    process.poll.side_effect = [None, 0, 0]
+    terminal.process = process
+    terminal.output = bytearray()
+    monkeypatch.setattr(terminal, "drain", lambda: None)
+    terminal.wait(lambda: process.poll() is not None)
+
+
+def test_wait_still_rejects_unmet_condition_when_process_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    terminal = Terminal.__new__(Terminal)
+    process = Mock(spec=subprocess.Popen)
+    process.poll.return_value = 0
+    terminal.process = process
+    terminal.output = bytearray()
+    monkeypatch.setattr(terminal, "drain", lambda: None)
+    with pytest.raises(AssertionError, match="Terminal condition timed out"):
+        terminal.wait(lambda: False)
 
 
 def attach(terminal: Terminal, resume: int = 1) -> None:
