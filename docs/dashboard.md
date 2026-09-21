@@ -79,7 +79,8 @@ Forge and model text is displayed literally, with terminal control characters re
 
 `o` records `opened_at` and pending human review before browser dispatch, then advances
 the cursor. A browser failure retains that choice and shows a copyable URL. SSH or a
-missing graphical browser environment uses the same URL/clipboard fallback. The optional
+missing graphical browser environment uses the same URL/clipboard fallback. Local macOS
+sessions use the default browser without requiring Linux display variables. The optional
 `ui.browser_command` is an **argv list**; the URL is appended as one argument, with no
 shell interpolation. History browser actions only open URLs and never change task state.
 
