@@ -2,13 +2,11 @@
 
 ## Start here
 
-- Read `CONTRIBUTING.md` before changing this repository and the relevant sections
-  of `SPEC.md` before changing workflow or architecture.
-- `SPEC.md` describes the target design. Check the code and README for what is
-  implemented; do not describe planned functionality as shipped.
+- Read `CONTRIBUTING.md` before changing this repository.
+- Check the code, README, and relevant guides in `docs/` for implemented behavior.
+  Keep development focused on requested improvements rather than a future roadmap.
 - Keep changes focused on the requested task. Add runtime dependencies only when
-  used, with `uv add`; update both `pyproject.toml` and `uv.lock` and review licenses
-  using `docs/dependencies.md`.
+  used, with `uv add`; update both `pyproject.toml` and `uv.lock` and review licenses.
 
 ## Architecture
 
@@ -35,7 +33,7 @@
   while a foreground agent owns it.
 - Preserve terminal restoration on exit, crash, and launch failure. Background
   jobs must not write to a terminal owned by an interactive session.
-- Source-only restrictions in the spec apply to DiffButler's review processes.
+- Source-only review restrictions apply to DiffButler's review processes.
   Agents developing DiffButler should run its tests and development checks.
 
 ## Validation

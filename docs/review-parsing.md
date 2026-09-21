@@ -1,4 +1,4 @@
-# Captured review output parsing (M2)
+# Captured review output parsing
 
 `reviewers.parsing.parse_review` is an internal, offline parser for already-extracted
 assistant text in a `ReviewOutput`. With an explicit `output_format`, it first

@@ -1,4 +1,4 @@
-# Review scheduling foundations (M2)
+# Review scheduling foundations
 
 The internal `core.review.ReviewService` supports explicit review requests, durable
 worker claims, cancellation, result finalization, and failed-worker release through the `ReviewStore`
@@ -108,14 +108,14 @@ low-confidence/nit/question finding. Zero-based `selected_indices` record the su
 that met both thresholds, alongside the applied thresholds and normalization notes.
 Finalization accepts the pinned context DiffIndex and retains [anchor outcomes](diff-anchors.md)
 for every finding, including demoted file notes. Missing indexes remain explicitly
-unvalidated. Per-finding disposition records remain future work.
+unvalidated. Per-finding disposition records are not implemented.
 
 Migration `0005` adds `review_result`, with one immutable-by-API result per run.
 Raw stdout/stderr and exit code occupy the existing `ai_run` fields. `get_result`
 returns a frozen DTO with the normalized document and raw bytes; JSON serialization
 uses base64 for bytes. A known run without a finalized result returns `None`.
 Analysis survives automatic cleanup of raw output, represented by null byte fields. Storage currently keeps bounded
-output inline; file spillover remains future work.
+output inline; file spillover is not implemented.
 
 Oversized captured output is rejected before persistence without releasing the claim;
 the native executor caps capture and handle its overflow failure before finalizing

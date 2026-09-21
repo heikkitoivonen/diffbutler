@@ -1,4 +1,4 @@
-# Dashboard, reconciliation, and history (M3)
+# Dashboard, reconciliation, and history
 
 Run `diffbutler dashboard` (or `diffbutler` in an interactive terminal). The dashboard
 uses the same async core as the CLI. `--config FILE` selects configuration;
@@ -145,7 +145,7 @@ repository, number, reason and date filters are available. Dates without a timez
 Cleanup deletes owned native conversations, snapshots and raw output, while these retained
 records remain. `D` explicitly rereads pinned objects from the user's configured repository;
 it does not recreate a session or fetch missing Git objects. Raw logs are unavailable after
-cleanup. No history pruning is performed. Older pre-M3 completed cycles have their retained
+cleanup. No history pruning is performed. Cycles completed before migration `0009` have their retained
 SHA/completion records but may use the latest known PR title/URL when no cycle snapshot exists.
 
 Migration `0009` adds cycle snapshots, refresh status, forge receipts and UI preferences.
@@ -164,12 +164,11 @@ reads retained history. The production dashboard also passes repeated same-termi
 in a controlling PTY, with terminal modes restored. These are synthetic acceptance tests;
 no live managed Codex review or GitHub write was performed.
 
-The M3 native discussion/posting loop is implemented. Claude/macOS native integration,
+The native discussion/posting loop is implemented. Claude/macOS native integration,
 live-provider acceptance, same-boot orphan supervision, automatic fetching, and large-diff
 splitting remain outside this supported scope. Optional structured finding dispositions
 and dashboard posting, snooze/dismiss conveniences, finding deep links, and CI hydration
-remain future work. The spec's full UI catalogue contains those targets as well as shipped
-features; this guide lists the implemented actions.
+are not implemented; this guide lists the supported actions.
 
 The title bar shows the monitoring scope. Press `a` to switch between your review
 requests and all open PRs in every configured forge's `repositories` list. Each forge

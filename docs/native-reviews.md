@@ -1,4 +1,4 @@
-# Native CLI reviews (M2–M3)
+# Native CLI reviews
 
 The managed review presets target **Codex CLI 0.155.1 and Claude Code 2.1.278 on Linux**. DiffButler
 selects native read-only controls for background analysis; it does not create an additional OS
@@ -75,7 +75,7 @@ Both `approved` and `cleanup` report counts of succeeded, pending, running, and
 failed cleanup jobs across all local history. Failed jobs produce exit status 1;
 completion remains recorded even if deletion fails. Pending/running counts do not
 claim deletion succeeded. Retries respect the stored backoff.
-The [M3 dashboard](dashboard.md) adds periodic polling, native return reconciliation,
+The [dashboard](dashboard.md) adds periodic polling, native return reconciliation,
 state overrides and offline history.
 
 `general.workspace_root` optionally selects the private managed root (default:

@@ -105,8 +105,7 @@ checkout = "mediated"
 
 These settings configure manual sync, dashboard polling, and explicit native reviews. `enabled` is
 repository AI opt-in metadata, not a trigger to start anything.
-The full planned example in [SPEC.md §11](../SPEC.md#11-configuration) also parses;
-M0 supports configuration for CLI reviewers only. Reviewer IDs must be unique and
+Configuration supports CLI reviewers only. Reviewer IDs must be unique and
 `default_reviewer` must name a configured reviewer. Repo `default_reviewer`, `checkout`,
 and `prompt` override the global review section when that repository is selected.
 Repository and prompt paths expand `~`; relative paths resolve beside the config file.
@@ -126,7 +125,7 @@ no files and performs no forge, subprocess, or model operations.
 
 ## Database initialization
 
-M0 supports persistent local SQLite files through `sqlite+aiosqlite`. PostgreSQL/MySQL
+DiffButler supports persistent local SQLite files through `sqlite+aiosqlite`. PostgreSQL/MySQL
 drivers, remote URLs, SQLite URI query options, and in-memory databases are not supported
 yet. Connections enable foreign keys, WAL journaling, and a five-second busy timeout.
 

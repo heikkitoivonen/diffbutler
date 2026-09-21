@@ -5,7 +5,7 @@ description = "A terminal dashboard for human-directed AI code reviews."
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE.txt"]
 keywords = ["code-review", "github", "terminal", "ai"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",

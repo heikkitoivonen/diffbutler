@@ -1,4 +1,4 @@
-# GitHub discovery and persistent queues (M1)
+# GitHub discovery and persistent queues
 
 The async `ReadForge` adapter provides identity checks, direct/team discovery, PR
 lookup, search, and request/review activity. Shared core services persist the queue
@@ -27,8 +27,8 @@ resolution. Neither mode launches an AI reviewer or posts anything.
 When `token_env` is set, auth reads the configured environment variable first, then calls
 `gh auth token --hostname HOST` with captured output and a ten-second timeout. The host
 is `github.com` for GitHub.com, or the configured API hostname for Enterprise. Doctor
-never prompts or saves tokens. The spec's keyring/prompt fallback is deferred; use the
-environment or an existing `gh` login. First-run setup asks for an environment variable
+never prompts or saves tokens. Use the environment or an existing `gh` login.
+First-run setup asks for an environment variable
 name and validates that variable directly; it never asks for a token value. Tokens and raw HTTP/auth error bodies never enter
 diagnostics or persistence.
 
@@ -128,7 +128,7 @@ and after its latest observed request. A later changes-requested or dismissed re
 prevents an older approval from completing it. Ambiguous ordering (a request and
 approval in the same timestamp) conservatively leaves attention pending. Incomplete
 activity, including uncertain team visibility, defers activity-based transitions;
-head changes and observed closure/merge still apply. The [M3 dashboard](dashboard.md)
+head changes and observed closure/merge still apply. The [dashboard](dashboard.md)
 also reconciles submitted feedback, inline comments and discussion comments, retaining
 receipts and respecting later local manual/waiting choices.
 
@@ -165,11 +165,10 @@ GitHub's [rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-ap
 Doctor reports core quota; search quota becomes available after a search request.
 
 Remote diffs/source retrieval, dashboard publishing, forge-plugin registration, and
-GitLab remain future work. Pinned local Git source reads and human-instructed native
+GitLab are not implemented. Pinned local Git source reads and human-instructed native
 agent posting are implemented in the managed workflow. This read adapter does not establish
 background-agent isolation. Claude has offline managed handoff coverage; live Claude
-and macOS handoff validation remain outstanding. See [native reviews](native-reviews.md)
-and [terminal handoff](terminal-handoff.md).
+and macOS handoff validation remain outstanding. See [native reviews](native-reviews.md).
 
 Startup prints the current validation step. GitHub setup checks have a 30-second
 limit per phase; quota pacing waits longer than five seconds return a retry delay

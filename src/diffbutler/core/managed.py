@@ -1,4 +1,4 @@
-"""Configured M2 workflow shared by CLI and future dashboard."""
+"""Configured review workflow shared by CLI and dashboard."""
 
 import asyncio
 import hashlib

@@ -45,7 +45,7 @@ def sqlite_url(value: str) -> URL:
         raise DatabaseError("db.url: invalid SQLAlchemy URL") from None
     if url.drivername != "sqlite+aiosqlite":
         raise DatabaseError(
-            "db.url: M0 supports sqlite+aiosqlite only; PostgreSQL/MySQL are deferred"
+            "db.url: Only sqlite+aiosqlite is supported; PostgreSQL/MySQL are not implemented"
         )
     if url.username or url.password or url.host or url.port or url.query:
         raise DatabaseError(

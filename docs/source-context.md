@@ -1,4 +1,4 @@
-# Local source context (M2 foundation)
+# Local source context
 
 `sources.git.GitSourceReader` implements the reviewer `SourceReader` protocol for
 dashboard-mediated reads from a configured, trusted local Git repository. It is
@@ -21,7 +21,7 @@ Renames remain deletion/addition pairs. Diff generation forces text and disables
 external drivers and textconv, so working-tree attributes cannot hide changes as
 binary. Diffs containing NUL bytes or invalid UTF-8 fail preparation; they are not
 silently omitted, decoded lossily, or truncated. Binary-aware diff context and
-merge-base comparison remain future work.
+merge-base comparison are not implemented.
 
 `core.context.assemble_context` consumes the `ReviewSources` protocol and builds an
 immutable `ReviewContext` for a running attempt and an open PR. Both source and PR
@@ -51,7 +51,7 @@ The local Git executable and repository administration (including `.git` configu
 and object storage) are trusted. This is source preparation, not an OS sandbox. The [native reviewer](native-reviews.md)
 uses the installed agent CLI's read-only profile and owned pinned snapshots of these
 blobs. DiffButler does not provision an additional sandbox. Remote retrieval and
-worktrees remain future work; owned snapshots, manifests, leases, and cleanup are
+worktrees are not implemented; owned snapshots, manifests, leases, and cleanup are
 implemented in the managed path.
 
 Offline tests use disposable Git repositories and synthetic executables. They cover
@@ -102,7 +102,7 @@ Every dynamic string, including trusted instructions, is redacted before JSON es
 so multiline credential patterns remain recognizable. Host paths, callbacks, PR URLs,
 and backend identities are not serialized. A serialized byte limit rejects oversized
 prompts without truncation. No template engine, transmission, or reviewer is invoked.
-Repository descriptions/conventions and configurable templates remain future work.
+Repository descriptions/conventions and configurable templates are not implemented.
 
 Framing does not enforce model behavior, and heuristic masking does not guarantee
 secret-free output. A future mediated source transport must apply the same pre-escape

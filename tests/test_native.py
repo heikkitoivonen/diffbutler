@@ -31,7 +31,7 @@ from diffbutler.store.queue import SQLiteQueueStore
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
-        sys.platform != "linux", reason="Native M2 requires Linux host/boot identity"
+        sys.platform != "linux", reason="Native reviews require Linux host/boot identity"
     ),
 ]
 FAKE = Path(__file__).parent / "fixtures" / "fake_codex.py"

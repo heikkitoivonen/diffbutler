@@ -135,7 +135,7 @@ async def run_doctor(
             name = f"forge:{index}:{configured.kind}"
             forge: ReadForge | None = None
             if configured.kind != "github":
-                checks.append(Check(name, "SKIP", "GitLab adapter deferred to M5"))
+                checks.append(Check(name, "SKIP", "GitLab adapter is not implemented"))
                 continue
             try:
                 forge = await forge_factory(configured)
@@ -192,7 +192,7 @@ async def run_doctor(
         Check(
             "reviewers",
             "SKIP",
-            "Execution, parsing, resume, and cleanup checks deferred to M2; no agent launched"
+            "Reviewer execution, parsing, resume, and cleanup are not checked; no agent launched"
             if settings.reviewers
             else "No reviewer configured",
         )

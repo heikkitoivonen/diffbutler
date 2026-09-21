@@ -10,7 +10,7 @@ worker claim prevents acquisition. A foreground lease blocks another attachment,
 background requests/claims, and suspension for that task. Revision and task-version
 baselines are saved with the exact backend ID; a push cannot replace the conversation
 under its owner. Acquisition does not create an AI run or authorize publication.
-The monitor separately retains the last complete forge-activity baseline; M3 marks
+The monitor separately retains the last complete forge-activity baseline; the dashboard marks
 refresh pending on entry and reconciles actual reviews/comments on verified return.
 
 Migration `0007` retains foreground leases and cleanup claims. They never expire

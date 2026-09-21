@@ -1,4 +1,4 @@
-"""M3 offline acceptance: published evidence, overrides, history and dashboard actions."""
+"""Offline acceptance: published evidence, overrides, history and dashboard actions."""
 
 import asyncio
 import sys

@@ -1,7 +1,8 @@
 # Contributing to DiffButler
 
-DiffButler is in early development. Read [SPEC.md](SPEC.md) before making changes to
-the workflow or architecture. Discuss larger changes in an issue before implementing them.
+DiffButler is in early development. Read the [README](README.md) and relevant guides in
+[docs/](docs/) before changing the workflow or architecture. Discuss larger changes
+in an issue before implementing them.
 
 ## Set up and verify
 
@@ -34,7 +35,8 @@ forge credentials, real GitHub requests, or paid model calls.
   Routine resolution excludes releases newer than 15 days; urgent security updates
   can be selected explicitly with uv's `--exclude-newer` override after review.
 - Do not commit credentials, private PR content, local databases, or session transcripts.
-- Update the README/spec when behavior changes. Describe what is implemented accurately.
+- Update the README and relevant guides when behavior changes. Describe what is
+  implemented accurately.
 
 ## Pull requests
 
@@ -43,12 +45,12 @@ screenshots for terminal layout changes where useful, and list any untested limi
 Small fixes need no special issue or commit-message format. AI-assisted contributions
 are welcome; you are responsible for understanding and checking the submitted work.
 
-Contributions are made under the project's [MIT license](LICENSE). Retain upstream
-notices when incorporating third-party material; see [dependency policy](docs/dependencies.md).
+Contributions are made under the project's [MIT license](LICENSE.txt). Retain upstream
+notices when incorporating third-party material.
 
 ## Releases
 
 Versions live in `pyproject.toml`; runtime version output reads installed package metadata.
-Update the version, run `make lock`, update the changelog, and run `make check`,
+Update the version, run `make lock`, and run `make check`,
 `make smoke`, and `make audit` before a release. Publishing is intentionally manual
 until package ownership and a release process are established; CI never publishes.

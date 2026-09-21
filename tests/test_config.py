@@ -90,12 +90,14 @@ def test_invalid_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "secret-invalid-json" not in str(error.value)
 
 
-def test_spec_example_parses(tmp_path: Path) -> None:
-    spec = (Path(__file__).parents[1] / "SPEC.md").read_text()
-    example = spec.split("### 11.2 Example")[1].split("```toml\n")[1].split("```")[0]
+def test_documented_config_example_parses(tmp_path: Path) -> None:
+    guide = (Path(__file__).parents[1] / "docs" / "configuration.md").read_text()
+    example = guide.split("```toml\n")[1].split("```")[0]
     path = tmp_path / "example.toml"
     path.write_text(example)
-    assert load_settings(path, repo="acme/api").review.default_reviewer == "codex"
+    settings = load_settings(path, repo="acme/api")
+    assert settings.review.checkout == "mediated"
+    assert settings.repos["acme/api"].enabled is False
 
 
 def test_dashboard_columns_and_single_key_binding(tmp_path: Path) -> None:

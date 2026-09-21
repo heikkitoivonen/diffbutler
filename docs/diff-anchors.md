@@ -1,4 +1,4 @@
-# Diff anchors (M2)
+# Diff anchors
 
 `forges.base.DiffIndex` exposes a pure domain implementation shared by adapters and
 context assembly. It indexes the original pinned unified Git diff before redaction,
