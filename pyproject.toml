@@ -8,7 +8,7 @@ license = "MIT"
 license-files = ["LICENSE.txt"]
 keywords = ["code-review", "github", "terminal", "ai"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3 :: Only",

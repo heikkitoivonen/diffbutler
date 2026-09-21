@@ -3,7 +3,7 @@ description: Report a reproducible problem.
 body:
   - type: markdown
     attributes:
-      value: "For vulnerabilities, follow SECURITY.md. Remove tokens and private source from examples."
+      value: "Remove tokens and private source from examples."
   - type: textarea
     id: reproduction
     attributes:

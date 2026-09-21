@@ -81,8 +81,7 @@ to skip confirmation. Run `diffbutler` again to repeat first-run setup.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks, and
-[SECURITY.md](SECURITY.md) for security information.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks.
 
 ## License
 
