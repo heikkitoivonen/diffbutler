@@ -48,7 +48,9 @@ from diffbutler.core.managed import (
 )
 from diffbutler.core.native import foreground_environment
 from diffbutler.domain.dashboard import CycleRecord
+from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
+from diffbutler.reviewers.process import HostBootError
 from diffbutler.sources.git import SourceError
 from diffbutler.ui.tui.app import TerminalApp
 from diffbutler.ui.tui.browse import BrowseScreen
@@ -508,7 +510,7 @@ class Dashboard(TerminalApp):
     async def guarded(self, operation: Awaitable[None]) -> None:
         try:
             await operation
-        except (ForgeError, ConfigError, SourceError) as exc:
+        except (ForgeError, ConfigError, SourceError, ReviewConflict, HostBootError) as exc:
             logging.getLogger(__name__).exception("Dashboard operation failed")
             self.status(f"Operation failed: {exc}")
         except Exception as exc:

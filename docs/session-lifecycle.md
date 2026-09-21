@@ -88,6 +88,11 @@ It never signals a saved PID, creates a review, or infers descendant death from 
 a missing launcher, or age. Same-boot crashes and older claims without launch metadata
 remain held pending supervisor/operator verification. Linux host/boot reads require
 a unique machine-id and a local, nonshared database; moved databases do not prove exit.
+On macOS, the corresponding identities are `IOPlatformUUID` from `ioreg` and
+[`kern.bootsessionuuid`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sysctl.c)
+from `sysctl`. Missing, ambiguous, invalid, or zero identities
+fail closed before launching the reviewer. Neither timestamps nor boot volume IDs
+are used to infer a reboot.
 The Linux [boot identifier](https://www.kernel.org/doc/html/v6.13/admin-guide/sysctl/kernel.html#random)
 is stable during a boot. Unsupported identity reads fail closed. This mechanism is
 independent of native agent sandboxing and does not validate kernel confinement.

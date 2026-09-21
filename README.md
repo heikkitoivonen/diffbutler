@@ -22,7 +22,7 @@ activation is needed. If `diffbutler` is not on your PATH, run `uv tool update-s
 and restart your shell.
 
 Install and sign in to Codex CLI or Claude Code before requesting AI reviews.
-The native presets target Linux with Codex CLI 0.155.1 or Claude Code 2.1.278;
+The native presets target Codex CLI 0.155.1 or Claude Code 2.1.278 on Linux and macOS;
 see [supported agents and validation](docs/native-reviews.md) for details.
 
 ## Use

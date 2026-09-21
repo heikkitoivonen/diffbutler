@@ -31,10 +31,49 @@ from diffbutler.store.queue import SQLiteQueueStore
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
-        sys.platform != "linux", reason="Native reviews require Linux host/boot identity"
+        sys.platform not in {"linux", "darwin"}, reason="Native reviews require host/boot identity"
     ),
 ]
 FAKE = Path(__file__).parent / "fixtures" / "fake_codex.py"
+
+
+async def test_host_failure_leaves_pending_task_without_session_and_allows_explicit_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from diffbutler.domain.review import ReviewConflict
+    from diffbutler.reviewers.process import HostBootError
+
+    settings, forge = await prepared(tmp_path)
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+
+        async def unavailable() -> None:
+            raise HostBootError("Cannot verify host identity")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(managed.recovery.host, "current", unavailable)
+            with pytest.raises(HostBootError):
+                await managed.review(row)
+        assert row.tracked.task_id is not None
+        run = await managed.store.latest_run(row.tracked.task_id)
+        assert run is not None and run.status == "failed"
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AI_REVIEW"
+        assert not await managed.leases.held_operations()
+        assert not await managed.store.session_resources(run.session_id)
+        with pytest.raises(ReviewConflict, match="No agent conversation was created"):
+            await managed.prepare_handoff(row)
+        # Reading/reloading never starts a replacement. Only this explicit retry does.
+        retry = await managed.review(row)
+        assert retry.status == "succeeded" and retry.attempt == run.attempt + 1
+        launch = await managed.prepare_handoff(row)
+        await managed.lifecycle.release_foreground(launch.token)
+    finally:
+        await database.close()
 
 
 @pytest.fixture(autouse=True)
@@ -256,13 +295,18 @@ async def test_public_cli_review_retry_findings_approval_and_cleanup(
     assert first["id"] != second["id"] and first["session_id"] == second["session_id"]
     # Public session command in a controlling PTY, after separate CLI process restarts.
     import pty
-    import termios
 
     master, slave = pty.openpty()
-    modes = termios.tcgetattr(slave)
     launcher = (
-        "import os,sys,fcntl,termios; os.setsid(); "
-        "fcntl.ioctl(0,termios.TIOCSCTTY,0); os.execv(sys.argv[1],sys.argv[1:])"
+        "import os,sys,fcntl,termios,runpy\n"
+        "os.setsid()\n"
+        "fcntl.ioctl(0,termios.TIOCSCTTY,0)\n"
+        "modes=termios.tcgetattr(0)\n"
+        "sys.argv=sys.argv[3:]\n"
+        "try:\n"
+        "    runpy.run_module('diffbutler', run_name='__main__', alter_sys=True)\n"
+        "finally:\n"
+        "    assert termios.tcgetattr(0)==modes, 'Terminal modes were not restored'\n"
     )
     try:
         process = await asyncio.create_subprocess_exec(
@@ -284,7 +328,6 @@ async def test_public_cli_review_retry_findings_approval_and_cleanup(
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
             assert process.returncode == 0, stderr.decode()
             assert b"remembered orientation" in stdout
-            assert termios.tcgetattr(slave) == modes
         finally:
             if process.returncode is None:
                 process.kill()

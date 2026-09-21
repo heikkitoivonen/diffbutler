@@ -33,7 +33,7 @@ from diffbutler.domain.review import (
 )
 from diffbutler.reviewers.base import ReviewBudget, ReviewContext
 from diffbutler.reviewers.native import native_preset
-from diffbutler.reviewers.process import LinuxHostBoot
+from diffbutler.reviewers.process import LocalHostBoot
 from diffbutler.reviewers.prompt import PROMPT_VERSION
 from diffbutler.reviewers.resources import OwnedDirectories, settled_io
 from diffbutler.sources.fetch import fetch_repository
@@ -82,7 +82,7 @@ class ManagedReviews:
         self.store = SQLiteReviewStore(database)
         self.leases = SQLiteLifecycleStore(database)
         self.processes = SQLiteProcessStore(database)
-        self.recovery = ProcessRecovery(self.processes, self.store, self.leases, LinuxHostBoot())
+        self.recovery = ProcessRecovery(self.processes, self.store, self.leases, LocalHostBoot())
         self.reviews = ReviewService(
             self.store,
             ReviewPolicy(
@@ -152,6 +152,8 @@ class ManagedReviews:
 
         async def before_prepare(claim: RunClaim) -> None:
             nonlocal repository_path, sources
+            # Fail before fetching or snapshotting if safe launch tracking is unavailable.
+            await self.recovery.host.current()
             report("Preparing repository…")
             if repository_path is not None:
                 try:

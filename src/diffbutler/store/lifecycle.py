@@ -101,7 +101,9 @@ class SQLiteLifecycleStore:
             ):
                 raise ReviewConflict("Session task is no longer current and open")
             if not session.backend_session_id:
-                raise ReviewConflict("Session has no resumable backend identity")
+                raise ReviewConflict(
+                    "No agent conversation was created. Request another review before resuming."
+                )
             if await _background_owned(db, task.id):
                 raise ReviewConflict("Background work still owns this task")
             if await db.scalar(select(LeaseModel.token).where(LeaseModel.session_id == session.id)):

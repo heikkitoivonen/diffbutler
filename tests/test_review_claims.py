@@ -66,7 +66,7 @@ async def test_concurrent_start_claim_and_deliberate_retry(database: Database) -
     failed = await first.release_review(claim.token)
     assert failed.status == RunStatus.FAILED
     queue = await SQLiteQueueStore(database).snapshot(ACCOUNT)
-    assert queue.items[0].state == "PENDING_HUMAN_REVIEW"
+    assert queue.items[0].state == "PENDING_AI_REVIEW"
     retry = await first.request_review(identity)
     assert retry.attempt == 2 and retry.session_id == runs[0].session_id
     assert retry.analysis_key == runs[0].analysis_key

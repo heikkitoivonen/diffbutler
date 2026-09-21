@@ -39,6 +39,7 @@ from diffbutler.domain.lifecycle import CleanupStatus
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
 from diffbutler.reviewers.native import NativeError
+from diffbutler.reviewers.process import HostBootError
 from diffbutler.sources.git import SourceError
 from diffbutler.store.database import DatabaseError
 from diffbutler.ui.cli.editor import edit_file
@@ -64,6 +65,7 @@ def run[T](operation: Coroutine[Any, Any, T]) -> T:
         ForgeError,
         ReviewConflict,
         NativeError,
+        HostBootError,
         SourceError,
     ) as exc:
         logging.getLogger(__name__).exception("CLI operation failed")

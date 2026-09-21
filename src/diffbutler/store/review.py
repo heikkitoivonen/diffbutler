@@ -418,7 +418,7 @@ class SQLiteReviewStore:
                 task = await db.get(ReviewTask, run.review_task_id)
                 assert task is not None
                 if task.completed_at is None and task.state == "AI_RUNNING":
-                    await transition(db, task, "PENDING_HUMAN_REVIEW")
+                    await transition(db, task, "PENDING_AI_REVIEW")
             await db.delete(claim)
             result = record(run)
             await db.commit()
@@ -501,6 +501,8 @@ class SQLiteReviewStore:
                 if current:
                     run.status = "succeeded" if result.document_json is not None else "failed"
                     state = "FINDINGS_TRIAGE" if result.selected_indices else "PENDING_HUMAN_REVIEW"
+                    if run.status == "failed":
+                        state = "PENDING_AI_REVIEW"
                     await transition(db, task, state)
                 else:
                     run.status = "cancelled" if task.completed_at is not None else "stale"

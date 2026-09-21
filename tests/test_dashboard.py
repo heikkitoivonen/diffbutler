@@ -363,7 +363,7 @@ def test_all_columns_sort_stably_and_missing_findings_stay_last() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(
-    sys.platform != "linux", reason="Native cleanup requires Linux host/boot identity"
+    sys.platform not in {"linux", "darwin"}, reason="Native cleanup requires host/boot identity"
 )
 async def test_dashboard_state_actions_history_and_browser_failure(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
@@ -674,18 +674,27 @@ async def test_monitoring_requires_configured_repositories(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["config", "host", "session"])
 async def test_review_configuration_failure_is_visible_and_logged(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
     monkeypatch: pytest.MonkeyPatch,
+    failure: str,
 ) -> None:
     from diffbutler.config.diagnostics import configure_logging, stop_logging
     from diffbutler.config.settings import ConfigError
+    from diffbutler.reviewers.process import HostBootError
 
     _, queue, forge, path = ledger
     await DiffButler(queue, forge).sync()
 
+    error = {
+        "config": ConfigError("Native review requires a configured local repository path"),
+        "host": HostBootError("Cannot verify this computer's host and boot identity"),
+        "session": ReviewConflict("No agent conversation was created. Request another review"),
+    }[failure]
+
     async def fail(*args: object) -> None:
-        raise ConfigError("Native review requires a configured local repository path")
+        raise error
 
     monkeypatch.setattr("diffbutler.ui.tui.dashboard.review_configured", fail)
     log = configure_logging()
@@ -694,10 +703,10 @@ async def test_review_configuration_failure_is_visible_and_logged(
         async with app.run_test() as pilot:
             await pilot.press("r")
             await pilot.pause()
-            assert "Native review requires" in str(app.query_one("#status", Static).content)
+            assert str(error) in str(app.query_one("#status", Static).content)
         content = log.read_text()
         assert "Review requested task=" in content
         assert "Dashboard operation failed" in content
-        assert "ConfigError" in content and "in fail" in content
+        assert type(error).__name__ in content and "in fail" in content
     finally:
         stop_logging()

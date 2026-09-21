@@ -1,15 +1,15 @@
 # Native CLI reviews
 
-The managed review presets target **Codex CLI 0.155.1 and Claude Code 2.1.278 on Linux**. DiffButler
+The managed review presets target **Codex CLI 0.155.1 and Claude Code 2.1.278 on Linux and macOS**. DiffButler
 selects native read-only controls for background analysis; it does not create an additional OS
-sandbox. Full managed-review integration on macOS remains deferred; terminal handoff
-has been tested separately as described below.
+sandbox. Host/boot verification supports both platforms; macOS validation and
+authentication limitations are described below.
 Claude's installed version and help were checked locally. Automated acceptance
 covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
 completion, cleanup, and retained findings across process restarts. It uses a
 synthetic executable, disposable Git repositories, and SQLite; it makes no
 paid model requests. The earlier Linux/Codex terminal experiment was manually
-confirmed, but no live managed review was run during this implementation.
+confirmed. The macOS managed-review fix was subsequently verified manually by the user.
 
 ## macOS terminal handoff validation
 
@@ -39,10 +39,18 @@ intermittent dashboard shutdown timeouts. Full validation also found two Git
 source byte-limit tests failing with `PermissionError` during process-group
 cleanup. These failures remain unresolved; macOS validation is not fully green.
 
-This does not establish full macOS review support: managed launches still require
-Linux host/boot verification, Claude authentication bridging assumes Linux's
-`.credentials.json`, and the installed Claude 2.1.267 differs from the pinned
-2.1.278 preset.
+Managed launches now read the macOS platform UUID and boot-session UUID before
+source preparation and again before launch. Offline native acceptance runs on
+macOS as well as Linux, using synthetic agents for review, retry, exact-session
+resume, and cleanup. The user manually verified the fix for review launch and
+session resume; this confirmation does not establish every backend/authentication combination.
+Claude authentication bridging still assumes Linux's `.credentials.json` or an
+explicit authentication environment variable; macOS Keychain bridging is not
+implemented. The installed Claude 2.1.267 differs from the pinned 2.1.278 preset.
+
+If a review fails before creating a conversation, `v` explains that another review
+is needed. Failed attempts return to pending AI review; only pressing `r` (or the
+pending task's next action) retries. They do not imply readiness to approve.
 
 ## Configure and review
 
@@ -195,7 +203,8 @@ Launch intent is durable before spawn. Cleanup also records host/boot intent bef
 filesystem deletion, so interrupted cleanup can be retried after a verified reboot.
 Reboot recovery uses the same local host's boot identity; unknown and same-boot orphan ownership stays held for verification,
 never inferred from age or pipe EOF. The database must be local and nonshared, on a
-host with a unique Linux machine-id. macOS process recovery is not implemented.
+host with a unique machine identity: Linux machine-id or macOS platform UUID.
+macOS reboot recovery uses `kern.bootsessionuuid`, not the boot volume UUID or a timestamp.
 
 Foreground leases exclude review and cleanup. The terminal layer restores ownership
 and modes after exit, failure, or cancellation. Completion during attachment keeps

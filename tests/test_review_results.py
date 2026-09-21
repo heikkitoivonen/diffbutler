@@ -84,7 +84,9 @@ async def test_finalize_routes_and_survives_restart(database: Database, has_find
 
 
 @pytest.mark.parametrize("kind", ["malformed", "nonzero", "encoding"])
-async def test_failed_output_is_retained_and_routes_to_human(database: Database, kind: str) -> None:
+async def test_failed_output_is_retained_and_waits_for_explicit_retry(
+    database: Database, kind: str
+) -> None:
     _, identity = await seed(database)
     reviews = service(database)
     run = await reviews.request_review(identity)
@@ -103,7 +105,7 @@ async def test_failed_output_is_retained_and_routes_to_human(database: Database,
     assert result.exit_code == output.exit_code and result.selected_indices == ()
     assert ResultDTO.model_validate_json(result.model_dump_json()) == result
     state = (await SQLiteQueueStore(database).snapshot(ACCOUNT)).items[0].state
-    assert state == "PENDING_HUMAN_REVIEW"
+    assert state == "PENDING_AI_REVIEW"
     async with database.sessions() as db:
         stored = await db.get(AIRun, run.id)
         assert stored is not None and stored.parse_status == "failed"

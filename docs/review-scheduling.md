@@ -35,8 +35,9 @@ generation so an older refresh must retry instead of overwriting the action.
 
 `get_run` reads durable status; cancellation is idempotent. `release_review` requires
 the exact claim token and acknowledges that the worker has exited. A still-running
-attempt becomes failed and routes to human review; stale/cancelled attempts retain
-their state and cannot overwrite newer queue attention. Use `finalize_review` below
+attempt becomes failed and returns to pending AI review for an explicit retry;
+stale/cancelled attempts retain their state and cannot overwrite newer queue attention.
+Use `finalize_review` below
 when captured output is available. Cancellation timestamps record invalidation, not
 proof of process exit.
 
@@ -95,7 +96,8 @@ The transaction rechecks the held token, task, account-specific open PR snapshot
 base/head revisions, and session cleanup state. Current successful runs route to
 `FINDINGS_TRIAGE` when any finding meets both thresholds, otherwise to
 `PENDING_HUMAN_REVIEW`. Malformed output or a nonzero exit records a failed run and
-routes to human review with a persisted diagnostic. No outcome completes or approves
+returns to pending AI review with a persisted diagnostic. Retries require explicit
+user action. No outcome completes or approves
 a review cycle. Local routing advances the sync generation so an older refresh must
 retry. Cancelled/stale runs can retain late results but cannot change queue attention
 or their invalidation timestamps, including after completion and a new review cycle.

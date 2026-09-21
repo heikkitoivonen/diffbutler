@@ -112,6 +112,21 @@ def test_review_requires_a_persisted_qualified_pr(capsys: pytest.CaptureFixture[
     assert "PR is missing or ambiguous" in capsys.readouterr().err
 
 
+def test_review_host_identity_failure_is_readable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from diffbutler.reviewers.process import HostBootError
+
+    async def unavailable(*args: object, **kwargs: object) -> None:
+        raise HostBootError("Cannot verify this computer's host and boot identity")
+
+    monkeypatch.setattr("diffbutler.ui.cli.review_configured", unavailable)
+    with pytest.raises(SystemExit) as error:
+        main(["review", "acme/api#1"])
+    assert error.value.code == 1
+    assert "Cannot verify this computer's host and boot identity" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "arguments",
     [
