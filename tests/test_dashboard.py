@@ -393,9 +393,17 @@ async def test_dashboard_state_actions_history_and_browser_failure(
         assert "Findings: —" in preview
         assert "Age: " in preview
         await pilot.press("w")
+        # These actions run in workers; an idle message queue does not mean
+        # their database work and final dashboard reload have completed.
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
         await pilot.pause()
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AUTHOR_CHANGES"
         await pilot.press("o")
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
         await pilot.pause()
         assert opened == [PR.url]
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_HUMAN_REVIEW"
@@ -404,12 +412,18 @@ async def test_dashboard_state_actions_history_and_browser_failure(
         prefs = await SQLiteDashboardStore(database).preferences()
         assert prefs["sort_by"] == "number" and prefs["sort_desc"] == "false"
         await pilot.press("m")
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
         await pilot.pause()
         assert app.query_one(DataTable[str]).row_count == 0
         await pilot.press("h")
         await pilot.pause()
         assert app.query_one(DataTable[str]).row_count == 1
         await pilot.press("space")
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
         await pilot.pause()
         assert opened == [PR.url, PR.url]
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "DONE"
@@ -622,6 +636,9 @@ async def test_monitoring_switch_persists_and_drives_sync(
     app = Dashboard(path, load_settings(path), offline=True)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.press("a")
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
         await pilot.pause()
         assert (await preferences_configured(path))["monitor_all_prs"] == "true"
         assert "Monitoring: all open PRs" in app.sub_title
@@ -632,6 +649,9 @@ async def test_monitoring_switch_persists_and_drives_sync(
     async with restarted.run_test(size=(120, 40)) as pilot:
         assert "Monitoring: all open PRs" in restarted.sub_title
         await pilot.press("a")
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in restarted.workers)), timeout=5
+        )
         await pilot.pause()
         assert (await preferences_configured(path))["monitor_all_prs"] == "false"
 

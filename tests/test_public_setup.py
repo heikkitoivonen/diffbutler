@@ -1,5 +1,6 @@
 """Public access and token validation use only a synthetic HTTP transport."""
 
+import asyncio
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -119,11 +120,19 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
         app.offline = False
         before = len(calls)
         await pilot.press("a")
+        # No periodic poller is running, so wait for the action worker and
+        # its final reload rather than only the Textual message queue.
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
         await pilot.pause()
         assert app.view == "requested"
         assert app.query_one(DataTable).row_count == expected_rows
         assert refreshes == 0 and len(calls) == before
         await pilot.press("R")
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
         await pilot.pause()
         assert refreshes == 1
         assert "GitHub rate limit is exhausted" in str(app.query_one("#status", Static).content)
