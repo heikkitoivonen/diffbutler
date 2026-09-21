@@ -2,13 +2,47 @@
 
 The managed review presets target **Codex CLI 0.155.1 and Claude Code 2.1.278 on Linux**. DiffButler
 selects native read-only controls for background analysis; it does not create an additional OS
-sandbox. macOS integration remains deferred.
+sandbox. Full managed-review integration on macOS remains deferred; terminal handoff
+has been tested separately as described below.
 Claude's installed version and help were checked locally. Automated acceptance
 covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
 completion, cleanup, and retained findings across process restarts. It uses a
 synthetic executable, disposable Git repositories, and SQLite; it makes no
 paid model requests. The earlier Linux/Codex terminal experiment was manually
 confirmed, but no live managed review was run during this implementation.
+
+## macOS terminal handoff validation
+
+On macOS 26.6.2, the handoff probe successfully opened Codex CLI 0.155.1 and
+Claude Code 2.1.267, returned to the dashboard on agent exit, and opened each
+agent again. Codex was tested with `/quit` and Ctrl+D; Claude with `/exit` and
+Ctrl+C twice. The user also confirmed successful handoff with both CLIs in their
+own terminal. No model prompts were submitted in the automated-agent smoke check.
+Reproduce in an interactive terminal:
+
+```sh
+make handoff ARGS="-- codex --no-alt-screen"
+make handoff ARGS="-- claude --safe-mode"
+```
+
+Press `v` to open the agent, exit the agent to return, then press `v` again.
+Press `q` in the dashboard to quit. These commands open fresh interactive sessions;
+they do not validate resuming a saved managed review. Switching back currently
+requires exiting the foreground agent.
+
+The offline PTY tests also cover repeated conversation resume, selection retention,
+background output isolation, resize, interruptions, crashes, and launch failures.
+Their terminal-mode check runs before the session leader exits because macOS
+revokes the slave terminal at that point.
+All ten PTY cases passed in isolated runs, but full-suite runs still showed
+intermittent dashboard shutdown timeouts. Full validation also found two Git
+source byte-limit tests failing with `PermissionError` during process-group
+cleanup. These failures remain unresolved; macOS validation is not fully green.
+
+This does not establish full macOS review support: managed launches still require
+Linux host/boot verification, Claude authentication bridging assumes Linux's
+`.credentials.json`, and the installed Claude 2.1.267 differs from the pinned
+2.1.278 preset.
 
 ## Configure and review
 

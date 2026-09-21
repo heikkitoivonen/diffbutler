@@ -29,7 +29,7 @@ class Terminal:
     ) -> None:
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 110, 0, 0))
-        self.modes = termios.tcgetattr(self.slave)
+        self.restoration = directory / "terminal-restored.txt"
         self.events = directory / "events.jsonl"
         self.output = bytearray()
         argv = [
@@ -54,13 +54,28 @@ class Terminal:
             argv.extend(["--", *command])
         if app_argv is not None:
             argv = app_argv
-        # Fresh session + controlling TTY, without preexec_fn in a threaded parent.
+        # Keep the session leader alive until modes have been checked: macOS
+        # revokes the slave terminal when its session leader exits.
         launcher = (
-            "import os,sys,fcntl,termios; os.setsid(); "
-            "fcntl.ioctl(0,termios.TIOCSCTTY,0); os.execv(sys.argv[1],sys.argv[1:])"
+            "import os,sys,fcntl,termios,pathlib,runpy\n"
+            "os.setsid()\n"
+            "fcntl.ioctl(0,termios.TIOCSCTTY,0)\n"
+            "modes=termios.tcgetattr(0)\n"
+            "restoration=pathlib.Path(sys.argv[1])\n"
+            "mode, target = sys.argv[3:5]\n"
+            "sys.argv=sys.argv[4:]\n"
+            "try:\n"
+            "    if mode == '-m':\n"
+            "        runpy.run_module(target, run_name='__main__', alter_sys=True)\n"
+            "    elif mode == '-c':\n"
+            "        exec(target, {'__name__': '__main__'})\n"
+            "    else:\n"
+            "        raise ValueError('Expected Python -m or -c')\n"
+            "finally:\n"
+            "    restoration.write_text(str(termios.tcgetattr(0)==modes))\n"
         )
         self.process = subprocess.Popen(
-            [sys.executable, "-c", launcher, *argv],
+            [sys.executable, "-c", launcher, str(self.restoration), *argv],
             stdin=self.slave,
             stdout=self.slave,
             stderr=self.slave,
@@ -106,14 +121,14 @@ class Terminal:
         self.send(b"q")
         self.wait(lambda: self.process.poll() is not None)
         assert self.process.returncode == 0
-        assert termios.tcgetattr(self.slave) == self.modes
+        assert self.restoration.read_text() == "True"
 
     def close(self) -> None:
         if self.process.poll() is None:
             foreground = os.tcgetpgrp(self.master)
             if foreground > 0 and foreground != self.process.pid:
                 os.killpg(foreground, signal.SIGKILL)
-            self.process.kill()
+            os.killpg(self.process.pid, signal.SIGKILL)
             self.process.wait(timeout=5)
         os.close(self.master)
         os.close(self.slave)
