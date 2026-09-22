@@ -110,6 +110,18 @@ sources. Discovery, sync, pushes, and session return never request another AI ru
 Each issue has a location and a self-contained comment for the human to evaluate,
 post, or copy and paste. Older structured reviews retain their JSON representation.
 `session` resumes the exact backend ID in the current terminal, retaining it on exit.
+Claude launches also pass `--name diffbutler-pr-<number>` on initial review,
+explicit retry, and foreground resume, including for existing DiffButler sessions.
+This gives the conversation a recognizable name in Claude's own session picker and
+terminal title. Resume still uses the saved session ID, so matching PR numbers in
+different repositories do not select the wrong conversation. Codex's documented
+launch options do not include session naming; its interactive `/rename` remains
+available for manual naming.
+
+Names stay in the session's managed native home. Opening the agent outside
+DiffButler requires that same `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to see its sessions;
+DiffButler does not copy them into the user's default agent home.
+
 `approved` records the user's completed approval locally; it does not submit a
 forge approval. Completion dispatches cleanup automatically, including when observed
 by `sync`. `cleanup` retries due cleanup jobs after their persisted backoff.

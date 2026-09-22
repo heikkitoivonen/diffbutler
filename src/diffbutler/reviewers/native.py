@@ -64,7 +64,12 @@ class NativePreset:
         return (*command, "-C", str(cwd)) if self.name == "codex" else command
 
     def argv(
-        self, command: tuple[str, ...], session_id: str | None, *, foreground: bool = False
+        self,
+        command: tuple[str, ...],
+        session_id: str | None,
+        *,
+        foreground: bool = False,
+        session_name: str | None = None,
     ) -> tuple[str, ...]:
         if session_id is not None:
             try:
@@ -81,6 +86,7 @@ class NativePreset:
         # Opaque identities occupy a single argv element, never a shell/template.
         return (
             *command,
+            *(("--name", session_name) if self.name == "claude" and session_name else ()),
             *((session_id or "") if arg == "{session_id}" else arg for arg in arguments),
         )
 

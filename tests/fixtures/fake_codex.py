@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 assert "--version" not in sys.argv, "Native launches must not probe CLI versions"
+assert "--name" not in sys.argv, "Codex has no session naming launch option"
 
 root = Path(os.environ["CODEX_HOME"])
 saved = root / "conversation.json"

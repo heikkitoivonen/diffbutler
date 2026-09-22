@@ -399,6 +399,7 @@ async def test_shared_handoff_preserves_uncertain_ownership(
                     native.command_at(tuple(settings.reviewers[0].command), launch.cwd),
                     session.backend_session_id,
                     foreground=True,
+                    session_name="diffbutler-pr-1",
                 )
                 # A concurrent local completion must defer deletion until verified exit.
                 await managed.store.mark_approved(run.task_id)
@@ -438,6 +439,7 @@ async def test_failed_resume_preparation_releases_lease(
                 managed.directories,
                 run.session_id,
                 (sys.executable,),
+                pr_number=1,
             )
         assert not await managed.leases.held_operations()
     finally:
@@ -743,6 +745,29 @@ async def test_claude_rejects_failed_or_incomplete_results(change: str) -> None:
     events = [init] if change == "truncated" else [init, result]
     output = ReviewOutput("\n".join(map(json.dumps, events)).encode(), b"", 0)
     assert extract_output(output, CLAUDE_OUTPUT).error is not None
+
+
+@pytest.mark.parametrize("preset_name", ["codex", "claude"])
+@pytest.mark.parametrize("mode", ["new", "retry", "foreground"])
+async def test_native_session_names_preserve_exact_resume_identity(
+    preset_name: str, mode: str
+) -> None:
+    preset = native_preset(preset_name)
+    identity = None if mode == "new" else "01234567-89ab-cdef-0123-456789abcdef"
+    arguments = preset.argv(
+        (preset_name,),
+        identity,
+        foreground=mode == "foreground",
+        session_name="diffbutler-pr-1841",
+    )
+    if preset_name == "claude":
+        assert arguments[1:3] == ("--name", "diffbutler-pr-1841")
+        if identity is not None:
+            assert arguments[arguments.index("--resume") + 1] == identity
+    else:
+        assert "--name" not in arguments and "diffbutler-pr-1841" not in arguments
+        if identity is not None:
+            assert identity in arguments
 
 
 async def test_claude_environment_and_resume_permissions(

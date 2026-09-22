@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 assert "--version" not in sys.argv, "Native launches must not probe CLI versions"
+assert sys.argv[sys.argv.index("--name") + 1] == "diffbutler-pr-1"
 
 root = Path(os.environ["CLAUDE_CONFIG_DIR"])
 saved = root / "conversation.json"

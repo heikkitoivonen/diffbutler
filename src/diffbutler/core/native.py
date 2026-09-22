@@ -164,7 +164,11 @@ class NativeExecution:
 
         capture = asyncio.create_task(
             self.execution.capture(
-                preset.argv(preset.command_at(self.command, workdir), backend_session_id),
+                preset.argv(
+                    preset.command_at(self.command, workdir),
+                    backend_session_id,
+                    session_name=f"diffbutler-pr-{context.pr.ref.number}",
+                ),
                 cwd=workdir,
                 env=env,
                 input=prompt.content,
@@ -226,6 +230,8 @@ async def prepare_native_handoff(
     session_id: UUID,
     command: tuple[str, ...],
     preset_name: Literal["codex", "claude"] = "codex",
+    *,
+    pr_number: int,
 ) -> SessionLaunch:
     lease = await lifecycle.acquire_foreground(session_id)
     try:
@@ -239,7 +245,10 @@ async def prepare_native_handoff(
             token=lease.token,
             session_id=session_id,
             argv=preset.argv(
-                preset.command_at(command, cwd), lease.backend_session_id, foreground=True
+                preset.command_at(command, cwd),
+                lease.backend_session_id,
+                foreground=True,
+                session_name=f"diffbutler-pr-{pr_number}",
             ),
             cwd=cwd,
             agent_home=root / "agent-home",
