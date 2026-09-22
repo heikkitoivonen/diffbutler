@@ -27,8 +27,16 @@ Use these options in order of preference, including when reviewing public reposi
    or substitute your Enterprise hostname. `--git-protocol` accepts `https` or `ssh`
    and controls Git operations; token retrieval and DiffButler's API requests use
    HTTPS with either choice. See [`gh auth login`](https://cli.github.com/manual/gh_auth_login).
-   DiffButler's managed source fetches also use HTTPS, so a private source fetch needs
-   working Git HTTPS credentials even if your usual remotes use SSH.
+   DiffButler's managed source fetches initially try HTTPS, then SSH if HTTPS fails.
+   The working transport is saved as the repository's `git_transport` preference
+   and tried first next time; the other transport remains a fallback. You can also
+   set it in [configuration](configuration.md#repository-git-transport).
+   Private source fetches can use Git HTTPS credential helpers or SSH keys and
+   your existing SSH agent (`SSH_AUTH_SOCK`). SSH uses the forge hostname with
+   user `git`; `~/.ssh/config` can select the key, port, or destination hostname.
+   Fetches do not prompt: unlock passphrase-protected keys in your SSH agent and
+   establish host trust outside DiffButler first. Git URL rewrites are honored
+   for HTTPS and SSH; custom `GIT_SSH_COMMAND` overrides are not inherited.
 
 2. **Create a fine-grained personal access token.** Open
    [Personal access tokens](https://github.com/settings/personal-access-tokens),

@@ -8,13 +8,14 @@ import shutil
 import signal
 from contextlib import suppress
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from diffbutler.domain.forge import PRRef
 from diffbutler.sources.git import SourceError
 
 
-def repository_url(ref: PRRef) -> str:
+def repository_url(ref: PRRef, *, transport: Literal["https", "ssh"] = "https") -> str:
     """Derive the clone URL from the persisted forge identity, never a PR body/URL."""
     if not ref.forge.startswith("github:"):
         raise SourceError(
@@ -32,6 +33,12 @@ def repository_url(ref: PRRef) -> str:
     ):
         raise SourceError("Configure a valid HTTPS GitHub API address before preparing sources")
     host = "github.com" if url.netloc == "api.github.com" else url.netloc
+    if transport == "ssh":
+        # API ports are not SSH ports; SSH config supplies custom ports and keys.
+        host = "github.com" if url.hostname == "api.github.com" else url.hostname
+        if ":" in host:
+            host = f"[{host}]"
+        return f"ssh://git@{host}/{ref.namespace}/{ref.repository}.git"
     return f"https://{host}/{ref.namespace}/{ref.repository}.git"
 
 
@@ -39,14 +46,21 @@ async def git_fetch_command(repository: Path, *args: str) -> None:
     executable = shutil.which("git")
     if executable is None:
         raise SourceError("Git is unavailable; install Git and retry the review")
-    # Allow the user's Git HTTPS credential helpers, but no inherited Git command overrides.
+    # Use existing HTTPS helpers and SSH agents/config, without inherited Git overrides.
     env = {
         key: os.environ[key]
-        for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "LANG")
+        for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "LANG", "SSH_AUTH_SOCK")
         if key in os.environ
     }
     env.update(
-        {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "/bin/false", "GIT_ALLOW_PROTOCOL": "https"}
+        {
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": "/bin/false",
+            "GIT_ALLOW_PROTOCOL": "https:ssh",
+            "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "
+            "-o PermitLocalCommand=no",
+            "GIT_SSH_VARIANT": "ssh",
+        }
     )
     spawn = asyncio.create_task(
         asyncio.create_subprocess_exec(
@@ -83,8 +97,8 @@ async def git_fetch_command(repository: Path, *args: str) -> None:
             process = await asyncio.shield(spawn)
             if await process.wait() != 0:
                 raise SourceError(
-                    "Could not prepare PR commits. Check Git HTTPS authentication and network "
-                    "access, then refresh the PR and retry."
+                    "Could not prepare PR commits. Check Git HTTPS credentials or SSH keys, "
+                    "SSH host trust, and network access, then refresh the PR and retry."
                 )
     except TimeoutError:
         raise SourceError("Fetching PR commits timed out; check network access and retry") from None
@@ -109,24 +123,44 @@ async def git_fetch_command(repository: Path, *args: str) -> None:
             raise asyncio.CancelledError
 
 
-async def fetch_repository(repository: Path, ref: PRRef, base_sha: str, head_sha: str) -> None:
+async def fetch_repository(
+    repository: Path,
+    ref: PRRef,
+    base_sha: str,
+    head_sha: str,
+    *,
+    transport: Literal["auto", "https", "ssh"] = "auto",
+) -> Literal["https", "ssh"]:
     for sha in (base_sha, head_sha):
         if re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", sha) is None:
             raise SourceError("PR commit information is incomplete; refresh the PR and retry")
-    remote = repository_url(ref)
+    transports: tuple[Literal["https", "ssh"], ...] = (
+        ("ssh", "https") if transport == "ssh" else ("https", "ssh")
+    )
+    remotes = tuple(repository_url(ref, transport=item) for item in transports)
     logging.getLogger(__name__).info("Preparing managed Git repository")
     await git_fetch_command(repository, "init", "--bare", "--template=")
     logging.getLogger(__name__).info("Fetching pinned PR commits")
-    await git_fetch_command(
-        repository,
-        "fetch",
-        "--depth=1",
-        "--no-tags",
-        "--no-recurse-submodules",
-        "--",
-        remote,
-        base_sha,
-        head_sha,
-        f"refs/pull/{ref.number}/head",
-    )
-    logging.getLogger(__name__).info("Pinned PR commits fetched")
+    for index, remote in enumerate(remotes):
+        try:
+            await git_fetch_command(
+                repository,
+                "fetch",
+                "--depth=1",
+                "--no-tags",
+                "--no-recurse-submodules",
+                "--",
+                remote,
+                base_sha,
+                head_sha,
+                f"refs/pull/{ref.number}/head",
+            )
+            logging.getLogger(__name__).info("Pinned PR commits fetched")
+            return transports[index]
+        except SourceError:
+            if index == len(remotes) - 1:
+                raise
+            logging.getLogger(__name__).info(
+                "%s source fetch failed; trying %s", transports[index], transports[index + 1]
+            )
+    raise AssertionError("No source transport attempted")

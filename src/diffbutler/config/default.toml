@@ -48,6 +48,7 @@ open_in_browser = ["o", "ctrl+o"]
 # [repos."acme/api"]
 # enabled = true
 # path = "~/src/acme/api"
+# git_transport = "auto" # auto | https | ssh; remembers the last successful fetch.
 # default_reviewer = "codex"
 # prompt = "~/review-instructions.md"
 # checkout = "mediated"

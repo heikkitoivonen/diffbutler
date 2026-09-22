@@ -2,13 +2,15 @@
 
 import asyncio
 import hashlib
+import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
-from diffbutler.config.settings import ConfigError, Settings, load_settings
+from diffbutler.config.settings import ConfigError, Repository, Settings, load_settings
+from diffbutler.config.transport import save_git_transport
 from diffbutler.core.application import local_store
 from diffbutler.core.context import assemble_context
 from diffbutler.core.lifecycle import LifecycleService
@@ -127,7 +129,8 @@ class ManagedReviews:
         if task_id is None:
             raise ReviewConflict("PR has no persisted review task")
         pr = row.tracked.pull_request
-        repository = self.settings.repos.get(f"{pr.ref.namespace}/{pr.ref.repository}")
+        repository_name = f"{pr.ref.namespace}/{pr.ref.repository}"
+        repository = self.settings.repos.get(repository_name)
         reviewer_id = reviewer_id or self.settings.review.default_reviewer
         command = self.reviewer_command(reviewer_id)
         selected = next(item for item in self.settings.reviewers if item.id == reviewer_id)
@@ -171,7 +174,30 @@ class ManagedReviews:
             repository_path = destination
             await settled_io(lambda: destination.mkdir(mode=0o700, exist_ok=True))
             report("Fetching PR commits…")
-            await fetch_repository(repository_path, pr.ref, claim.run.base_sha, claim.run.head_sha)
+            preferred = repository.git_transport if repository else "auto"
+            transport = await fetch_repository(
+                repository_path,
+                pr.ref,
+                claim.run.base_sha,
+                claim.run.head_sha,
+                transport=preferred,
+            )
+            self.settings.repos.setdefault(repository_name, Repository()).git_transport = transport
+            config_file = self.settings.config_file
+            if config_file is not None:
+                try:
+                    await settled_io(
+                        lambda: save_git_transport(
+                            config_file,
+                            repository_name,
+                            transport,
+                            expected=preferred,
+                        )
+                    )
+                except ConfigError:
+                    logging.getLogger(__name__).warning(
+                        "Git fetch succeeded, but its transport could not be saved"
+                    )
 
         async def prepare(record: RunRecord) -> ReviewContext:
             nonlocal sources

@@ -136,6 +136,25 @@ Lists/objects use JSON environment values. `--db-url` overrides the environment;
 `--no-migrate` overrides `db.auto_migrate` to false. Configuration loading itself creates
 no files and performs no forge, subprocess, or model operations.
 
+## Repository Git transport
+
+Set a preferred transport per repository:
+
+```toml
+[repos."acme/api"]
+git_transport = "ssh" # auto | https | ssh
+```
+
+`auto` (the default) tries HTTPS first, then SSH. A saved `ssh` or `https`
+preference is tried first, with the other transport as fallback. After a successful
+fetch, DiffButler remembers the working transport in the selected configuration
+file, including when using `--config FILE`. Subsequent reviews and restarts reuse
+it. Local source reads and failed fetches do not change the preference.
+Comments and unrelated settings are preserved. If the file cannot be saved, the
+review continues and a diagnostic is logged; the preference remains in memory.
+Use `auto` to reset the order to HTTPS first. Authentication still uses your
+existing Git credential helpers or SSH configuration and agent.
+
 ## Database initialization
 
 DiffButler supports persistent local SQLite files through `sqlite+aiosqlite`. PostgreSQL/MySQL

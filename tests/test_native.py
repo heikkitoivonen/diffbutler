@@ -831,15 +831,18 @@ async def test_claude_checkpoints_init_before_completion(tmp_path: Path) -> None
 
 
 @pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("ssh_only", [False, True])
 async def test_managed_fetch_review_resume_and_cleanup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool, ssh_only: bool
 ) -> None:
     from diffbutler.core.dashboard import diff_configured
     from diffbutler.sources.fetch import repository_url
+    from diffbutler.sources.git import SourceError
 
     settings, forge = await prepared(tmp_path)
     config = configuration(tmp_path, settings)
     config.write_text(config.read_text().split("[repos.")[0])
+    settings.config_file = config
     remote = tmp_path / "repository"
     pr = forge.prs[REF]
     await git(remote, "update-ref", "refs/pull/1/head", pr.head_sha)
@@ -856,8 +859,16 @@ async def test_managed_fetch_review_resume_and_cleanup(
 
     async def local_fetch(repository: Path, *args: str) -> None:
         calls.append(args)
+        if ssh_only and repository_url(REF) in args:
+            raise SourceError("HTTPS credentials unavailable")
         await git(
-            repository, *(remote.as_uri() if arg == repository_url(REF) else arg for arg in args)
+            repository,
+            *(
+                remote.as_uri()
+                if arg in (repository_url(REF), repository_url(REF, transport="ssh"))
+                else arg
+                for arg in args
+            ),
         )
 
     monkeypatch.setattr("diffbutler.sources.fetch.git_fetch_command", local_fetch)
@@ -871,8 +882,20 @@ async def test_managed_fetch_review_resume_and_cleanup(
         progress: list[str] = []
         run = await managed.review(row, progress=progress.append)
         assert run.status == "succeeded"
+        from diffbutler.config.settings import load_settings
+
+        expected_transport = "ssh" if ssh_only else "https"
+        assert load_settings(config).repos["acme/api"].git_transport == expected_transport
+        assert settings.repos["acme/api"].git_transport == expected_transport
         assert "Fetching PR commits…" in progress
         assert calls[-1][-3:] == (pr.base_sha, pr.head_sha, "refs/pull/1/head")
+        # A new service loaded from disk must fetch with the learned transport first.
+        calls.clear()
+        managed = ManagedReviews(database, load_settings(config), managed.directories)
+        run = await managed.review(row)
+        assert run.status == "succeeded"
+        assert len(calls) == 2  # init and one fetch, without a failed transport probe.
+        assert calls[-1][-4] == repository_url(REF, transport=expected_transport)
         resources = await managed.store.session_resources(run.session_id)
         assert len(resources) == 1
         root = managed.directories.path / resources[0].name
@@ -899,7 +922,7 @@ async def test_fetch_failure_keeps_owned_cleanup_and_never_launches_agent(
     settings, forge = await prepared(tmp_path)
     settings.repos.clear()
 
-    async def fail(*args: object) -> None:
+    async def fail(*args: object, **kwargs: object) -> None:
         raise SourceError("Check Git HTTPS authentication and retry")
 
     monkeypatch.setattr("diffbutler.core.managed.fetch_repository", fail)

@@ -141,10 +141,14 @@ project execution. They ignore local working/index changes. Symlinks become regu
 files containing link text. Missing objects, submodules, and unsupported/binary
 diffs fail with a diagnostic; no partial review is presented as
 complete. On an explicit review request, missing objects are fetched into a session-owned bare
-repository over HTTPS, including GitHub pull refs for fork PRs. A configured local
+repository using its preferred Git transport with fallback, including GitHub pull
+refs for fork PRs. The working transport is remembered in the repository's
+`git_transport` configuration; new repositories try HTTPS then SSH. A configured local
 checkout is used when it already contains both pinned commits; it is never modified.
-Private repositories require working Git HTTPS authentication (for example, a configured
-credential helper). Fetches never prompt inside the dashboard. Endpoint comparison
+Private repositories require working Git HTTPS credentials or SSH authentication.
+SSH uses the forge hostname, existing SSH configuration, and `SSH_AUTH_SOCK`;
+keys must be available without a prompt and host keys must already be trusted.
+Fetches never prompt inside the dashboard. Endpoint comparison
 is a current limitation; worktrees and
 large-diff splitting remain future enhancements.
 

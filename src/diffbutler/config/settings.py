@@ -5,7 +5,15 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
 from pydantic_settings.sources import InitSettingsSource
@@ -125,9 +133,11 @@ class Repository(Section):
     default_reviewer: str | None = None
     prompt: Path | None = None
     checkout: Literal["worktree", "mediated"] | None = None
+    git_transport: Literal["auto", "https", "ssh"] = "auto"
 
 
 class Settings(BaseSettings):
+    _config_file: Path | None = PrivateAttr(default=None)
     model_config = SettingsConfigDict(
         env_prefix="DIFFBUTLER_", env_nested_delimiter="__", extra="forbid"
     )
@@ -139,6 +149,14 @@ class Settings(BaseSettings):
     ui: UI = Field(default_factory=UI)
     keys: dict[str, list[str]] = Field(default_factory=lambda: {"open_in_browser": ["o", "ctrl+o"]})
     repos: dict[str, Repository] = Field(default_factory=dict)
+
+    @property
+    def config_file(self) -> Path | None:
+        return self._config_file
+
+    @config_file.setter
+    def config_file(self, path: Path) -> None:
+        self._config_file = path
 
     @property
     def effective_poll_interval_s(self) -> int:
@@ -242,6 +260,7 @@ def load_settings(
 
     try:
         result = LoadedSettings(**(overrides or {}))
+        result.config_file = selected
     except ValidationError as exc:
         errors = [
             f"{'.'.join(map(str, error['loc'])) or 'config'}: {error['msg']}"
