@@ -119,8 +119,8 @@ def main() -> None:
                 str(python),
                 "-I",
                 "-c",
-                "from diffbutler.reviewers.native import codex_preset; "
-                "assert codex_preset().version == 'codex-cli 0.155.1'; "
+                "from diffbutler.reviewers.native import native_preset; "
+                "assert all(native_preset(name).background for name in ('codex', 'claude')); "
                 "from diffbutler.ui.tui.dashboard import Dashboard",
             ],
             cwd=directory,
