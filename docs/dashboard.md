@@ -9,7 +9,8 @@ The dashboard defaults to the `ansi-dark` theme. Use the command palette's Theme
 command to select a different theme for the current session. The palette's Keys
 command opens keyboard help; press Escape to close that panel.
 
-The managed native presets target **Linux with Codex CLI 0.155.1 or Claude Code 2.1.278**.
+The managed native presets support **Codex CLI or Claude Code on Linux and macOS**
+without version checks.
 [Native review setup and limitations](native-reviews.md) apply unchanged. Every AI
 run requires an explicit review action. Discovery, periodic sync, new commits,
 renewed requests, and returning from a session never request another run.

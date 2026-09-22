@@ -5,9 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-if "--version" in sys.argv:
-    print("codex-cli 0.155.1")
-    raise SystemExit
+assert "--version" not in sys.argv, "Native launches must not probe CLI versions"
 
 root = Path(os.environ["CODEX_HOME"])
 saved = root / "conversation.json"

@@ -74,10 +74,10 @@ async def test_failed_reviewer_check_preserves_existing_configuration(
         return next(answers)
 
     async def fail(*args: object) -> None:
-        raise ConfigError("Unsupported reviewer version")
+        raise ConfigError("Reviewer executable was not found")
 
     monkeypatch.setattr("diffbutler.core.setup.check_reviewer", fail)
-    with pytest.raises(ConfigError, match="version"):
+    with pytest.raises(ConfigError, match="executable"):
         await startup_settings(path, directory=tmp_path, ask=ask)
     assert path.read_text() == original
     assert not load_settings(path).reviewers
@@ -85,19 +85,17 @@ async def test_failed_reviewer_check_preserves_existing_configuration(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("preset", ["codex", "claude"])
-async def test_checks_real_version_subprocess_without_review(tmp_path: Path, preset: str) -> None:
-    script = Path(__file__).parent / "fixtures" / f"fake_{preset}.py"
+async def test_setup_does_not_launch_reviewer(tmp_path: Path, preset: str) -> None:
+    marker = tmp_path / "launched"
+    script = tmp_path / "reviewer.py"
+    script.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
     reviewer = Reviewer(
         id=preset,
         preset="codex" if preset == "codex" else "claude",
         command=[sys.executable, str(script)],
     )
     await check_reviewer(reviewer, tmp_path)
-    bad = tmp_path / "wrong-version.py"
-    bad.write_text('print("unsupported")')
-    reviewer.command = [sys.executable, str(bad)]
-    with pytest.raises(ConfigError, match="requires"):
-        await check_reviewer(reviewer, tmp_path)
+    assert not marker.exists()
 
 
 @pytest.mark.asyncio

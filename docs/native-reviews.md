@@ -1,8 +1,8 @@
 # Native CLI reviews
 
-The managed review presets target **Codex CLI 0.155.1 and Claude Code 2.1.278 on Linux and macOS**. DiffButler
-selects native read-only controls for background analysis; it does not create an additional OS
-sandbox. Host/boot verification supports both platforms; macOS validation and
+The managed review presets support **Codex CLI and Claude Code on Linux and macOS**
+without version checks. DiffButler selects native read-only controls for background
+analysis; it does not create an additional OS sandbox. Host/boot verification supports both platforms; macOS validation and
 authentication limitations are described below.
 Claude's installed version and help were checked locally. Automated acceptance
 covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
@@ -46,7 +46,7 @@ resume, and cleanup. The user manually verified the fix for review launch and
 session resume; this confirmation does not establish every backend/authentication combination.
 Claude authentication bridging still assumes Linux's `.credentials.json` or an
 explicit authentication environment variable; macOS Keychain bridging is not
-implemented. The installed Claude 2.1.267 differs from the pinned 2.1.278 preset.
+implemented.
 
 If a review fails before creating a conversation, `v` explains that another review
 is needed. Failed attempts return to pending AI review; only pressing `r` (or the
@@ -56,8 +56,8 @@ pending task's next action) retries. They do not imply readiness to approve.
 
 Live dashboard startup asks for a default Codex or Claude reviewer when none is
 configured, including existing forge-only configurations. It checks Git, resolves the
-selected executable, and runs only `--version` against the supported preset before
-saving. No AI review or model authentication request is made during setup. Sign in
+selected executable, and saves without launching the reviewer or checking its version.
+No AI review or model authentication request is made during setup. Sign in
 with the chosen agent CLI before reviewing. Complete configurations skip these prompts;
 `--offline` skips setup entirely.
 
@@ -141,11 +141,13 @@ large-diff splitting remain future enhancements.
 
 The shipped Codex TOML preset selects `read-only` and `never` approval for background
 execution, and `danger-full-access` with `on-request` approval for foreground resume. Each
-launch asserts these settings again. Unsupported versions fail before a review
-launch rather than guessing at changed flags. Foreground full access permits forge
+launch passes these settings again. DiffButler assumes the installed CLI supports
+the preset arguments; unknown parameters or other CLI errors fail through normal
+review or session error handling. Foreground full access permits forge
 commands to post on the human's explicit instruction; background runs remain read-only.
-The 0.155.1 target is covered by synthetic command/session tests; live 0.155.1
-behavior has not been validated here.
+Command and session behavior is covered by synthetic tests. The presets were
+originally based on Codex CLI 0.155.1 and Claude Code 2.1.278; these are reference
+versions, not requirements.
 [Codex documents JSON events, exact-ID resume, and read-only execution](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 Claude background launches use `--restricted` with only `Read,Glob,Grep`,

@@ -79,7 +79,7 @@ Offline tests use a synthetic CLI to create a conversation, checkpoint its ID,
 close/reopen the database, and resume the same synthetic conversation on an explicit
 retry. These older protocol tests are supplemented by the managed native CLI acceptance
 test covering pinned snapshots, restart, exact resume, and owned home cleanup.
-The supported version and remaining platform limits are in the native review guide.
+The native agent and platform limits are in the native review guide.
 
 
 ## Result finalization

@@ -55,6 +55,6 @@ as a UI event by this parser. Byte limits apply to the whole captured stream.
 
 Default streaming selectors remain a synthetic test protocol. The native Codex preset
 selects completed `agent_message` items, requires the thread ID and `turn.completed`,
-and ignores completed tool items. Its versioned argv lives in packaged TOML. Claude
+and ignores completed tool items. Its launch arguments live in packaged TOML. Claude
 selectors remain deferred. See [native review support](native-reviews.md). A terminal success event establishes only protocol completeness, not
 process-tree exit, authorization, publication, or approval.

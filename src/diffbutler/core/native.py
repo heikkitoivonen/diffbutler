@@ -18,7 +18,7 @@ from diffbutler.domain.lifecycle import CleanupSession
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import RunClaim
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
-from diffbutler.reviewers.native import CapturedProcess, NativeError, native_preset, verify_version
+from diffbutler.reviewers.native import CapturedProcess, NativeError, native_preset
 from diffbutler.reviewers.prompt import render_prompt
 from diffbutler.reviewers.resources import OwnedDirectories, OwnedSessionCleaner, settled_io
 from diffbutler.sources.git import GitSourceReader
@@ -151,7 +151,6 @@ class NativeExecution:
         await settled_io(save_current)
         env = background_environment(root / "agent-home", self.preset_name)
         preset = native_preset(self.preset_name)
-        await verify_version(self.command, preset, cwd=workdir, env=env)
         if not await self.is_current():
             raise NativeError("Review became stale during source preparation")
         await self.recovery.prepare_launch(self.claim.token, "background")
@@ -236,9 +235,6 @@ async def prepare_native_handoff(
         if cwd.is_symlink() or not cwd.is_dir():
             raise NativeError("Pinned review workspace is unavailable")
         preset = native_preset(preset_name)
-        await verify_version(
-            command, preset, cwd=cwd, env=background_environment(root / "agent-home", preset_name)
-        )
         return SessionLaunch(
             token=lease.token,
             session_id=session_id,

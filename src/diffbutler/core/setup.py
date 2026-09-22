@@ -14,7 +14,6 @@ from diffbutler.config.setup import save_setup
 from diffbutler.domain.forge import PRQuery, identity_part
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.setup import repository_is_public, validate_access
-from diffbutler.reviewers.native import NativeError, native_preset, verify_version
 from diffbutler.sources.remotes import discover_repository
 
 SETUP_CHECK_TIMEOUT = 30.0
@@ -142,20 +141,6 @@ async def check_reviewer(reviewer: Reviewer, directory: Path) -> None:
         )
     if shutil.which(reviewer.command[0]) is None:
         raise ConfigError("Reviewer executable was not found; install it or enter its full path")
-    assert reviewer.preset is not None
-    preset = native_preset(reviewer.preset)
-    env = {
-        key: os.environ[key]
-        for key in ("PATH", "HOME", "LANG", "XDG_CONFIG_HOME")
-        if key in os.environ
-    }
-    try:
-        await verify_version(tuple(reviewer.command), preset, cwd=directory, env=env)
-    except NativeError, OSError, TimeoutError, UnicodeError:
-        raise ConfigError(
-            f"Reviewer check failed; this preset requires {preset.version}. "
-            "Check the selected executable and restart DiffButler."
-        ) from None
 
 
 async def setup_reviewer(
@@ -177,7 +162,7 @@ async def setup_reviewer(
         if chosen is None:
             raise ConfigError("Choose one of the configured native reviewers")
         if progress is not None:
-            progress("Checking Git and reviewer CLI version… (Ctrl+C to cancel)")
+            progress("Checking Git and reviewer executable… (Ctrl+C to cancel)")
         await check_reviewer(chosen, directory)
         return None, chosen.id
     name = (await question("AI reviewer (codex or claude)", "codex")).lower()
@@ -196,6 +181,6 @@ async def setup_reviewer(
         preset="codex" if name == "codex" else "claude",
     )
     if progress is not None:
-        progress("Checking Git and reviewer CLI version… (Ctrl+C to cancel)")
+        progress("Checking Git and reviewer executable… (Ctrl+C to cancel)")
     await check_reviewer(reviewer, directory)
     return reviewer, reviewer.id

@@ -51,7 +51,6 @@ class NativeError(RuntimeError):
 
 @dataclass(frozen=True)
 class NativePreset:
-    version: str
     background: tuple[str, ...]
     background_resume: tuple[str, ...]
     foreground: tuple[str, ...]
@@ -95,7 +94,6 @@ def native_preset(name: str) -> NativePreset:
         raise NativeError("Unsupported native reviewer preset")
     data = tomllib.loads(files("diffbutler.reviewers").joinpath("presets.toml").read_text())[name]
     return NativePreset(
-        data["version"],
         tuple(data["background"]),
         tuple(data["background_resume"]),
         tuple(data["foreground"]),
@@ -217,18 +215,3 @@ class CapturedProcess:
 
         await asyncio.gather(drain(process.stdout), drain(process.stderr))
         await process.wait()
-
-
-async def verify_version(
-    command: tuple[str, ...], preset: NativePreset, *, cwd: Path, env: Mapping[str, str]
-) -> None:
-    execution = CapturedProcess()
-    try:
-        async with asyncio.timeout(10):
-            result = await execution.capture(
-                (*command, "--version"), cwd=cwd, env=env, input=b"", maximum=16384
-            )
-        if result.exit_code != 0 or result.stdout.decode("utf-8").strip() != preset.version:
-            raise NativeError("Reviewer version does not match the verified preset")
-    finally:
-        await execution.stop_and_wait()

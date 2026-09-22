@@ -21,9 +21,8 @@ from diffbutler.reviewers.native import (
     CODEX_OUTPUT,
     CapturedProcess,
     NativeError,
-    codex_preset,
+    NativePreset,
     native_preset,
-    verify_version,
 )
 from diffbutler.store.database import Database
 from diffbutler.store.queue import SQLiteQueueStore
@@ -224,11 +223,37 @@ async def test_native_capture_overflow_and_cancellation_stop_owned_group(tmp_pat
         assert execution.process is not None and execution.process.returncode is not None
 
 
-async def test_unverified_version_fails_without_running_review(tmp_path: Path) -> None:
-    with pytest.raises(NativeError, match="version"):
-        await verify_version(
-            (sys.executable,), codex_preset(), cwd=tmp_path, env={"PATH": os.defpath}
-        )
+@pytest.mark.parametrize("preset", ["codex", "claude"])
+async def test_unknown_parameter_fails_at_review_launch(tmp_path: Path, preset: str) -> None:
+    settings, forge = await prepared(tmp_path, preset)
+    script = tmp_path / "unsupported.py"
+    marker = tmp_path / "arguments.json"
+    script.write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+        "print('unknown parameter', file=sys.stderr)\n"
+        "sys.exit(2)\n"
+    )
+    settings.reviewers[0].command = [sys.executable, str(script)]
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        run = await managed.review(row)
+        assert run.status == "failed"
+        import json
+
+        arguments = json.loads(marker.read_text())
+        assert "--version" not in arguments
+        assert ("exec" if preset == "codex" else "--print") in arguments
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AI_REVIEW"
+        assert not await managed.leases.held_operations()
+    finally:
+        await database.close()
 
 
 async def test_codex_tool_events_are_not_assistant_answers() -> None:
@@ -387,7 +412,7 @@ async def test_shared_handoff_preserves_uncertain_ownership(
         await database.close()
 
 
-async def test_failed_resume_version_releases_lease(
+async def test_failed_resume_preparation_releases_lease(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from diffbutler.core.native import prepare_native_handoff
@@ -401,7 +426,12 @@ async def test_failed_resume_version_releases_lease(
         await DiffButler(queue, forge).sync()
         managed = ManagedReviews(database, settings, await owned_directories(settings))
         run = await managed.review(await resolve_local(queue, "acme/api#1", None))
-        with pytest.raises(NativeError, match="version"):
+
+        def unsupported_preset(name: str) -> NativePreset:
+            return native_preset("unsupported")
+
+        monkeypatch.setattr("diffbutler.core.native.native_preset", unsupported_preset)
+        with pytest.raises(NativeError, match="Unsupported native reviewer preset"):
             await prepare_native_handoff(
                 managed.store,
                 managed.leases,

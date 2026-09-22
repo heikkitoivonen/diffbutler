@@ -5,9 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-if "--version" in sys.argv:
-    print("2.1.278 (Claude Code)")
-    raise SystemExit
+assert "--version" not in sys.argv, "Native launches must not probe CLI versions"
 
 root = Path(os.environ["CLAUDE_CONFIG_DIR"])
 saved = root / "conversation.json"
