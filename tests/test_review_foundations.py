@@ -60,7 +60,7 @@ def test_source_requests_reject_nonrelative_paths(path: str) -> None:
 
 def test_budget_and_immutable_serializable_run() -> None:
     with pytest.raises(ValueError, match="positive"):
-        ReviewBudget(max_output_bytes=0)
+        ReviewBudget(timeout_s=0)
     run = RunDTO(
         id=uuid4(),
         task_id=uuid4(),

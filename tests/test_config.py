@@ -145,3 +145,14 @@ def test_dashboard_columns_and_single_key_binding(tmp_path: Path) -> None:
     path.write_text('[ui]\ncolumns=["unknown"]\n')
     with pytest.raises(ConfigError, match="valid columns"):
         load_settings(path)
+
+
+def test_legacy_byte_limits_load_without_affecting_serialized_settings(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "[review]\nmax_diff_bytes = 1\n"
+        '[[reviewers]]\nid = "codex"\ncommand = ["codex"]\nmax_output_bytes = 1\n'
+    )
+    settings = load_settings(path)
+    assert "max_diff_bytes" not in settings.review.model_dump()
+    assert "max_output_bytes" not in settings.reviewers[0].model_dump()

@@ -184,7 +184,6 @@ def _normalize(value: object) -> tuple[object, tuple[str, ...]]:
 def parse_review(
     output: ReviewOutput,
     *,
-    max_output_bytes: int = 4_000_000,
     output_format: OutputFormat | None = None,
     response_format: ResponseFormat = "json",
 ) -> ParsedReview:
@@ -194,15 +193,11 @@ def parse_review(
     Legacy JSON schema errors fail the entire result.
     Diagnostics contain no backend text; raw stdout/stderr stay in the result.
     """
-    if max_output_bytes < 1:
-        raise ValueError("output budget must be positive")
-    if len(output.stdout) + len(output.stderr) > max_output_bytes:
-        return ParsedReview(output, None, None, error="output exceeds byte budget")
     if output.exit_code != 0:
         return ParsedReview(output, None, None, error="reviewer exited unsuccessfully")
     payload = output.stdout
     if output_format is not None:
-        extracted = extract_output(output, output_format, max_output_bytes=max_output_bytes)
+        extracted = extract_output(output, output_format)
         output = replace(output, backend_session_id=extracted.backend_session_id)
         if extracted.error is not None or extracted.text is None:
             return ParsedReview(output, None, None, error=extracted.error)

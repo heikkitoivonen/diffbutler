@@ -96,18 +96,12 @@ def _identity(value: object, previous: str | None) -> str:
     return value
 
 
-def extract_output(
-    output: ReviewOutput, format: OutputFormat, *, max_output_bytes: int = 4_000_000
-) -> ExtractedOutput:
+def extract_output(output: ReviewOutput, format: OutputFormat) -> ExtractedOutput:
     """Fail the entire capture on malformed/truncated/error events, retaining raw bytes.
 
     No progress text is returned: tool events and earlier messages can contain
     secrets. Final assistant text is validated and retained by the review parser.
     """
-    if max_output_bytes < 1:
-        raise ValueError("output budget must be positive")
-    if len(output.stdout) + len(output.stderr) > max_output_bytes:
-        return ExtractedOutput(output, None, None, "output exceeds byte budget")
     session_id = output.backend_session_id
     try:
         if session_id is not None:

@@ -101,11 +101,8 @@ def test_malformed_stream_records_fail(suffix: bytes) -> None:
     assert extract_output(output, StreamFormat()).error is not None
 
 
-def test_nonzero_overflow_and_identity_conflict() -> None:
+def test_nonzero_and_identity_conflict() -> None:
     output = capture({"result": json.dumps(payload()), "session_id": "one"})
-    assert extract_output(output, EnvelopeFormat(), max_output_bytes=10).error == (
-        "output exceeds byte budget"
-    )
     assert (
         parse_review(ReviewOutput(output.stdout, b"", 2), output_format=EnvelopeFormat()).document
         is None

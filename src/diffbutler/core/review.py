@@ -179,7 +179,6 @@ class ReviewService:
         response_format: ResponseFormat = "json",
         min_confidence: float = 0.5,
         findings_threshold: Severity = "minor",
-        max_output_bytes: int = 4_000_000,
     ) -> AIRun:
         """Acknowledge verified worker exit and finalize already-extracted text.
 
@@ -192,13 +191,8 @@ class ReviewService:
             raise ValueError("minimum confidence must be finite and between zero and one")
         if findings_threshold not in ranks:
             raise ValueError("unknown findings threshold")
-        if max_output_bytes < 1:
-            raise ValueError("output budget must be positive")
-        if len(output.stdout) + len(output.stderr) > max_output_bytes:
-            raise ValueError("output exceeds persistence byte budget")
         parsed = parse_review(
             output,
-            max_output_bytes=max_output_bytes,
             output_format=output_format,
             response_format=response_format,
         )

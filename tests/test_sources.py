@@ -187,18 +187,25 @@ async def test_missing_invalid_and_noncommit_revisions(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_byte_limits_reject_instead_of_truncating(tmp_path: Path) -> None:
-    repo, base, head = await repository_at_two_commits(tmp_path)
-    with pytest.raises(SourceError, match="byte limit"):
-        await GitSourceReader.open(
-            repo, base_sha=base, head_sha=head, limits=SourceLimits(max_tree_bytes=10)
-        )
-    reader = await GitSourceReader.open(
-        repo, base_sha=base, head_sha=head, limits=SourceLimits(max_file_bytes=6)
-    )
-    assert await reader.read_file(SourceFile("changed.py", Side.HEAD)) == b"after\n"
-    with pytest.raises(SourceError, match="byte limit"):
-        await reader.read_file(SourceFile("surrounding.py", Side.HEAD))
+async def test_large_unchanged_file_is_available_in_snapshots(tmp_path: Path) -> None:
+    from diffbutler.core.snapshot import write_snapshot
+
+    repo, _, _ = await repository_at_two_commits(tmp_path)
+    content = b"plain source data\n" * 125_000
+    (repo / "large.txt").write_bytes(content)
+    await git(repo, "add", ".")
+    await git(repo, "commit", "-m", "large source")
+    base = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    (repo / "changed.py").write_text("another change\n")
+    await git(repo, "add", ".")
+    await git(repo, "commit", "-m", "small change")
+    head = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
+    assert await reader.read_file(SourceFile("large.txt", Side.HEAD)) == content
+    destination = tmp_path / "snapshot"
+    await write_snapshot(reader, destination)
+    for side in ("base", "head"):
+        assert (destination / side / "large.txt").read_bytes() == content
 
 
 @pytest.mark.asyncio
@@ -226,7 +233,7 @@ async def test_timeout_and_cancellation_reap_process(
     reader = GitSourceReader(
         tmp_path, str(executable), SourceLimits(timeout_s=0.3 if not cancel else 10), {}
     )
-    task = asyncio.create_task(reader._git("cat-file", limit=100))  # pyright: ignore[reportPrivateUsage]
+    task = asyncio.create_task(reader._git("cat-file"))  # pyright: ignore[reportPrivateUsage]
     if cancel:
         async with asyncio.timeout(5):
             while not pid_file.exists():
@@ -262,8 +269,8 @@ async def test_missing_promisor_blob_does_not_launch_remote_helper(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("behavior", ["stderr", "overflow", "environment"])
-async def test_git_capture_limits_and_environment(
+@pytest.mark.parametrize("behavior", ["stderr", "environment"])
+async def test_git_capture_errors_and_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     behavior: str,
@@ -271,7 +278,6 @@ async def test_git_capture_limits_and_environment(
     executable = tmp_path / "fake-git"
     code = {
         "stderr": "sys.stderr.write('SYNTHETIC_SECRET'); sys.exit(1)",
-        "overflow": "sys.stderr.write('x' * 1000000)",
         "environment": (
             "assert not any(k in os.environ for k in "
             "['GITHUB_TOKEN', 'SSH_AUTH_SOCK', 'HOME', 'GIT_DIR']); "
@@ -284,10 +290,10 @@ async def test_git_capture_limits_and_environment(
     monkeypatch.setenv("SSH_AUTH_SOCK", "/synthetic/agent")
     reader = GitSourceReader(tmp_path, str(executable), SourceLimits(), {})
     if behavior == "environment":
-        assert await reader._git(limit=100) == b"ok\n"  # pyright: ignore[reportPrivateUsage]
+        assert await reader._git() == b"ok\n"  # pyright: ignore[reportPrivateUsage]
     else:
         with pytest.raises(SourceError) as raised:
-            await reader._git(limit=100)  # pyright: ignore[reportPrivateUsage]
+            await reader._git()  # pyright: ignore[reportPrivateUsage]
         assert "SYNTHETIC_SECRET" not in str(raised.value)
 
 
@@ -298,7 +304,7 @@ def test_invalid_source_timeout(timeout: float) -> None:
 
 
 @pytest.mark.asyncio
-async def test_output_overflow_drains_owned_pipes(
+async def test_large_stderr_drains_owned_pipes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     executable = tmp_path / "overflow-git"
@@ -322,8 +328,7 @@ async def test_output_overflow_drains_owned_pipes(
     monkeypatch.setattr(asyncio, "create_subprocess_exec", capture)
     reader = GitSourceReader(tmp_path, str(executable), SourceLimits(), {})
     async with asyncio.timeout(5):
-        with pytest.raises(SourceError, match="byte limit"):
-            await reader._git(limit=100)  # pyright: ignore[reportPrivateUsage]
+        assert await reader._git() == b""  # pyright: ignore[reportPrivateUsage]
     child = children[0]
     assert child.returncode is not None
     assert child.stdout is not None and child.stdout.at_eof()
@@ -331,7 +336,7 @@ async def test_output_overflow_drains_owned_pipes(
 
 
 @pytest.mark.asyncio
-async def test_diff_is_pinned_bounded_and_disables_drivers(tmp_path: Path) -> None:
+async def test_diff_is_pinned_and_disables_drivers(tmp_path: Path) -> None:
     repo, base, _ = await repository_at_two_commits(tmp_path)
     # Compare text-only commits, with hostile attributes/config and a dirty tree.
     (repo / "odd\tname\n.py").unlink()
@@ -347,7 +352,7 @@ async def test_diff_is_pinned_bounded_and_disables_drivers(tmp_path: Path) -> No
     await git(repo, "add", "changed.py")
     before = await git(repo, "status", "--porcelain=v1")
     reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
-    diff = await reader.read_diff(max_bytes=10000)
+    diff = await reader.read_diff()
     assert reader.base_sha == base and reader.head_sha == head
     assert "-before\n+after without newline\n" in diff
     assert "\\ No newline at end of file" in diff
@@ -355,9 +360,7 @@ async def test_diff_is_pinned_bounded_and_disables_drivers(tmp_path: Path) -> No
     assert "unrelated dirty source" not in diff
     assert not marker.exists()
     assert await git(repo, "status", "--porcelain=v1") == before
-    assert await reader.read_diff(max_bytes=len(diff.encode())) == diff
-    with pytest.raises(SourceError, match="byte limit"):
-        await reader.read_diff(max_bytes=len(diff.encode()) - 1)
+    assert await reader.read_diff() == diff
 
 
 @pytest.mark.asyncio
@@ -370,21 +373,21 @@ async def test_unsupported_diff_content_fails_closed(tmp_path: Path, content: by
     head = (await git(repo, "rev-parse", "HEAD")).decode().strip()
     reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
     with pytest.raises(SourceError, match="unsupported"):
-        await reader.read_diff(max_bytes=10000)
+        await reader.read_diff()
 
 
 @pytest.mark.asyncio
 async def test_diff_empty_mode_rename_and_submodule_changes(tmp_path: Path) -> None:
     repo, base, head = await repository_at_two_commits(tmp_path)
     unchanged = await GitSourceReader.open(repo, base_sha=head, head_sha=head)
-    assert await unchanged.read_diff(max_bytes=1) == ""
+    assert await unchanged.read_diff() == ""
     await git(repo, "mv", "surrounding.py", "renamed.py")
     await git(repo, "update-index", "--chmod=+x", "changed.py")
     await git(repo, "update-index", "--add", "--cacheinfo", f"160000,{base},submodule")
     await git(repo, "commit", "-m", "mode rename and gitlink")
     newer = (await git(repo, "rev-parse", "HEAD")).decode().strip()
     reader = await GitSourceReader.open(repo, base_sha=head, head_sha=newer)
-    diff = await reader.read_diff(max_bytes=10000)
+    diff = await reader.read_diff()
     assert "old mode 100644\nnew mode 100755" in diff
     assert "rename from" not in diff
     assert "--- a/surrounding.py\n+++ /dev/null" in diff

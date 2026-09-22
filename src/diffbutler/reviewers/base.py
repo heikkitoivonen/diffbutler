@@ -18,7 +18,7 @@ class SourceReader(Protocol):
 
 
 class ReviewSources(SourceReader, Protocol):
-    """Prepared, pinned sources; implementations bound diff output before returning."""
+    """Prepared sources pinned to the PR revisions."""
 
     @property
     def base_sha(self) -> str: ...
@@ -32,17 +32,15 @@ class ReviewSources(SourceReader, Protocol):
     @property
     def limitations(self) -> tuple[str, ...]: ...
 
-    async def read_diff(self, *, max_bytes: int) -> str: ...
+    async def read_diff(self) -> str: ...
 
 
 @dataclass(frozen=True)
 class ReviewBudget:
     timeout_s: int = 900
-    max_diff_bytes: int = 1_000_000
-    max_output_bytes: int = 4_000_000
 
     def __post_init__(self) -> None:
-        if min(self.timeout_s, self.max_diff_bytes, self.max_output_bytes) <= 0:
+        if self.timeout_s <= 0:
             raise ValueError("review budgets must be positive")
 
 

@@ -108,7 +108,7 @@ def native_preset(name: str) -> NativePreset:
 
 
 class CapturedProcess:
-    """Own a trusted CLI's process group and bounded pipes, including spawn races.
+    """Own a trusted CLI's process group and captured pipes, including spawn races.
 
     Deliberately detached processes are outside this native CLI supervision model.
     EOF never releases ownership: stop_and_wait must first stop and reap the group.
@@ -126,7 +126,6 @@ class CapturedProcess:
         cwd: Path,
         env: Mapping[str, str],
         input: bytes,
-        maximum: int,
         checkpoint: Callable[[str], Awaitable[None]] | None = None,
         output_format: StreamFormat = CODEX_OUTPUT,
     ) -> ReviewOutput:
@@ -150,16 +149,11 @@ class CapturedProcess:
         assert (
             process.stdin is not None and process.stdout is not None and process.stderr is not None
         )
-        size = 0
 
         async def collect(stream: asyncio.StreamReader, *, events: bool) -> bytes:
-            nonlocal size
             result = bytearray()
             pending = bytearray()
             while chunk := await stream.read(65536):
-                size += len(chunk)
-                if size > maximum:
-                    raise NativeError("Reviewer output exceeds byte budget")
                 result.extend(chunk)
                 if events and checkpoint is not None:
                     pending.extend(chunk)

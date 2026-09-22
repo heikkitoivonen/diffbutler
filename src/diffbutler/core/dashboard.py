@@ -364,7 +364,7 @@ async def diff_configured(path: Path | None, task_id: UUID) -> str:
         source = await GitSourceReader.open(
             repository_path, base_sha=run.base_sha, head_sha=run.head_sha
         )
-        diff = await source.read_diff(max_bytes=settings.review.max_diff_bytes)
+        diff = await source.read_diff()
         return redact_and_report(diff.encode()).decode()
 
 

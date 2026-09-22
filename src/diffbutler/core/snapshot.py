@@ -5,19 +5,16 @@ from pathlib import Path
 from diffbutler.domain.review import Side, SourceFile
 from diffbutler.reviewers.redaction import redact_and_report
 from diffbutler.reviewers.resources import settled_io
-from diffbutler.sources.git import GitSourceReader, SourceError
+from diffbutler.sources.git import GitSourceReader
 
 
-async def write_snapshot(
-    reader: GitSourceReader, destination: Path, *, max_bytes: int = 64_000_000
-) -> None:
+async def write_snapshot(reader: GitSourceReader, destination: Path) -> None:
     """Destination is a new directory beneath an already registered owned resource.
 
     Symlinks are represented by their link text as regular files; submodules fail
     rather than silently inventing contents. No Git metadata or executable modes
     are copied. Native read-only permissions remain the agent's responsibility.
     """
-    total = 0
     await settled_io(lambda: destination.mkdir(mode=0o700))
     for side in Side:
         root = destination / side.value
@@ -25,9 +22,6 @@ async def write_snapshot(
         for name in reader.paths(side):
             content = await reader.read_file(SourceFile(name, side))
             assert content is not None
-            total += len(content)
-            if total > max_bytes:
-                raise SourceError("Pinned sources exceed the snapshot byte budget")
             target = root / name
             redacted = redact_and_report(content)
 

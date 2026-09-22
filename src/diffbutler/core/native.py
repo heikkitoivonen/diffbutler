@@ -172,7 +172,6 @@ class NativeExecution:
                 cwd=workdir,
                 env=env,
                 input=prompt.content,
-                maximum=context.budget.max_output_bytes,
                 checkpoint=native_checkpoint,
                 output_format=preset.output_format,
             )

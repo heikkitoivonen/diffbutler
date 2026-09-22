@@ -30,10 +30,7 @@ async def assemble_context(
     if (pr.base_sha, pr.head_sha) != expected or (sources.base_sha, sources.head_sha) != expected:
         raise ReviewConflict("Review context revisions do not match the requested analysis")
     async with asyncio.timeout(budget.timeout_s):
-        diff = await sources.read_diff(max_bytes=budget.max_diff_bytes)
-    # Enforce the contract even for another adapter that fails to bound its output.
-    if len(diff.encode("utf-8")) > budget.max_diff_bytes:
-        raise ValueError("Review diff exceeds the configured byte limit")
+        diff = await sources.read_diff()
     return ReviewContext(
         pr=pr,
         session_id=run.session_id,

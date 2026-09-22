@@ -45,25 +45,27 @@ def test_drafts_require_complete_backend_output_and_ignore_tool_text(complete: b
 
 
 @pytest.mark.parametrize(
-    ("text", "exit_code", "budget", "error"),
+    ("text", "exit_code", "error"),
     [
-        (b" \n", 0, 100, "empty review response"),
-        (b"\xff", 0, 100, "output is not UTF-8"),
-        (b"No issues found", 1, 100, "reviewer exited unsuccessfully"),
-        (b"No issues found", 0, 2, "output exceeds byte budget"),
+        (b" \n", 0, "empty review response"),
+        (b"\xff", 0, "output is not UTF-8"),
+        (b"No issues found", 1, "reviewer exited unsuccessfully"),
     ],
 )
-def test_invalid_drafts_are_not_successful_reviews(
-    text: bytes, exit_code: int, budget: int, error: str
-) -> None:
-    parsed = parse_review(
-        ReviewOutput(text, b"", exit_code), response_format="markdown", max_output_bytes=budget
-    )
+def test_invalid_drafts_are_not_successful_reviews(text: bytes, exit_code: int, error: str) -> None:
+    parsed = parse_review(ReviewOutput(text, b"", exit_code), response_format="markdown")
     assert parsed.error == error and parsed.draft is None
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("text", [DRAFT, "No issues found. Project checks were not executed."])
+@pytest.mark.parametrize(
+    "text",
+    [
+        DRAFT,
+        "No issues found. Project checks were not executed.",
+        pytest.param("Review notes.\n" * 310_000, id="large-output"),
+    ],
+)
 async def test_drafts_survive_restart_and_always_await_human_review(
     tmp_path: Path, text: str
 ) -> None:

@@ -46,16 +46,14 @@ def _text(value: str) -> str:
     return redact_and_report(value.encode("utf-8")).decode("utf-8")
 
 
-def render_prompt(context: ReviewContext, *, max_bytes: int = 2_000_000) -> RenderedPrompt:
-    """Render a complete bounded prompt without paths, callbacks, or host environment.
+def render_prompt(context: ReviewContext) -> RenderedPrompt:
+    """Render a complete prompt without paths, callbacks, or host environment.
 
     Caller-supplied schema_json is retained in ReviewContext for older adapters;
     native reviews request human-readable draft comments instead of a JSON schema.
     Redaction is heuristic and JSON framing does not enforce model behavior.
     A validated process/capability boundary is still required before transmission.
     """
-    if max_bytes < 1:
-        raise ValueError("Prompt byte budget must be positive")
     pr = context.pr
     payload = {
         "trusted_instructions": _text(context.instructions),
@@ -83,6 +81,4 @@ def render_prompt(context: ReviewContext, *, max_bytes: int = 2_000_000) -> Rend
     }
     serialized = json.dumps(payload, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
     content = (_POLICY + "\n" + serialized + "\n").encode("utf-8")
-    if len(content) > max_bytes:
-        raise ValueError("Serialized review prompt exceeds byte budget")
     return RenderedPrompt(PROMPT_VERSION, content)

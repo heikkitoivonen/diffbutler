@@ -73,7 +73,6 @@ id = "codex"
 preset = "codex"
 command = ["codex"]
 timeout_s = 900
-max_output_bytes = 4000000
 
 [repos."acme/api"]
 path = "~/src/api"
@@ -139,14 +138,14 @@ session gets a durably registered owned directory, a dedicated `CODEX_HOME` or `
 per-run `base/` and `head/` source snapshots. Snapshots contain pinned, redacted Git
 blobs, including unchanged source, with no checkout hooks, Git administration, or
 project execution. They ignore local working/index changes. Symlinks become regular
-files containing link text. Missing objects, submodules, unsupported/binary diffs,
-and byte-budget excesses fail with a diagnostic; no partial review is presented as
+files containing link text. Missing objects, submodules, and unsupported/binary
+diffs fail with a diagnostic; no partial review is presented as
 complete. On an explicit review request, missing objects are fetched into a session-owned bare
 repository over HTTPS, including GitHub pull refs for fork PRs. A configured local
 checkout is used when it already contains both pinned commits; it is never modified.
 Private repositories require working Git HTTPS authentication (for example, a configured
-credential helper). Fetches never prompt inside the dashboard. Endpoint comparison and
-64 MB combined snapshot budget are current limitations; worktrees and
+credential helper). Fetches never prompt inside the dashboard. Endpoint comparison
+is a current limitation; worktrees and
 large-diff splitting remain future enhancements.
 
 ## Native permissions and authentication
@@ -199,7 +198,7 @@ and a resumed conversation can contain material from earlier foreground discussi
 
 ## Ownership, output, and cleanup
 
-Background stdout/stderr are bounded pipes, never terminal output. The actual
+Background stdout/stderr are captured pipes, never terminal output. The actual
 `thread.started` (Codex) or `system/init` (Claude) identity is checkpointed while the worker holds its claim. Only
 completed Codex agent-message items or a successful Claude terminal `result` count
 as answers; tool output cannot replace them.
@@ -211,7 +210,7 @@ filters, or automatic anchors are inferred from prose. Legacy structured results
 remain readable. Raw capture is retained until cleanup; review drafts survive deletion.
 
 The runner terminates/reaps the owned process group before finalizing or releasing
-ownership, including overflow, timeout, and cancellation. It trusts the native CLI
+ownership, including timeout and cancellation. It trusts the native CLI
 not to deliberately detach descendants; it is not a hostile-process supervisor.
 Launch intent is durable before spawn. Cleanup also records host/boot intent before
 filesystem deletion, so interrupted cleanup can be retried after a verified reboot.

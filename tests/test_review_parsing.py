@@ -141,16 +141,12 @@ def test_duplicate_keys_and_nonfinite_numbers_fail_without_recovery() -> None:
     assert parse_review(output(clean[:-1] + ', "usage": Infinity}')).error
 
 
-def test_exit_encoding_and_combined_byte_budget() -> None:
+def test_exit_encoding_and_large_output() -> None:
     captured = output(json.dumps(payload()), exit_code=1)
     assert parse_review(captured).error == "reviewer exited unsuccessfully"
     assert parse_review(ReviewOutput(b"\xff", b"", 0)).error == "output is not UTF-8"
     captured = output(json.dumps(payload()))
-    size = len(captured.stdout) + len(captured.stderr)
-    assert parse_review(captured, max_output_bytes=size).document is not None
-    assert parse_review(captured, max_output_bytes=size - 1).error == "output exceeds byte budget"
-    with pytest.raises(ValueError, match="positive"):
-        parse_review(captured, max_output_bytes=0)
+    assert parse_review(ReviewOutput(captured.stdout, b"x" * 4_000_001, 0)).document is not None
 
 
 def test_deeply_nested_output_fails_safely() -> None:

@@ -20,7 +20,6 @@ auto_migrate = true
 [review]
 findings_threshold = "minor" # blocking | important | minor | nit | question
 min_confidence = 0.5
-max_diff_bytes = 400000
 exclude_globs = ["**/*.lock", "**/vendor/**", "**/*.min.js", "**/generated/**"]
 mode = "source_only"
 checkout = "worktree" # Native reviews currently use pinned source snapshots.
@@ -68,7 +67,6 @@ open_in_browser = ["o", "ctrl+o"]
 # kind = "cli"
 # command = ["codex"]
 # preset = "codex"
-# max_output_bytes = 4000000
 # timeout_s = 900
 # parse = "json_envelope" # The Codex preset uses its fixed JSONL protocol.
 # json_path = "result"

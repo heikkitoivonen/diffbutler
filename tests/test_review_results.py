@@ -256,7 +256,7 @@ async def test_cleaned_session_cannot_receive_output(database: Database) -> None
     assert await reviews.get_result(run.id) is None
 
 
-async def test_invalid_policy_or_oversized_capture_keeps_ownership(database: Database) -> None:
+async def test_invalid_policy_keeps_ownership(database: Database) -> None:
     _, identity = await seed(database)
     reviews = service(database)
     run = await reviews.request_review(identity)
@@ -265,8 +265,6 @@ async def test_invalid_policy_or_oversized_capture_keeps_ownership(database: Dat
     for confidence in (-0.1, 1.1, float("nan"), float("inf")):
         with pytest.raises(ValueError, match="confidence"):
             await reviews.finalize_review(claim.token, captured(), min_confidence=confidence)
-    with pytest.raises(ValueError, match="budget"):
-        await reviews.finalize_review(claim.token, captured(), max_output_bytes=1)
     assert await reviews.get_result(run.id) is None
     async with database.sessions() as db:
         assert await db.get(RunClaim, claim.token) is not None

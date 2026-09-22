@@ -34,13 +34,13 @@ class FakeSources:
         ),
     ) -> None:
         self.diff = diff
-        self.requested_limits: list[int] = []
+        self.read_calls = 0
         self.started = asyncio.Event()
         self.block = False
         self.cancelled = False
 
-    async def read_diff(self, *, max_bytes: int) -> str:
-        self.requested_limits.append(max_bytes)
+    async def read_diff(self) -> str:
+        self.read_calls += 1
         self.started.set()
         if self.block:
             try:
@@ -94,7 +94,7 @@ def records() -> tuple[RunRecord, PullRequest]:
 async def test_context_preserves_identity_and_surrounding_source() -> None:
     run, pr = records()
     sources = FakeSources()
-    budget = ReviewBudget(max_diff_bytes=1000)
+    budget = ReviewBudget()
     context = await assemble_context(
         run=run,
         pr=pr,
@@ -110,7 +110,7 @@ async def test_context_preserves_identity_and_surrounding_source() -> None:
     assert context.schema_json == '{"type":"object"}'
     assert context.checkout_path is None
     assert context.limitations[-1] == sources.limitations[0]
-    assert sources.requested_limits == [1000]
+    assert sources.read_calls == 1
     assert (
         await context.sources.read_file(SourceFile("unchanged.py", Side.HEAD))
         == b"surrounding source"
@@ -145,21 +145,25 @@ async def test_invalid_context_rejected_before_source_io(mismatch: str) -> None:
             schema_json="{}",
             budget=ReviewBudget(),
         )
-    assert sources.requested_limits == []
+    assert sources.read_calls == 0
 
 
 @pytest.mark.asyncio
-async def test_diff_budget_counts_bytes_without_silent_truncation() -> None:
+async def test_large_diff_is_preserved_without_truncation() -> None:
     run, pr = records()
-    with pytest.raises(ValueError, match="byte limit"):
-        await assemble_context(
-            run=run,
-            pr=pr,
-            sources=FakeSources("éé"),
-            instructions="",
-            schema_json="{}",
-            budget=ReviewBudget(max_diff_bytes=3),
-        )
+    diff = (
+        "diff --git a/changed.py b/changed.py\n"
+        "--- a/changed.py\n+++ b/changed.py\n@@ -1 +1 @@\n-old\n+" + "é" * 600_000 + "\n"
+    )
+    context = await assemble_context(
+        run=run,
+        pr=pr,
+        sources=FakeSources(diff),
+        instructions="",
+        schema_json="{}",
+        budget=ReviewBudget(),
+    )
+    assert context.diff == diff
 
 
 @pytest.mark.asyncio

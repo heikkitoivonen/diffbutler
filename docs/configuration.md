@@ -198,3 +198,8 @@ The dashboard's `a` switch enables monitoring all open PRs in configured reposit
 This preference is stored in the local database, not the TOML file, and survives restarts.
 Every forge needs a nonempty `repositories` list to enable it. The default is review-request
 discovery only. Existing followed PRs continue to be monitored when it is disabled.
+
+DiffButler does not impose byte limits on source files, tree listings, diffs,
+snapshots, prompts, or captured reviewer output. Legacy `review.max_diff_bytes`
+and `reviewers.max_output_bytes` settings are accepted but ignored. Reviewer
+timeouts still apply; the selected agent and model retain their own context limits.

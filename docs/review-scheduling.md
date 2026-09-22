@@ -116,12 +116,10 @@ Migration `0005` adds `review_result`, with one immutable-by-API result per run.
 Raw stdout/stderr and exit code occupy the existing `ai_run` fields. `get_result`
 returns a frozen DTO with the normalized document and raw bytes; JSON serialization
 uses base64 for bytes. A known run without a finalized result returns `None`.
-Analysis survives automatic cleanup of raw output, represented by null byte fields. Storage currently keeps bounded
+Analysis survives automatic cleanup of raw output, represented by null byte fields. Storage currently keeps
 output inline; file spillover is not implemented.
 
-Oversized captured output is rejected before persistence without releasing the claim;
-the native executor caps capture and handle its overflow failure before finalizing
-or releasing. The default combined stdout/stderr cap is 4 MB. Invalid thresholds,
+Captured output has no DiffButler byte limit. Invalid thresholds,
 invalid/replaced backend IDs, and cleaned sessions also reject the operation without
 partially saving a result or releasing ownership. A repeated finalization with a
 consumed token is rejected; after an uncertain commit, read the run/result to determine

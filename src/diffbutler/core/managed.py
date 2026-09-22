@@ -187,11 +187,7 @@ class ManagedReviews:
                 sources=sources,
                 instructions=instructions,
                 schema_json="{}",
-                budget=ReviewBudget(
-                    selected.timeout_s,
-                    self.settings.review.max_diff_bytes,
-                    selected.max_output_bytes,
-                ),
+                budget=ReviewBudget(timeout_s=selected.timeout_s),
             )
 
         def execution(claim: RunClaim) -> NativeExecution:

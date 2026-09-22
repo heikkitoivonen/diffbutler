@@ -37,14 +37,10 @@ async def _terminate_group(pid: int) -> None:
 
 @dataclass(frozen=True)
 class SourceLimits:
-    max_file_bytes: int = 2_000_000
-    max_tree_bytes: int = 8_000_000
     timeout_s: float = 30
 
     def __post_init__(self) -> None:
-        if min(self.max_file_bytes, self.max_tree_bytes, self.timeout_s) <= 0 or not math.isfinite(
-            self.timeout_s
-        ):
+        if self.timeout_s <= 0 or not math.isfinite(self.timeout_s):
             raise ValueError("source limits must be positive")
 
 
@@ -96,7 +92,7 @@ class GitSourceReader:
         reader = cls(repository.absolute(), executable, limits, {})
         trees: dict[Side, Mapping[str, _Entry]] = {}
         for side, revision in ((Side.BASE, base_sha), (Side.HEAD, head_sha)):
-            if await reader._git("cat-file", "-t", revision, limit=128) != b"commit\n":
+            if await reader._git("cat-file", "-t", revision) != b"commit\n":
                 raise SourceError("Source revision is not a commit")
             raw = await reader._git(
                 "ls-tree",
@@ -104,7 +100,6 @@ class GitSourceReader:
                 "-z",
                 "--full-tree",
                 revision,
-                limit=limits.max_tree_bytes,
             )
             entries: dict[str, _Entry] = {}
             try:
@@ -151,14 +146,12 @@ class GitSourceReader:
             "Renames are represented as deletion and addition; submodule contents are unavailable.",
         )
 
-    async def read_diff(self, *, max_bytes: int) -> str:
-        """Bounded endpoint diff; reject binary/non-UTF-8 content, never truncate.
+    async def read_diff(self) -> str:
+        """Endpoint diff; reject binary/non-UTF-8 content, never truncate.
 
         Force text so working-tree attributes cannot hide changes as binary or
         invoke custom drivers. No textconv, external diff, or project execution.
         """
-        if max_bytes < 1:
-            raise ValueError("diff byte limit must be positive")
         if not self.base_sha or not self.head_sha:
             raise SourceError("Source reader has not been prepared")
         raw = await self._git(
@@ -182,7 +175,6 @@ class GitSourceReader:
             self.base_sha,
             self.head_sha,
             "--",
-            limit=max_bytes,
         )
         try:
             result = raw.decode("utf-8")
@@ -213,16 +205,9 @@ class GitSourceReader:
         if entry.mode == "160000":
             raise SourceError("Submodule source is unavailable in this repository context")
         # The object ID came from the pinned tree, not from a caller's expression.
-        size = await self._git("cat-file", "-s", entry.oid, limit=128)
-        try:
-            oversized = int(size) > self._limits.max_file_bytes
-        except ValueError:
-            raise SourceError("Git returned an invalid source size") from None
-        if oversized:
-            raise SourceError("Source file exceeds the configured byte limit")
-        return await self._git("cat-file", "blob", entry.oid, limit=self._limits.max_file_bytes)
+        return await self._git("cat-file", "blob", entry.oid)
 
-    async def _git(self, *args: str, limit: int) -> bytes:
+    async def _git(self, *args: str) -> bytes:
         # No inherited tokens, Git overrides, HOME configuration, or SSH agents.
         # Protocol denial also protects Git versions without GIT_NO_LAZY_FETCH.
         env = {
@@ -257,16 +242,14 @@ class GitSourceReader:
             raise SourceError("Could not start Git source retrieval") from None
         assert process.stdout is not None and process.stderr is not None
 
-        async def collect(stream: asyncio.StreamReader, maximum: int) -> bytes:
+        async def collect(stream: asyncio.StreamReader) -> bytes:
             result = bytearray()
             while chunk := await stream.read(65536):
                 result.extend(chunk)
-                if len(result) > maximum:
-                    raise SourceError("Git source output exceeds the configured byte limit")
             return bytes(result)
 
-        stdout = asyncio.create_task(collect(process.stdout, limit))
-        stderr = asyncio.create_task(collect(process.stderr, 65536))
+        stdout = asyncio.create_task(collect(process.stdout))
+        stderr = asyncio.create_task(collect(process.stderr))
         try:
             async with asyncio.timeout(self._limits.timeout_s):
                 output, _ = await asyncio.gather(stdout, stderr)
@@ -286,7 +269,7 @@ class GitSourceReader:
                 while await stream.read(65536):
                     pass
 
-            # Overflow can leave a paused pipe transport with buffered data.
+            # Cancellation can leave a paused pipe transport with buffered data.
             # Drain after killing so EOF closes both transports before returning.
             await asyncio.gather(discard(process.stdout), discard(process.stderr))
             await process.wait()

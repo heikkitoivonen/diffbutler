@@ -59,7 +59,8 @@ class Review(Section):
     default_reviewer: str | None = None
     findings_threshold: Literal["blocking", "important", "minor", "nit", "question"] = "minor"
     min_confidence: float = Field(default=0.5, ge=0, le=1)
-    max_diff_bytes: int = Field(default=400_000, gt=0)
+    # Accepted for compatibility with existing configuration; no longer enforced.
+    max_diff_bytes: int | None = Field(default=None, exclude=True)
     exclude_globs: list[str] = Field(
         default_factory=lambda: ["**/*.lock", "**/vendor/**", "**/*.min.js", "**/generated/**"]
     )
@@ -73,7 +74,8 @@ class Reviewer(Section):
     kind: Literal["cli"] = "cli"
     command: list[str] = Field(min_length=1)
     preset: Literal["codex", "claude"] | None = None
-    max_output_bytes: int = Field(default=4_000_000, gt=0)
+    # Accepted for compatibility with existing configuration; no longer enforced.
+    max_output_bytes: int | None = Field(default=None, exclude=True)
     timeout_s: int = Field(default=900, gt=0)
     parse: Literal["json_envelope", "jsonl_stream"] = "json_envelope"
     json_path: str | None = None

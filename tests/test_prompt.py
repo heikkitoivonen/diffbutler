@@ -73,11 +73,10 @@ async def test_credentials_masked_before_escaping_in_every_dynamic_field(
 
 
 @pytest.mark.asyncio
-async def test_serialized_byte_limit_never_truncates() -> None:
-    ctx = replace(await context(), instructions="é" * 10)
+async def test_large_serialized_prompt_is_preserved() -> None:
+    instructions = "é" * 400_000
+    ctx = replace(await context(), instructions=instructions)
     rendered = render_prompt(ctx)
-    assert render_prompt(ctx, max_bytes=len(rendered.content)) == rendered
-    with pytest.raises(ValueError, match="exceeds byte budget"):
-        render_prompt(ctx, max_bytes=len(rendered.content) - 1)
-    with pytest.raises(ValueError, match="positive"):
-        render_prompt(ctx, max_bytes=0)
+    assert len(rendered.content) > 2_000_000
+    payload = json.loads(rendered.content.splitlines()[-1])
+    assert payload["trusted_instructions"] == instructions

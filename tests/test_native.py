@@ -173,7 +173,6 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
                 cwd=launch.cwd,
                 env=foreground_environment(launch),
                 input=b"",
-                maximum=10000,
             )
             assert resumed.exit_code == 0 and b"remembered orientation" in resumed.stdout
         finally:
@@ -196,8 +195,8 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         await database.close()
 
 
-async def test_native_capture_overflow_and_cancellation_stop_owned_group(tmp_path: Path) -> None:
-    for code, maximum in (("print('x'*100000)", 10), ("import time;time.sleep(60)", 1000)):
+async def test_native_large_capture_and_cancellation_stop_owned_group(tmp_path: Path) -> None:
+    for code, completes in (("print('x'*4_000_001)", True), ("import time;time.sleep(60)", False)):
         execution = CapturedProcess()
         task = asyncio.create_task(
             execution.capture(
@@ -205,13 +204,12 @@ async def test_native_capture_overflow_and_cancellation_stop_owned_group(tmp_pat
                 cwd=tmp_path,
                 env={"PATH": os.defpath},
                 input=b"",
-                maximum=maximum,
             )
         )
         try:
-            if maximum == 10:
-                with pytest.raises(NativeError, match="byte budget"):
-                    await task
+            if completes:
+                output = await task
+                assert output.stdout == b"x" * 4_000_001 + b"\n"
             else:
                 while execution.spawn is None:
                     await asyncio.sleep(0)
@@ -818,7 +816,6 @@ async def test_claude_checkpoints_init_before_completion(tmp_path: Path) -> None
             cwd=tmp_path,
             env={"PATH": os.defpath},
             input=b"",
-            maximum=1000,
             checkpoint=checkpoint,
             output_format=CLAUDE_OUTPUT,
         )

@@ -23,9 +23,8 @@ low-confidence, nit, and question findings. The core applies thresholds during
 
 `ParsedReview` retains the original stdout, stderr, exit code, and backend identity
 on both success and failure. Failure diagnostics are fixed strings without backend
-content. Nonzero exits, invalid UTF-8, and a combined stdout/stderr byte-budget overflow
-cannot produce a successful document. This parser checks already-captured bytes;
-the native executor also enforces limits while collecting output. Nothing is
+content. Nonzero exits and invalid UTF-8 cannot produce a successful document.
+This parser checks already-captured bytes without a byte limit. Nothing is
 logged or persisted by parsing.
 
 The parser validates locations structurally. Context preparation now builds a

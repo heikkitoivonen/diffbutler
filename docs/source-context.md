@@ -15,7 +15,7 @@ followed; submodule entries report unavailable source. Missing paths return `Non
 Non-UTF-8 or lexically unsupported tree paths reject context preparation rather
 than silently hiding files. Changed-file inventory includes additions, deletions,
 content changes, and mode changes. Renames appear as deletion plus addition.
-The adapter also provides a bounded unified diff between those exact two commits.
+The adapter also provides a unified diff between those exact two commits.
 It compares endpoints, not the merge base; the context records that limitation.
 Renames remain deletion/addition pairs. Diff generation forces text and disables
 external drivers and textconv, so working-tree attributes cannot hide changes as
@@ -25,9 +25,9 @@ merge-base comparison are not implemented.
 
 `core.context.assemble_context` consumes the `ReviewSources` protocol and builds an
 immutable `ReviewContext` for a running attempt and an open PR. Both source and PR
-base/head identities must match the run before any diff read. Assembly forwards the
-diff byte budget, independently checks its UTF-8 byte length, and propagates timeout
-and cancellation. It builds a [DiffIndex](diff-anchors.md) from the original diff before masking,
+base/head identities must match the run before any diff read. Assembly propagates
+timeout and cancellation. It builds a [DiffIndex](diff-anchors.md) from the original
+diff before masking,
 rejecting malformed or unsupported hunks. It preserves redacted mediated access to surrounding source and records
 the absence of a checkout and of executed project checks. Instructions and schema
 are caller-supplied trusted inputs; source and PR metadata remain untrusted data.
@@ -39,7 +39,7 @@ source leaves the machine in this function. The explicit native review workflow
 serializes it and launches the configured agent with native read-only permissions.
 
 Git runs asynchronously with argv execution, no terminal input, captured output,
-bounded byte counts, a timeout, and process-group termination on cancellation or
+a timeout, and process-group termination on cancellation or
 failure. Reads use `ls-tree`, `cat-file`, and `diff-tree`, without checkout, filters, textconv,
 replacement objects, or project code execution. Git receives an explicit environment
 without inherited tokens, SSH-agent access, or global/system Git configuration.
@@ -57,14 +57,14 @@ implemented in the managed path.
 Offline tests use disposable Git repositories and synthetic executables. They cover
 pinned reads with a dirty index/worktree, surrounding files, links, binary and unusual
 filenames, mode changes, submodules, replacement refs, filters, missing promisor objects,
-environment filtering, safe diagnostics, output limits, timeout, and cancellation.
+environment filtering, safe diagnostics, large output, timeout, and cancellation.
 
 ## Source redaction
 
 Context assembly masks credential patterns in the diff and wraps all subsequent
 mediated file reads with the same redactor, including unchanged files on either
 side. The raw Git adapter continues to return original bytes for trusted internal
-use. Diff byte budgets apply before masking. Source bytes and local files are never
+use. Source bytes and local files are never
 modified in place.
 
 The initial heuristic recognizes GitHub-style tokens, AWS access key IDs,
@@ -89,7 +89,7 @@ runner must expose only mediated redacted data. Native snapshot preparation uses
 
 ## Prompt serialization
 
-`reviewers.prompt.render_prompt` builds a bounded local UTF-8 payload with a versioned,
+`reviewers.prompt.render_prompt` builds a local UTF-8 payload with a versioned,
 precision-first source-only policy and the parser's generated `ReviewDocument` schema.
 It requires orientation even for empty findings, directs the reviewer to preserve
 limitations in `unverified`, and never treats a clean pass as approval. The legacy
@@ -100,8 +100,8 @@ PR metadata, changed paths, limitations, and diffs are JSON-quoted inside an exp
 untrusted data object. Repository content must not be passed as trusted instructions.
 Every dynamic string, including trusted instructions, is redacted before JSON escaping
 so multiline credential patterns remain recognizable. Host paths, callbacks, PR URLs,
-and backend identities are not serialized. A serialized byte limit rejects oversized
-prompts without truncation. No template engine, transmission, or reviewer is invoked.
+and backend identities are not serialized. Prompts are serialized in full without
+a byte limit. No template engine, transmission, or reviewer is invoked.
 Repository descriptions/conventions and configurable templates are not implemented.
 
 Framing does not enforce model behavior, and heuristic masking does not guarantee

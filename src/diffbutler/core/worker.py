@@ -21,7 +21,7 @@ class ReviewExecution(Protocol):
         backend_session_id: str | None,
         checkpoint: Callable[[str], Awaitable[None]],
     ) -> ReviewOutput:
-        """Capture bounded output under the configured native read-only profile, never a terminal.
+        """Capture output under the configured native read-only profile, never a terminal.
 
         Implementations must await checkpoint when a backend identity is learned.
         Creating the execution object must not start a process; only run may start
@@ -153,7 +153,6 @@ class ReviewWorker:
                 diff_index=context.diff_index,
                 output_format=self.output_format,
                 response_format=self.response_format,
-                max_output_bytes=context.budget.max_output_bytes,
                 min_confidence=self.min_confidence,
                 findings_threshold=self.findings_threshold,
             )
