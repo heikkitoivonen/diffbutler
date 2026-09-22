@@ -140,9 +140,10 @@ The dashboard polls periodically; `sync` remains a single CLI refresh.
 
 ## Transport and remaining work
 
-Requests are serialized within each adapter, with at least one second between request
-starts. Search requests are spaced by at least 6.1 seconds for anonymous access or
-2.1 seconds for authenticated access. Redirects and retry attempts use the same pacing.
+Requests are serialized within each adapter, with at least 0.1 seconds between request
+starts for authenticated access, including search. Anonymous access retains a
+one-second gap, or 6.1 seconds between search requests. Redirects and retry attempts
+use the same pacing.
 When a response reports 20% or less of its quota remaining, remaining requests are
 spread toward the reported reset time. These waits are asynchronous and cancellable;
 refreshes can take substantially longer when the anonymous quota is nearly exhausted.

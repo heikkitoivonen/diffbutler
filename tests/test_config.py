@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from diffbutler.config.settings import ConfigError, config_path, load_settings
+from diffbutler.config.settings import ConfigError, Forge, Settings, config_path, load_settings
 
 
 def test_defaults_do_not_need_a_config_or_forge(tmp_path: Path) -> None:
@@ -13,6 +13,41 @@ def test_defaults_do_not_need_a_config_or_forge(tmp_path: Path) -> None:
     assert settings.review.mode == "source_only"
     assert settings.db.url == f"sqlite+aiosqlite:///{tmp_path}/data/diffbutler/diffbutler.db"
     assert not (tmp_path / "data").exists()
+
+
+@pytest.mark.parametrize(
+    "tokens,expected",
+    [
+        ([], 600),
+        ([None], 600),
+        (["GITHUB_TOKEN"], 60),
+        (["TOKEN_A", "TOKEN_B"], 60),
+        (["GITHUB_TOKEN", None], 600),
+    ],
+)
+def test_polling_defaults_follow_account_authentication(
+    tokens: list[str | None], expected: int
+) -> None:
+    settings = Settings(
+        forges=[
+            Forge(kind="github", base_url="https://api.github.com", token_env=token, login="reader")
+            for token in tokens
+        ]
+    )
+    assert settings.effective_poll_interval_s == expected
+
+
+def test_authenticated_polling_preserves_explicit_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.toml"
+    forge = '[[forges]]\nkind="github"\nbase_url="https://api.github.com"\ntoken_env="TOKEN"\n'
+    path.write_text(forge)
+    assert load_settings(path).effective_poll_interval_s == 60
+    path.write_text(forge + "[general]\npoll_interval_s=600\n")
+    assert load_settings(path).effective_poll_interval_s == 600
+    monkeypatch.setenv("DIFFBUTLER_GENERAL__POLL_INTERVAL_S", "120")
+    assert load_settings(path).effective_poll_interval_s == 120
 
 
 def test_precedence_and_partial_nested_merge(

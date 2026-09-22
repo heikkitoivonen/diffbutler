@@ -118,8 +118,13 @@ the account's sync generation and saves an event/time watermark. In-flight refre
 must retry; older feedback cannot repeatedly undo that choice. Nothing attempts to map
 similar comment text onto finding agreement or rejection.
 
-Polling runs serially at `general.poll_interval_s` (600 seconds / 10 minutes by default),
-backs off on errors, and uses the adapter's rate-limit handling. The app remains
+Polling runs serially, by default every 60 seconds when all configured accounts use
+authentication (`token_env`, resolved from the environment or `gh` login). Anonymous
+accounts retain the 600-second / 10-minute default. A configuration containing both
+uses 600 seconds because each poll refreshes every account. An explicit
+`general.poll_interval_s` overrides either default; remove an existing override to
+use the automatic interval. Polling backs off on errors and uses the adapter's
+rate-limit handling. The app remains
 responsive while reads and native reviews
 run. Polling never replays writes or requests AI. Pausing AI dispatch also applies to
 configured CLI reviews; an already explicitly requested run may wait queued until resume.

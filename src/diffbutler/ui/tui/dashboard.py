@@ -266,7 +266,7 @@ class Dashboard(TerminalApp):
         self.reload_lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
         self.review_tasks: dict[str, asyncio.Task[None]] = {}
-        self.poller = Poller(self.sync, settings.general.poll_interval_s)
+        self.poller = Poller(self.sync, settings.effective_poll_interval_s)
         self.ready = False
         self.closing = False
         self.preview_content = ""

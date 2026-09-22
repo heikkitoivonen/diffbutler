@@ -82,7 +82,8 @@ resolution while retaining local configuration, database, and path checks.
 
 ```toml
 [general]
-poll_interval_s = 600
+# Omit for 60 seconds with authenticated accounts, 600 with any public account.
+# poll_interval_s = 600 # Explicit override for all accounts.
 max_concurrent_reviews = 2
 
 [db]

@@ -11,6 +11,19 @@ from diffbutler.ui.tui.dashboard import Dashboard
 from diffbutler.ui.tui.handoff_probe import HandoffProbe
 
 
+@pytest.mark.parametrize("authenticated,expected", [(True, 60), (False, 600)])
+def test_dashboard_uses_account_polling_default(
+    tmp_path: Path, authenticated: bool, expected: int
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text(
+        '[[forges]]\nkind="github"\nbase_url="https://api.github.com"\nlogin="reader"\n'
+        + ('token_env="GITHUB_TOKEN"\n' if authenticated else "")
+    )
+    app = Dashboard(config, load_settings(config), offline=True)
+    assert app.poller.interval == expected
+
+
 @pytest.mark.parametrize("interface", ["dashboard", "handoff"])
 @pytest.mark.asyncio
 async def test_screenshots_are_disabled(

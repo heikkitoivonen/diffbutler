@@ -23,7 +23,7 @@ class Section(BaseModel):
 
 class General(Section):
     workspace_root: Path = Field(default_factory=lambda: data_path() / "reviews")
-    poll_interval_s: int = Field(default=600, gt=0)
+    poll_interval_s: int | None = Field(default=None, gt=0)
     max_concurrent_reviews: int = Field(default=2, gt=0)
 
 
@@ -137,6 +137,14 @@ class Settings(BaseSettings):
     ui: UI = Field(default_factory=UI)
     keys: dict[str, list[str]] = Field(default_factory=lambda: {"open_in_browser": ["o", "ctrl+o"]})
     repos: dict[str, Repository] = Field(default_factory=dict)
+
+    @property
+    def effective_poll_interval_s(self) -> int:
+        if self.general.poll_interval_s is not None:
+            return self.general.poll_interval_s
+        # One poll refreshes every account; retain the public cadence in mixed setups.
+        authenticated = self.forges and all(forge.token_env is not None for forge in self.forges)
+        return 60 if authenticated else 600
 
     @field_validator("keys", mode="before")
     @classmethod

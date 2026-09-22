@@ -23,8 +23,12 @@ class Clock:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("token,search_gap", [(None, 6.1), ("synthetic", 2.1)])
-async def test_paces_core_and_search_requests(token: str | None, search_gap: float) -> None:
+@pytest.mark.parametrize("token,gap,search_gap", [(None, 1.0, 6.1), ("synthetic", 0.1, 0.1)])
+async def test_paces_core_and_search_requests(
+    token: str | None, gap: float, search_gap: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(GitHubHTTP, "DEFAULT_REQUEST_INTERVAL", 1.0)
+    monkeypatch.setattr(GitHubHTTP, "AUTHENTICATED_REQUEST_INTERVAL", 0.1)
     clock = Clock()
     starts: list[float] = []
 
@@ -38,20 +42,22 @@ async def test_paces_core_and_search_requests(token: str | None, search_gap: flo
         transport=httpx.MockTransport(handle),
         sleep=clock.sleep,
         now=clock.now,
-        request_interval=1,
     )
     try:
         await http.get("user")
         await http.get("search/issues")
         await http.get("user")
         await http.get("search/issues")
-        assert starts == pytest.approx([1000, 1001, 1002, 1001 + search_gap])
+        assert starts == pytest.approx(
+            [1000, 1000 + gap, 1000 + 2 * gap, 1000 + max(3 * gap, gap + search_gap)]
+        )
     finally:
         await http.close()
 
 
 @pytest.mark.asyncio
-async def test_low_quota_spreads_remaining_requests_until_reset() -> None:
+@pytest.mark.parametrize("token", [None, "synthetic"])
+async def test_low_quota_spreads_remaining_requests_until_reset(token: str | None) -> None:
     clock = Clock()
     starts: list[float] = []
 
@@ -70,7 +76,7 @@ async def test_low_quota_spreads_remaining_requests_until_reset() -> None:
 
     http = GitHubHTTP(
         "https://api.github.com",
-        None,
+        token,
         transport=httpx.MockTransport(handle),
         sleep=clock.sleep,
         now=clock.now,

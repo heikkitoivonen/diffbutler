@@ -46,6 +46,7 @@ class ReadResponse:
 
 class GitHubHTTP:
     DEFAULT_REQUEST_INTERVAL: ClassVar[float] = 1.0
+    AUTHENTICATED_REQUEST_INTERVAL: ClassVar[float] = 0.1
 
     def __init__(
         self,
@@ -69,9 +70,12 @@ class GitHubHTTP:
             not math.isfinite(max_pacing_wait) or max_pacing_wait < 0
         ):
             raise ValueError("Maximum pacing wait must be finite and nonnegative")
-        self.request_interval = (
-            self.DEFAULT_REQUEST_INTERVAL if request_interval is None else request_interval
+        default_interval = (
+            self.AUTHENTICATED_REQUEST_INTERVAL
+            if self.authenticated
+            else self.DEFAULT_REQUEST_INTERVAL
         )
+        self.request_interval = default_interval if request_interval is None else request_interval
         if not math.isfinite(self.request_interval) or self.request_interval < 0:
             raise ValueError("Request interval must be finite and nonnegative")
         self.client = httpx.AsyncClient(
@@ -117,8 +121,8 @@ class GitHubHTTP:
             previous = self.last_resource_request.get(resource)
             if previous is not None:
                 interval = self.request_interval
-                if resource == "search":
-                    interval = max(interval, 2.1 if self.authenticated else 6.1)
+                if resource == "search" and not self.authenticated:
+                    interval = max(interval, 6.1)
                 if limit and 0 < limit.remaining <= limit.limit * 0.2:
                     interval = max(
                         interval, (limit.reset_at.timestamp() - previous) / limit.remaining

@@ -43,7 +43,8 @@ def test_config_edit_waits_for_editor_and_preserves_contents(
     if existing:
         assert path.read_text() == original + "# edited\n"
     else:
-        assert load_settings(path).general.poll_interval_s == 600
+        assert load_settings(path).general.poll_interval_s is None
+        assert load_settings(path).effective_poll_interval_s == 600
     assert not (tmp_path / "injected").exists()
     assert not (tmp_path / "data").exists()
 
