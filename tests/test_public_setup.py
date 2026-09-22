@@ -185,12 +185,12 @@ async def test_public_setup_and_discovery_never_resolve_or_send_a_token(
     install_transport(monkeypatch, handle)
     monkeypatch.setattr("diffbutler.forges.registry.resolve_token", forbidden)
     monkeypatch.setenv("GITHUB_TOKEN", "unused-secret")
-    answers = iter(["github", "acme/api", "reader", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "reader", "anonymous", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
         if "username" in label:
             assert default == "acme"
-        assert "token" not in label.lower()
+        assert label != "GitHub token environment variable name"
         return next(answers)
 
     settings = await startup_settings(None, directory=tmp_path, ask=ask)
@@ -212,16 +212,21 @@ async def test_public_setup_and_discovery_never_resolve_or_send_a_token(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("public", [False, True])
 @pytest.mark.parametrize("failure", [None, "invalid", "wrong-user", "no-access", "no-pr-access"])
-async def test_private_setup_validates_token_before_saving(
-    failure: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_token_setup_validates_access_before_saving(
+    failure: str | None, public: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token = "synthetic-private-token"
 
     def handle(request: httpx.Request) -> httpx.Response:
         if "authorization" not in request.headers:
             assert request.url.path == "/repos/acme/api"
-            return httpx.Response(404)
+            return (
+                httpx.Response(200, json={"full_name": "acme/api", "private": False})
+                if public
+                else httpx.Response(404)
+            )
         assert request.headers["authorization"] == f"Bearer {token}"
         if request.url.path == "/user":
             if failure == "invalid":
@@ -232,7 +237,7 @@ async def test_private_setup_validates_token_before_saving(
         if request.url.path == "/repos/acme/api":
             if failure == "no-access":
                 return httpx.Response(404)
-            return httpx.Response(200, json={"full_name": "acme/api", "private": True})
+            return httpx.Response(200, json={"full_name": "acme/api", "private": not public})
         if request.url.path == "/repos/acme/api/pulls":
             return httpx.Response(403 if failure == "no-pr-access" else 200, json=[])
         pytest.fail("Unexpected authenticated endpoint")
@@ -242,6 +247,9 @@ async def test_private_setup_validates_token_before_saving(
     answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
+        if label == "GitHub access (token recommended, anonymous)":
+            assert default == "token"
+            return default
         return next(answers)
 
     if failure:
@@ -373,7 +381,7 @@ async def test_low_quota_setup_returns_retry_without_long_sleep(
         )
 
     install_transport(monkeypatch, handle)
-    answers = iter(["github", "acme/api", "reader"])
+    answers = iter(["github", "acme/api", "reader", "anonymous"])
     progress: list[str] = []
 
     async def ask(label: str, default: str) -> str:

@@ -27,6 +27,20 @@ see [supported agents and validation](docs/native-reviews.md) for details.
 
 ## Use
 
+Use authenticated GitHub access, including for public repositories. If you already
+use `gh auth login`, export its token before launching DiffButler:
+
+```sh
+export GITHUB_TOKEN="$(gh auth token)"
+```
+
+Alternatively, create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens)
+for the repositories you want to review with **Pull requests: Read-only** permission,
+and set it as `GITHUB_TOKEN`. Anonymous access is a last resort for public repositories;
+its low API quota makes it unsuitable for regular polling. See the
+[authentication guide](docs/github.md#authentication-options) for host/account selection,
+HTTPS versus SSH Git setup, and token permissions.
+
 From the GitHub repository you want to review, launch:
 
 ```sh
@@ -34,9 +48,9 @@ diffbutler
 ```
 
 First-run setup detects the repository, asks for your GitHub username and preferred
-agent, and saves your choices. Public repositories can use anonymous access. For a
-private repository, set a GitHub token in an environment variable before launching;
-setup asks for the variable's name and validates access. It never saves the token.
+agent, and saves your choices. Choose the recommended token access for public repositories;
+private repositories require it. Setup asks for the token's environment variable name
+and validates access. It never saves the token.
 Later launches reuse your configuration.
 
 Select a PR with the arrow keys, then work through the review:

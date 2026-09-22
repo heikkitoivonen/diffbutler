@@ -47,20 +47,32 @@ embedded in remote URLs are never saved. Ambiguous or missing information prompt
 the forge and repository; unknown hosts require confirmation as GitHub Enterprise.
 GitLab is not implemented. Existing forge configurations skip setup.
 
+Prepare authentication before launching: prefer
+`export GITHUB_TOKEN="$(gh auth token)"` with an existing `gh` login, or create a
+[fine-grained token](https://github.com/settings/personal-access-tokens) with
+**Pull requests: Read-only** permission for the selected repositories. The
+[authentication guide](github.md#authentication-options) covers host/account options,
+Git transport, and the anonymous fallback, which is not recommended because of its
+low API quota.
+
 Setup checks repository visibility with an anonymous API request, then asks for your
 GitHub username, defaulting to the owner part of `owner/repo`. For an organization-owned
-repository, replace that default with your personal username. Public repositories need
-no token: setup omits `token_env` (TOML has no null; omission loads as Python `None`),
-saves `login`, and disables team-request discovery. Only direct requests to that login
-are monitored without authentication.
+repository, replace that default with your personal username. For public repositories,
+choose `token` (recommended and the default) or explicitly choose `anonymous`.
+Anonymous access omits `token_env`, saves `login`, and monitors only direct requests
+without resolving any token. Public-repository setup disables team-request discovery
+in either mode.
 
-For private or anonymously inaccessible repositories, setup asks for the token's
+For token access, including private or anonymously inaccessible repositories, setup asks for the token's
 **environment variable name**, defaulting to `GITHUB_TOKEN`. Set that variable before
 launching DiffButler. Setup validates the token's account against the chosen username,
 repository access, and pull-request read permission. An unset variable, invalid token,
 account mismatch, or inaccessible repository exits with an error before configuration
 is saved. Rate-limit/network errors also abort setup; they are not treated as evidence
 that a repository is private. Only the variable name is saved, never its value.
+Existing anonymous configurations stay anonymous until you add `token_env = "GITHUB_TOKEN"`
+to their `[[forges]]` entry. For a minimal fine-grained token, also set
+`include_team_requests = false`; private-repository setup otherwise enables team discovery.
 
 The selected forge gets `repositories = ["owner/repo"]`, which limits both direct and
 team review-request discovery. An empty list (the default for manually configured

@@ -33,6 +33,9 @@ def public_repository_checks(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def accept_default(label: str, default: str) -> str:
+    if label == "GitHub access (token recommended, anonymous)":
+        assert default == "token"
+        return "anonymous"
     if label == "AI reviewer (codex or claude)":
         return "codex"
     if label == "Reviewer executable (name or full path)":
@@ -95,7 +98,7 @@ async def test_missing_remote_prompts_and_preserves_config(
     path.parent.mkdir(parents=True)
     path.write_text("# my settings\nforges = []\n[general]\npoll_interval_s = 42 # keep\n")
     monkeypatch.setenv("DIFFBUTLER_GENERAL__POLL_INTERVAL_S", "300")
-    answers = iter(["github", "acme/api", "reader", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "reader", "anonymous", "codex", sys.executable])
     questions: list[str] = []
 
     async def ask(label: str, default: str) -> str:
@@ -103,7 +106,7 @@ async def test_missing_remote_prompts_and_preserves_config(
         return next(answers)
 
     settings = await startup_settings(None, directory=tmp_path, ask=ask)
-    assert len(questions) == 5
+    assert len(questions) == 6
     assert settings.general.poll_interval_s == 300
     assert "poll_interval_s = 42 # keep" in path.read_text()
     assert "# my settings" in path.read_text()
@@ -115,7 +118,9 @@ async def test_missing_remote_prompts_and_preserves_config(
 async def test_enterprise_remote_requires_provider_confirmation(tmp_path: Path) -> None:
     await git(tmp_path, "init", "--template=")
     await git(tmp_path, "remote", "add", "origin", "git@git.example.com:acme/api.git")
-    answers = iter(["github-enterprise", "git.example.com", "reader", "codex", sys.executable])
+    answers = iter(
+        ["github-enterprise", "git.example.com", "reader", "anonymous", "codex", sys.executable]
+    )
 
     async def ask(label: str, default: str) -> str:
         return next(answers)
@@ -181,7 +186,7 @@ def test_dashboard_startup_runs_setup_before_rendering(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    answers = iter(["github", "acme/api", "reader", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "reader", "anonymous", "codex", sys.executable])
     questions: list[str] = []
     rendered: list[bool] = []
 
@@ -201,7 +206,7 @@ def test_dashboard_startup_runs_setup_before_rendering(
     monkeypatch.setattr(Dashboard, "run_async", render)
     main(arguments)
     assert rendered == [True]
-    assert len(questions) == (0 if "--offline" in arguments else 5)
+    assert len(questions) == (0 if "--offline" in arguments else 6)
     assert config_path().exists() == ("--offline" not in arguments)
 
 
@@ -252,7 +257,7 @@ async def test_stalled_access_check_times_out_without_saving(
     monkeypatch.setattr("diffbutler.core.setup.discover_repository", no_repository)
     monkeypatch.setattr("diffbutler.core.setup.validate_access", stalled)
     monkeypatch.setattr("diffbutler.core.setup.SETUP_CHECK_TIMEOUT", 0.01)
-    answers = iter(["github", "acme/api", "reader"])
+    answers = iter(["github", "acme/api", "reader", "anonymous"])
     progress: list[str] = []
 
     async def ask(label: str, default: str) -> str:

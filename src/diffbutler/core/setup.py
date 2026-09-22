@@ -103,7 +103,22 @@ async def startup_settings(
         raise ConfigError("Enter a valid GitHub username") from None
     token_env: str | None = None
     token: str | None = None
-    if not public:
+    if progress is not None:
+        progress(
+            "Recommended: use your existing gh login with "
+            f'export GITHUB_TOKEN="$(gh auth token --hostname {host})".\n'
+            "Or create a fine-grained token at "
+            f"https://{host}/settings/personal-access-tokens "
+            "with repository permission Pull requests: Read-only.\n"
+            "Anonymous access is a last resort for public repositories: "
+            "GitHub.com allows only 60 requests/hour per IP."
+        )
+    access = "token"
+    if public:
+        access = (await question("GitHub access (token recommended, anonymous)", "token")).lower()
+        if access not in {"token", "anonymous"}:
+            raise ConfigError("Choose token or anonymous access")
+    if access == "token":
         token_env = await question("GitHub token environment variable name", "GITHUB_TOKEN")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token_env):
             raise ConfigError("Enter an environment variable name, not a token value")

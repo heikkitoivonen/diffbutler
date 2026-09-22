@@ -4,6 +4,53 @@ The async `ReadForge` adapter provides identity checks, direct/team discovery, P
 lookup, search, and request/review activity. Shared core services persist the queue
 and reconcile followed PRs; Typer exposes these services without starting AI work.
 
+## Authentication options
+
+Use these options in order of preference, including when reviewing public repositories.
+
+1. **Reuse your GitHub CLI login.** If `gh auth login` is already configured, run:
+
+   ```sh
+   export GITHUB_TOKEN="$(gh auth token)"
+   diffbutler
+   ```
+
+   [`gh auth token`](https://cli.github.com/manual/gh_auth_token) uses the default
+   host and its active account. Select either explicitly when needed:
+
+   ```sh
+   export GITHUB_TOKEN="$(gh auth token --hostname github.com --user YOUR_LOGIN)"
+   export GITHUB_ENTERPRISE_TOKEN="$(gh auth token --hostname github.example.com --user YOUR_LOGIN)"
+   ```
+
+   To set up a login, use `gh auth login --hostname github.com --git-protocol https`
+   or substitute your Enterprise hostname. `--git-protocol` accepts `https` or `ssh`
+   and controls Git operations; token retrieval and DiffButler's API requests use
+   HTTPS with either choice. See [`gh auth login`](https://cli.github.com/manual/gh_auth_login).
+   DiffButler's managed source fetches also use HTTPS, so a private source fetch needs
+   working Git HTTPS credentials even if your usual remotes use SSH.
+
+2. **Create a fine-grained personal access token.** Open
+   [Personal access tokens](https://github.com/settings/personal-access-tokens),
+   choose the resource owner and repositories to monitor, and grant the repository
+   permission **Pull requests: Read-only**. Set the token in `GITHUB_TOKEN` before
+   starting DiffButler. Enter the variable name during setup, never the token itself.
+   Organization-owned repositories may require token approval. See GitHub's
+   [token creation guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+   Pull-request reads support this permission in the
+   [REST API](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests).
+   For direct review requests with this minimal token, set `include_team_requests = false`;
+   team membership discovery needs separate organization access. This token is for
+   reading PRs; private Git source fetches need their own working read credentials.
+
+3. **Anonymous public access, as a last resort.** This works only for public repositories
+   and is not recommended for regular use: GitHub.com allows just 60 requests per hour
+   per IP, compared with the usual 5,000 per hour for an authenticated user.
+   See [GitHub's rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+   Choose `anonymous` during public-repository setup, or omit `token_env` in a manual
+   configuration. Merely exporting a token does not authenticate an existing account
+   configured without `token_env`.
+
 ## Configure and check an account
 
 ```toml
@@ -11,7 +58,7 @@ and reconcile followed PRs; Typer exposes these services without starting AI wor
 kind = "github"
 base_url = "https://api.github.com"
 token_env = "GITHUB_TOKEN"
-include_team_requests = true
+include_team_requests = false # Enable if your token also supports team membership discovery.
 login = "your-login"  # optional expected authenticated identity
 ```
 
@@ -28,11 +75,12 @@ When `token_env` is set, auth reads the configured environment variable first, t
 `gh auth token --hostname HOST` with captured output and a ten-second timeout. The host
 is `github.com` for GitHub.com, or the configured API hostname for Enterprise. Doctor
 never prompts or saves tokens. Use the environment or an existing `gh` login.
-First-run setup asks for an environment variable
-name and validates that variable directly; it never asks for a token value. Tokens and raw HTTP/auth error bodies never enter
+First-run setup recommends token access for public repositories and requires it for
+private repositories. It asks for an environment variable name and validates that
+variable directly; export the token before starting setup. It never asks for a token value. Tokens and raw HTTP/auth error bodies never enter
 diagnostics or persistence.
 
-For public repositories, omit `token_env` to select anonymous access (`None` internally):
+For the anonymous public fallback, omit `token_env` (`None` internally):
 
 ```toml
 [[forges]]
