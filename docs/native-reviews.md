@@ -131,26 +131,55 @@ claim deletion succeeded. Retries respect the stored backoff.
 The [dashboard](dashboard.md) adds periodic polling, native return reconciliation,
 state overrides and offline history.
 
-`general.workspace_root` optionally selects the private managed root (default:
-`$XDG_DATA_HOME/diffbutler/reviews`). Never point it at a repository or existing
-unrelated directory: initialization refuses to adopt existing directories. Each
-session gets a durably registered owned directory, a dedicated `CODEX_HOME` or `CLAUDE_CONFIG_DIR`, and
-per-run `base/` and `head/` source snapshots. Snapshots contain pinned, redacted Git
-blobs, including unchanged source, with no checkout hooks, Git administration, or
-project execution. They ignore local working/index changes. Symlinks become regular
-files containing link text. Missing objects, submodules, and unsupported/binary
-diffs fail with a diagnostic; no partial review is presented as
-complete. On an explicit review request, missing objects are fetched into a session-owned bare
-repository using its preferred Git transport with fallback, including GitHub pull
-refs for fork PRs. The working transport is remembered in the repository's
-`git_transport` configuration; new repositories try HTTPS then SSH. A configured local
-checkout is used when it already contains both pinned commits; it is never modified.
-Private repositories require working Git HTTPS credentials or SSH authentication.
-SSH uses the forge hostname, existing SSH configuration, and `SSH_AUTH_SOCK`;
-keys must be available without a prompt and host keys must already be trusted.
-Fetches never prompt inside the dashboard. Endpoint comparison
-is a current limitation; worktrees and
-large-diff splitting remain future enhancements.
+`general.workspace_root` selects the private persistent session root (default:
+`$XDG_DATA_HOME/diffbutler/reviews`, normally `~/.local/share/diffbutler/reviews`).
+Each session has a registered owned directory and dedicated `CODEX_HOME` or
+`CLAUDE_CONFIG_DIR`. Keep this root on persistent storage: it contains conversations,
+source-location records, and the identity needed to reconstruct temporary snapshots.
+Never point managed roots at existing unrelated directories; initialization refuses
+to adopt them. Session, repository, and snapshot roots must be separate, non-nested paths.
+
+`general.repository_root` selects shared bare Git storage (default:
+`$XDG_DATA_HOME/diffbutler/repos`). One repository is retained per forge hostname and
+repository identity, shared across PRs, runs, and application restarts. On an explicit
+review request, DiffButler reuses cached commits, imports the pinned pair from the
+configured local checkout when available, or fetches missing objects using the preferred
+Git transport with fallback. Imports and fetches are shallow, without tags or submodules.
+Local imports create independent objects: there is no dependency on the checkout staying
+present, and its branches, index, files, and Git metadata are never changed. Simply
+launching from a different directory does not change the configured source path.
+GitHub pull refs support fork PRs. The working HTTPS/SSH transport is remembered in
+`git_transport`; new repositories try HTTPS then SSH. Private repositories require
+working HTTPS credentials or noninteractive SSH authentication and trusted host keys.
+
+Every run pins its exact base and head with session-owned refs. Preparation and cache
+maintenance are serialized across processes. Completion removes that session's pins
+only after foreground/background ownership is released and its workspaces are removed.
+Other sessions' pins remain intact. Unused repositories are evicted by cleanup after
+`general.repository_retention_days` (default 30) days since their last use/release;
+zero evicts as soon as no session needs them. Active pins never expire by age. This is
+whole-repository retention, not a size limit: repositories with active sessions can grow.
+Cleanup runs during the normal lifecycle and via `diffbutler cleanup`; it is not a
+separate scheduled service.
+
+Per-run `base/` and `head/` snapshots contain complete pinned, redacted Git blobs,
+including unchanged source, with no checkout hooks, Git administration, or project
+execution. They ignore working/index changes. Symlinks become regular files containing
+link text. Missing objects, submodules, and unsupported/binary diffs fail with a diagnostic.
+Each snapshot still stores its own files; Git object sharing does not deduplicate these
+copies. Worktrees and large-diff splitting remain unimplemented.
+
+Snapshots default to the persistent session directory. Set `general.snapshot_root`
+to a new private directory (for example `/tmp/diffbutler-snapshots-yourname`) to keep
+only reconstructible source workspaces elsewhere. The persistent session root records
+that location and its ownership identity; do not change it for that session root.
+On explicit resume, a missing snapshot/root is rebuilt at the original path from
+persistently pinned commits, without fetching or creating an AI review. Conversation
+files stay persistent. If cached objects are missing too, resume fails rather than
+silently using a newer revision. Existing unrelated or replaced roots are rejected.
+Temporary storage may be cleared at any time and may be memory-backed. Uncommitted edits
+or extra files created there during foreground sessions cannot be reconstructed.
+Existing sessions from before shared storage retain their original workspace behavior.
 
 ## Native permissions and authentication
 

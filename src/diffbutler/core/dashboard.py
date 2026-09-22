@@ -358,6 +358,11 @@ async def diff_configured(path: Path | None, task_id: UUID) -> str:
             candidate = root / f"source-{run.id}.git"
             if candidate.is_dir():
                 managed_path = candidate
+            source_record = root / f"source-{run.id}.json"
+            if source_record.is_file():
+                import json
+
+                managed_path = Path(json.loads(source_record.read_text())["repository"])
         repository_path = managed_path or (repo.path if repo else None)
         if repository_path is None:
             raise ReviewConflict("Pinned source is unavailable or has been removed by cleanup")

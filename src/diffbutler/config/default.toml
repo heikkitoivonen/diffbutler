@@ -10,6 +10,13 @@ max_concurrent_reviews = 2
 # Omit workspace_root to follow $XDG_DATA_HOME/diffbutler/reviews
 # (default ~/.local/share/diffbutler/reviews).
 # workspace_root = "~/diffbutler-reviews"
+# Shared bare repositories; default $XDG_DATA_HOME/diffbutler/repos.
+# repository_root = "~/diffbutler-repos"
+# Evict unused repositories after 30 days; active session pins never expire.
+# repository_retention_days = 30
+# Optional reconstructible snapshots; conversations remain in workspace_root.
+# Use a new private directory, separate from the other managed roots.
+# snapshot_root = "/tmp/diffbutler-snapshots-yourname"
 
 [db]
 auto_migrate = true

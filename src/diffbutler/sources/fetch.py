@@ -42,7 +42,7 @@ def repository_url(ref: PRRef, *, transport: Literal["https", "ssh"] = "https") 
     return f"https://{host}/{ref.namespace}/{ref.repository}.git"
 
 
-async def git_fetch_command(repository: Path, *args: str) -> None:
+async def git_fetch_command(repository: Path, *args: str, local: bool = False) -> None:
     executable = shutil.which("git")
     if executable is None:
         raise SourceError("Git is unavailable; install Git and retry the review")
@@ -56,12 +56,14 @@ async def git_fetch_command(repository: Path, *args: str) -> None:
         {
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_ASKPASS": "/bin/false",
-            "GIT_ALLOW_PROTOCOL": "https:ssh",
+            "GIT_ALLOW_PROTOCOL": "file" if local else "https:ssh",
             "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "
             "-o PermitLocalCommand=no",
             "GIT_SSH_VARIANT": "ssh",
         }
     )
+    if local:
+        env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull})
     spawn = asyncio.create_task(
         asyncio.create_subprocess_exec(
             executable,

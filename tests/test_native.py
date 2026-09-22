@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -34,6 +35,100 @@ pytestmark = [
     ),
 ]
 FAKE = Path(__file__).parent / "fixtures" / "fake_codex.py"
+
+
+@pytest.mark.parametrize("temporary", [False, True])
+async def test_missing_snapshots_rebuild_without_new_review_or_local_checkout(
+    tmp_path: Path, temporary: bool
+) -> None:
+    settings, forge = await prepared(tmp_path)
+    if temporary:
+        settings.general.snapshot_root = tmp_path / "temporary-snapshots"
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        run = await managed.review(row)
+        launch = await managed.prepare_handoff(row)
+        original_cwd = launch.cwd
+        assert launch.agent_home.is_relative_to(settings.general.workspace_root)
+        if temporary:
+            assert original_cwd.is_relative_to(tmp_path / "temporary-snapshots")
+        await managed.lifecycle.release_foreground(launch.token)
+        shutil.rmtree(tmp_path / "temporary-snapshots" if temporary else original_cwd)
+        shutil.rmtree(tmp_path / "repository")
+        assert launch.agent_home.exists()
+        # Simulate restart after all temporary storage disappeared. No fetch or AI run.
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        resumed = await managed.prepare_handoff(row)
+        assert resumed.cwd == original_cwd
+        assert resumed.agent_home == launch.agent_home
+        assert (resumed.cwd / "head/changed.py").read_text() == "after\n"
+        assert (resumed.cwd / "base/changed.py").read_text() == "before\n"
+        assert (await managed.reviews.get_session(run.session_id)).backend_session_id is not None
+        latest = await managed.store.latest_run(run.task_id)
+        assert latest is not None and latest.id == run.id
+        await managed.store.mark_approved(run.task_id)
+        await managed.cleanup()
+        assert resumed.cwd.exists()
+        await managed.lifecycle.release_foreground(resumed.token)
+        await managed.cleanup()
+        assert not resumed.cwd.exists() and not resumed.agent_home.exists()
+    finally:
+        await database.close()
+
+
+async def test_replaced_temporary_root_is_not_adopted_or_deleted(tmp_path: Path) -> None:
+    settings, forge = await prepared(tmp_path)
+    snapshots = tmp_path / "snapshots"
+    settings.general.snapshot_root = snapshots
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        run = await managed.review(row)
+        shutil.rmtree(snapshots)
+        unrelated = tmp_path / "unrelated"
+        unrelated.mkdir()
+        (unrelated / "important").write_text("keep")
+        snapshots.symlink_to(unrelated, target_is_directory=True)
+        with pytest.raises((ValueError, OSError)):
+            await managed.prepare_handoff(row)
+        assert not await managed.leases.held_operations()
+        await managed.store.mark_approved(run.task_id)
+        assert (await managed.cleanup()).failed == 1
+        assert (unrelated / "important").read_text() == "keep"
+    finally:
+        await database.close()
+
+
+async def test_completion_with_missing_temporary_root_releases_pins(tmp_path: Path) -> None:
+    settings, forge = await prepared(tmp_path)
+    snapshots = tmp_path / "snapshots"
+    settings.general.snapshot_root = snapshots
+    settings.general.repository_retention_days = 0
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        run = await managed.review(row)
+        cached = await managed.repositories.existing(REF)
+        assert cached is not None
+        shutil.rmtree(snapshots)
+        await managed.store.mark_approved(run.task_id)
+        assert (await managed.cleanup()).succeeded == 1
+        assert not snapshots.exists() and not cached.exists()
+    finally:
+        await database.close()
 
 
 async def test_host_failure_leaves_pending_task_without_session_and_allows_explicit_retry(
@@ -887,19 +982,20 @@ async def test_managed_fetch_review_resume_and_cleanup(
         expected_transport = "ssh" if ssh_only else "https"
         assert load_settings(config).repos["acme/api"].git_transport == expected_transport
         assert settings.repos["acme/api"].git_transport == expected_transport
-        assert "Fetching PR commits…" in progress
+        assert "Preparing shared PR commits…" in progress
         assert calls[-1][-3:] == (pr.base_sha, pr.head_sha, "refs/pull/1/head")
-        # A new service loaded from disk must fetch with the learned transport first.
+        # A new service loaded from disk reuses the pinned objects without fetching.
         calls.clear()
         managed = ManagedReviews(database, load_settings(config), managed.directories)
         run = await managed.review(row)
         assert run.status == "succeeded"
-        assert len(calls) == 2  # init and one fetch, without a failed transport probe.
-        assert calls[-1][-4] == repository_url(REF, transport=expected_transport)
+        assert calls == []
         resources = await managed.store.session_resources(run.session_id)
         assert len(resources) == 1
         root = managed.directories.path / resources[0].name
-        assert (root / f"source-{run.id}.git").is_dir()
+        assert (root / f"source-{run.id}.json").is_file()
+        cached = await managed.repositories.existing(REF)
+        assert cached is not None and cached.is_dir()
         assert "+after" in await diff_configured(config, run.task_id)
         launch = await managed.prepare_handoff(row)
         assert (launch.cwd / "head" / "changed.py").read_text() == "after\n"
@@ -909,6 +1005,8 @@ async def test_managed_fetch_review_resume_and_cleanup(
         await managed.lifecycle.release_foreground(launch.token)
         await managed.cleanup()
         assert not root.exists()
+        assert cached.is_dir()  # Inactive objects remain available until retention expires.
+        assert not list((cached / "pins").glob("*.json"))
         assert (remote / "changed.py").read_text() == "dirty unrelated work\n"
     finally:
         await database.close()
@@ -925,7 +1023,7 @@ async def test_fetch_failure_keeps_owned_cleanup_and_never_launches_agent(
     async def fail(*args: object, **kwargs: object) -> None:
         raise SourceError("Check Git HTTPS authentication and retry")
 
-    monkeypatch.setattr("diffbutler.core.managed.fetch_repository", fail)
+    monkeypatch.setattr("diffbutler.core.repositories.fetch_repository", fail)
     database = Database(settings.db.url)
     await database.initialize()
     try:

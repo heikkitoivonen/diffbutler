@@ -99,6 +99,11 @@ resolution while retaining local configuration, database, and path checks.
 # Omit for 60 seconds with authenticated accounts, 600 with any public account.
 # poll_interval_s = 600 # Explicit override for all accounts.
 max_concurrent_reviews = 2
+# Shared Git objects persist across reviews; active session commits remain pinned.
+# repository_root = "~/.local/share/diffbutler/repos"
+# repository_retention_days = 30
+# Optional disposable source snapshots; keep workspace_root persistent.
+# snapshot_root = "/tmp/diffbutler-snapshots-yourname"
 
 [db]
 auto_migrate = true
@@ -120,10 +125,11 @@ checkout = "mediated"
 
 These settings configure manual sync, dashboard polling, and explicit native reviews. `enabled` is
 repository AI opt-in metadata, not a trigger to start anything.
-Configuration supports CLI reviewers only. Reviewer IDs must be unique and
+See [native review storage](native-reviews.md) for shared repositories, temporary snapshot
+recovery, and retention. Configuration supports CLI reviewers only. Reviewer IDs must be unique and
 `default_reviewer` must name a configured reviewer. Repo `default_reviewer`, `checkout`,
 and `prompt` override the global review section when that repository is selected.
-Repository and prompt paths expand `~`; relative paths resolve beside the config file.
+Managed storage, repository, and prompt paths expand `~`; relative paths resolve beside the config file.
 Relative SQLite URL paths resolve against the process working directory.
 
 Environment variables use `DIFFBUTLER_` and `__` between nested keys:

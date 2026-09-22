@@ -31,6 +31,9 @@ class Section(BaseModel):
 
 class General(Section):
     workspace_root: Path = Field(default_factory=lambda: data_path() / "reviews")
+    repository_root: Path = Field(default_factory=lambda: data_path() / "repos")
+    repository_retention_days: int = Field(default=30, ge=0)
+    snapshot_root: Path | None = None
     poll_interval_s: int | None = Field(default=None, gt=0)
     max_concurrent_reviews: int = Field(default=2, gt=0)
 
@@ -277,6 +280,9 @@ def load_settings(
         return value if value.is_absolute() else selected.parent / value
 
     result.general.workspace_root = resolve(result.general.workspace_root)
+    result.general.repository_root = resolve(result.general.repository_root)
+    if result.general.snapshot_root is not None:
+        result.general.snapshot_root = resolve(result.general.snapshot_root)
     if result.review.prompt is not None:
         result.review.prompt = resolve(result.review.prompt)
     for repository in result.repos.values():

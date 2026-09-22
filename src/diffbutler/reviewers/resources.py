@@ -45,18 +45,19 @@ class OwnedDirectories:
         self.root_id = root_id
 
     @classmethod
-    async def initialize(cls, path: Path) -> OwnedDirectories:
+    async def initialize(cls, path: Path, *, root_id: UUID | None = None) -> OwnedDirectories:
+        identity = root_id or uuid4()
+
         def initialize() -> OwnedDirectories:
-            root_id = uuid4()
             # Existing directories are never adopted, including repository homes.
             path.mkdir(mode=0o700)
             marker = path / ".diffbutler-root"
             with marker.open("x", encoding="ascii") as stream:
                 os.chmod(marker, 0o600)
-                stream.write(str(root_id))
+                stream.write(str(identity))
                 stream.flush()
                 os.fsync(stream.fileno())
-            return cls(path, root_id)
+            return cls(path, identity)
 
         return await settled_io(initialize)
 

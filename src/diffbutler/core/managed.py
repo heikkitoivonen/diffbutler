@@ -22,9 +22,12 @@ from diffbutler.core.native import (
     prepare_native_handoff,
 )
 from diffbutler.core.process import ProcessRecovery
+from diffbutler.core.repositories import RepositoryCache
+from diffbutler.core.resources import save_json
 from diffbutler.core.review import AIRun, ReviewResult, ReviewService
 from diffbutler.core.sync import PullRequestRow
 from diffbutler.core.worker import ReviewWorker
+from diffbutler.core.workspaces import SnapshotWorkspaces
 from diffbutler.domain.lifecycle import CleanupStatus, ForegroundExitUncertain
 from diffbutler.domain.review import (
     AnalysisIdentity,
@@ -38,8 +41,7 @@ from diffbutler.reviewers.native import native_preset
 from diffbutler.reviewers.process import LocalHostBoot
 from diffbutler.reviewers.prompt import PROMPT_VERSION
 from diffbutler.reviewers.resources import OwnedDirectories, settled_io
-from diffbutler.sources.fetch import fetch_repository
-from diffbutler.sources.git import GitSourceReader, SourceError
+from diffbutler.sources.git import GitSourceReader
 from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.database import Database
 from diffbutler.store.lifecycle import SQLiteLifecycleStore
@@ -81,6 +83,20 @@ class ManagedReviews:
     ) -> None:
         self.settings = settings
         self.directories = directories
+        roots = [settings.general.workspace_root, settings.general.repository_root]
+        if settings.general.snapshot_root is not None:
+            roots.append(settings.general.snapshot_root)
+        for index, root in enumerate(roots):
+            for other in roots[index + 1 :]:
+                left, right = root.resolve(), other.resolve()
+                if left.is_relative_to(right) or right.is_relative_to(left):
+                    raise ConfigError(
+                        "Managed home, repository, and snapshot roots must be separate"
+                    )
+        self.repositories = RepositoryCache(
+            settings.general.repository_root, settings.general.repository_retention_days
+        )
+        self.workspaces = SnapshotWorkspaces(directories, settings.general.snapshot_root)
         self.store = SQLiteReviewStore(database)
         self.leases = SQLiteLifecycleStore(database)
         self.processes = SQLiteProcessStore(database)
@@ -93,7 +109,9 @@ class ManagedReviews:
             ),
         )
         self.lifecycle = LifecycleService(
-            self.leases, NativeSessionCleaner(directories), prepare_cleanup=self._prepare_cleanup
+            self.leases,
+            NativeSessionCleaner(directories, self.repositories, self.workspaces),
+            prepare_cleanup=self._prepare_cleanup,
         )
 
     async def _prepare_cleanup(self, token: UUID) -> None:
@@ -103,6 +121,7 @@ class ManagedReviews:
         await self.recovery.recover_rebooted()
         while await self.lifecycle.cleanup_once():
             pass
+        await self.repositories.prune()
         return await self.leases.cleanup_status()
 
     def reviewer_command(self, reviewer_id: str | None) -> tuple[str, ...]:
@@ -158,30 +177,25 @@ class ManagedReviews:
             # Fail before fetching or snapshotting if safe launch tracking is unavailable.
             await self.recovery.host.current()
             report("Preparing repository…")
-            if repository_path is not None:
-                try:
-                    sources = await GitSourceReader.open(
-                        repository_path, base_sha=claim.run.base_sha, head_sha=claim.run.head_sha
-                    )
-                    return
-                except SourceError:
-                    # Fetch into our own session, never mutate the user's checkout.
-                    pass
             root = await ensure_session_directory(
                 self.store, self.directories, claim, self.reviewer_preset(reviewer_id)
             )
-            destination = root / f"source-{claim.run.id}.git"
-            repository_path = destination
-            await settled_io(lambda: destination.mkdir(mode=0o700, exist_ok=True))
-            report("Fetching PR commits…")
+            report("Preparing shared PR commits…")
             preferred = repository.git_transport if repository else "auto"
-            transport = await fetch_repository(
-                repository_path,
+            repository_path, transport = await self.repositories.prepare(
                 pr.ref,
+                claim.run.session_id,
+                claim.run.id,
                 claim.run.base_sha,
                 claim.run.head_sha,
+                local_path=repository_path,
                 transport=preferred,
             )
+            await save_json(
+                root / f"source-{claim.run.id}.json", {"repository": str(repository_path)}
+            )
+            if transport is None:
+                return
             self.settings.repos.setdefault(repository_name, Repository()).git_transport = transport
             config_file = self.settings.config_file
             if config_file is not None:
@@ -228,6 +242,7 @@ class ManagedReviews:
                 self.processes,
                 lambda: self.reviews.claim_is_current(claim.token),
                 self.reviewer_preset(reviewer_id),
+                self.workspaces,
             )
 
         worker = ReviewWorker(
@@ -279,6 +294,7 @@ class ManagedReviews:
             self.reviewer_command(run.reviewer_id),
             self.reviewer_preset(run.reviewer_id),
             pr_number=row.tracked.pull_request.ref.number,
+            workspaces=self.workspaces,
         )
 
 

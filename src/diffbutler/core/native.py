@@ -12,8 +12,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from diffbutler.core.process import ProcessRecovery
-from diffbutler.core.resources import provision_directory
-from diffbutler.core.snapshot import write_snapshot
+from diffbutler.core.repositories import RepositoryCache
+from diffbutler.core.resources import provision_directory, save_json
+from diffbutler.core.workspaces import SnapshotWorkspaces, materialize
 from diffbutler.domain.lifecycle import CleanupSession
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import RunClaim
@@ -88,8 +89,10 @@ class NativeExecution:
         processes: ProcessStore,
         is_current: Callable[[], Awaitable[bool]],
         preset_name: Literal["codex", "claude"] = "codex",
+        workspaces: SnapshotWorkspaces | None = None,
     ) -> None:
         self.preset_name: Literal["codex", "claude"] = preset_name
+        self.workspaces = workspaces or SnapshotWorkspaces(directories)
         self.claim = claim
         self.store = store
         self.directories = directories
@@ -129,8 +132,10 @@ class NativeExecution:
                 target.symlink_to(auth.absolute())
 
         await settled_io(initialize_home)
-        workdir = root / "runs" / str(context.run_id)
-        await write_snapshot(self.sources, workdir)
+        resource = (await self.store.session_resources(self.claim.run.session_id))[0]
+        snapshot_root = await self.workspaces.session_path(resource)
+        workdir = snapshot_root / "runs" / str(context.run_id)
+        await materialize(self.sources, workdir)
         prepared = replace(
             context,
             checkout_path=workdir,
@@ -143,12 +148,7 @@ class NativeExecution:
         )
         prompt = render_prompt(prepared)
 
-        def save_current() -> None:
-            temporary = root / "current.tmp"
-            temporary.write_text(json.dumps({"run_id": str(context.run_id)}))
-            temporary.replace(root / "current.json")
-
-        await settled_io(save_current)
+        await save_json(root / "current.json", {"run_id": str(context.run_id)})
         env = background_environment(root / "agent-home", self.preset_name)
         preset = native_preset(self.preset_name)
         if not await self.is_current():
@@ -193,23 +193,38 @@ class NativeExecution:
 
 
 class NativeSessionCleaner:
-    """Native local state lives wholly inside its session's owned agent home."""
+    """Remove owned snapshots and native homes, then release shared object pins."""
 
-    def __init__(self, directories: OwnedDirectories) -> None:
+    def __init__(
+        self,
+        directories: OwnedDirectories,
+        repositories: RepositoryCache | None = None,
+        workspaces: SnapshotWorkspaces | None = None,
+    ) -> None:
         self.directories = directories
+        self.repositories = repositories
+        self.workspaces = workspaces or SnapshotWorkspaces(directories)
 
     async def cleanup(self, session: CleanupSession) -> None:
-        if session.backend_session_id is not None:
-            resources = tuple(
-                OwnedDirectory.from_manifest(dict(item)) for item in session.resources
-            )
-            if len(resources) != 1 or resources[0].purpose not in {"codex_home", "claude_home"}:
-                raise NativeError("Native cleanup requires an owned native home manifest")
+        resources = tuple(OwnedDirectory.from_manifest(dict(item)) for item in session.resources)
+        for resource in resources:
+            if resource.session_id != session.id or resource.root_id != self.directories.root_id:
+                raise ValueError("Cleanup manifest ownership mismatch")
+        if session.transcript_ref is not None:
+            raise ValueError("External transcript deletion is unsupported")
+        if session.backend_session_id is not None and (
+            len(resources) != 1 or resources[0].purpose not in {"codex_home", "claude_home"}
+        ):
+            raise NativeError("Native cleanup requires an owned native home manifest")
         # Deleting the entire dedicated native home removes local conversation state,
         # caches, and indexes without deriving paths from the opaque backend ID.
+        for resource in resources:
+            await self.workspaces.cleanup(resource)
         await OwnedSessionCleaner(self.directories, {}).cleanup(
             replace(session, backend_session_id=None)
         )
+        if self.repositories is not None:
+            await self.repositories.release(session.id)
 
 
 class SessionLaunch(BaseModel):
@@ -231,13 +246,32 @@ async def prepare_native_handoff(
     preset_name: Literal["codex", "claude"] = "codex",
     *,
     pr_number: int,
+    workspaces: SnapshotWorkspaces | None = None,
 ) -> SessionLaunch:
     lease = await lifecycle.acquire_foreground(session_id)
     try:
         root = await session_directory(store, directories, session_id, preset_name)
         run_id = UUID(json.loads((root / "current.json").read_text())["run_id"])
-        cwd = root / "runs" / str(run_id)
-        if cwd.is_symlink() or not cwd.is_dir():
+        run = await store.get_run(run_id)
+        if run.session_id != session_id:
+            raise NativeError("Pinned review workspace identity mismatch")
+        resource = (await store.session_resources(session_id))[0]
+        snapshots = workspaces or SnapshotWorkspaces(directories)
+        source_record = root / f"source-{run_id}.json"
+        # Sessions created before shared storage keep their original workspace.
+        snapshot_root = await snapshots.session_path(resource) if source_record.is_file() else root
+        cwd = snapshot_root / "runs" / str(run_id)
+        if cwd.is_symlink():
+            raise NativeError("Pinned review workspace is unavailable")
+        if not cwd.exists():
+            if not source_record.is_file():
+                raise NativeError("Pinned review workspace is unavailable")
+            data = json.loads(await settled_io(source_record.read_text))
+            reader = await GitSourceReader.open(
+                Path(data["repository"]), base_sha=run.base_sha, head_sha=run.head_sha
+            )
+            await materialize(reader, cwd)
+        if not cwd.is_dir():
             raise NativeError("Pinned review workspace is unavailable")
         preset = native_preset(preset_name)
         return SessionLaunch(
