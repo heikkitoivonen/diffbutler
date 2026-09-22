@@ -47,8 +47,9 @@ From the GitHub repository you want to review, launch:
 diffbutler
 ```
 
-First-run setup detects the repository, asks for your GitHub username and preferred
-agent, and saves your choices. Choose the recommended token access for public repositories;
+First-run setup detects the local repository, looks up your GitHub username using
+the selected token, asks for your preferred agent, and saves your choices. If username detection
+is unavailable, setup asks for it. Choose the recommended token access for public repositories;
 private repositories require it. Setup asks for the token's environment variable name
 and validates access. It never saves the token.
 Later launches reuse your configuration.

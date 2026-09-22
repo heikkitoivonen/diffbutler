@@ -55,10 +55,12 @@ Prepare authentication before launching: prefer
 Git transport, and the anonymous fallback, which is not recommended because of its
 low API quota.
 
-Setup checks repository visibility with an anonymous API request, then asks for your
-GitHub username, defaulting to the owner part of `owner/repo`. For an organization-owned
-repository, replace that default with your personal username. For public repositories,
+Setup checks repository visibility with an anonymous API request. For public repositories,
 choose `token` (recommended and the default) or explicitly choose `anonymous`.
+With token access, setup tries to detect your GitHub username from the selected token.
+If detection fails or you choose anonymous access, setup asks for your username,
+defaulting to the owner part of `owner/repo`. For an organization-owned repository,
+replace that fallback default with your personal username.
 Anonymous access omits `token_env`, saves `login`, and monitors only direct requests
 without resolving any token. Public-repository setup disables team-request discovery
 in either mode.

@@ -1,5 +1,7 @@
 """Read-only visibility and credential checks before first-run configuration is saved."""
 
+import asyncio
+
 from diffbutler.domain.forge import PRQuery, identity_part
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.http import GitHubHTTP
@@ -10,6 +12,22 @@ class RepositoryAccess(ResponseModel):
     full_name: str
     private: bool
     visibility: str | None = None
+
+
+async def detect_login(base_url: str, token: str) -> str | None:
+    """Best-effort identity lookup; failures leave setup's manual prompt available."""
+    try:
+        async with asyncio.timeout(10):
+            http = GitHubHTTP(base_url, token, max_pacing_wait=5)
+            try:
+                response = await http.get("user")
+                login = parse(User, response.body).login
+                identity_part(login)
+                return login
+            finally:
+                await http.close()
+    except ForgeError, ValueError, TimeoutError:
+        return None
 
 
 async def repository_access(http: GitHubHTTP, repository: str) -> RepositoryAccess:

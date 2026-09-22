@@ -15,7 +15,7 @@ from diffbutler.core.setup import startup_settings
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.adapter import GitHubForge
 from diffbutler.forges.github.http import GitHubHTTP
-from diffbutler.forges.github.setup import repository_is_public
+from diffbutler.forges.github.setup import detect_login, repository_is_public
 from diffbutler.forges.registry import open_forge
 from diffbutler.ui.cli import main
 from diffbutler.ui.tui.dashboard import Dashboard
@@ -185,7 +185,7 @@ async def test_public_setup_and_discovery_never_resolve_or_send_a_token(
     install_transport(monkeypatch, handle)
     monkeypatch.setattr("diffbutler.forges.registry.resolve_token", forbidden)
     monkeypatch.setenv("GITHUB_TOKEN", "unused-secret")
-    answers = iter(["github", "acme/api", "reader", "anonymous", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "anonymous", "reader", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
         if "username" in label:
@@ -213,11 +213,14 @@ async def test_public_setup_and_discovery_never_resolve_or_send_a_token(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("public", [False, True])
-@pytest.mark.parametrize("failure", [None, "invalid", "wrong-user", "no-access", "no-pr-access"])
+@pytest.mark.parametrize(
+    "failure", [None, "lookup-unavailable", "invalid", "wrong-user", "no-access", "no-pr-access"]
+)
 async def test_token_setup_validates_access_before_saving(
     failure: str | None, public: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token = "synthetic-private-token"
+    identity_calls = 0
 
     def handle(request: httpx.Request) -> httpx.Response:
         if "authorization" not in request.headers:
@@ -229,6 +232,10 @@ async def test_token_setup_validates_access_before_saving(
             )
         assert request.headers["authorization"] == f"Bearer {token}"
         if request.url.path == "/user":
+            nonlocal identity_calls
+            identity_calls += 1
+            if failure in {"wrong-user", "lookup-unavailable"} and identity_calls == 1:
+                return httpx.Response(403)
             if failure == "invalid":
                 return httpx.Response(401, json={"message": token})
             return httpx.Response(
@@ -244,15 +251,19 @@ async def test_token_setup_validates_access_before_saving(
 
     install_transport(monkeypatch, handle)
     monkeypatch.setenv("TEST_PRIVATE_TOKEN", token)
-    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
+        if "username" in label:
+            assert failure in {"invalid", "wrong-user", "lookup-unavailable"}
+            assert default == "acme"
+            return "reader"
         if label == "GitHub access (token recommended, anonymous)":
             assert default == "token"
             return default
         return next(answers)
 
-    if failure:
+    if failure and failure != "lookup-unavailable":
         with pytest.raises(ForgeError) as error:
             await startup_settings(None, directory=tmp_path, ask=ask)
         assert token not in str(error.value)
@@ -279,7 +290,7 @@ async def test_private_setup_rejects_missing_or_malformed_environment_token(
     monkeypatch.delenv("TEST_PRIVATE_TOKEN", raising=False)
     if value is not None:
         monkeypatch.setenv("TEST_PRIVATE_TOKEN", value)
-    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
 
     async def ask(label: str, default: str) -> str:
         return next(answers)
@@ -338,9 +349,11 @@ def test_invalid_token_exits_cli_without_saving(
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     monkeypatch.setenv("TEST_PRIVATE_TOKEN", "synthetic-invalid-token")
-    answers = iter(["github", "acme/api", "reader", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "TEST_PRIVATE_TOKEN", "codex", sys.executable])
 
     def prompt(label: str, *, default: str | None = None) -> str:
+        if "username" in label:
+            return "reader"
         return next(answers)
 
     monkeypatch.setattr("diffbutler.ui.cli.typer.prompt", prompt)
@@ -381,7 +394,7 @@ async def test_low_quota_setup_returns_retry_without_long_sleep(
         )
 
     install_transport(monkeypatch, handle)
-    answers = iter(["github", "acme/api", "reader", "anonymous"])
+    answers = iter(["github", "acme/api", "anonymous", "reader"])
     progress: list[str] = []
 
     async def ask(label: str, default: str) -> str:
@@ -393,3 +406,30 @@ async def test_low_quota_setup_returns_retry_without_long_sleep(
     assert requests == ["/repos/acme/api", "/users/reader"]
     assert "Checking GitHub username and PR access" in progress[-1]
     assert not config_path().exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", ["success", "malformed", "network", "timeout", "cancelled"])
+async def test_username_detection_is_bounded_and_host_specific(
+    result: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://github.example.com/api/v3/user"
+        assert request.headers["authorization"] == "Bearer synthetic-token"
+        if result == "network":
+            raise httpx.ConnectError("offline")
+        if result == "timeout":
+            raise TimeoutError
+        if result == "cancelled":
+            raise asyncio.CancelledError
+        return httpx.Response(
+            200, json={"login": "bad/name" if result == "malformed" else "Reader"}
+        )
+
+    install_transport(monkeypatch, handle)
+    if result == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await detect_login("https://github.example.com/api/v3", "synthetic-token")
+    else:
+        login = await detect_login("https://github.example.com/api/v3", "synthetic-token")
+        assert login == ("Reader" if result == "success" else None)

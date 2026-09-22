@@ -98,7 +98,7 @@ async def test_missing_remote_prompts_and_preserves_config(
     path.parent.mkdir(parents=True)
     path.write_text("# my settings\nforges = []\n[general]\npoll_interval_s = 42 # keep\n")
     monkeypatch.setenv("DIFFBUTLER_GENERAL__POLL_INTERVAL_S", "300")
-    answers = iter(["github", "acme/api", "reader", "anonymous", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "anonymous", "reader", "codex", sys.executable])
     questions: list[str] = []
 
     async def ask(label: str, default: str) -> str:
@@ -119,7 +119,7 @@ async def test_enterprise_remote_requires_provider_confirmation(tmp_path: Path) 
     await git(tmp_path, "init", "--template=")
     await git(tmp_path, "remote", "add", "origin", "git@git.example.com:acme/api.git")
     answers = iter(
-        ["github-enterprise", "git.example.com", "reader", "anonymous", "codex", sys.executable]
+        ["github-enterprise", "git.example.com", "anonymous", "reader", "codex", sys.executable]
     )
 
     async def ask(label: str, default: str) -> str:
@@ -186,7 +186,7 @@ def test_dashboard_startup_runs_setup_before_rendering(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    answers = iter(["github", "acme/api", "reader", "anonymous", "codex", sys.executable])
+    answers = iter(["github", "acme/api", "anonymous", "reader", "codex", sys.executable])
     questions: list[str] = []
     rendered: list[bool] = []
 
@@ -257,7 +257,7 @@ async def test_stalled_access_check_times_out_without_saving(
     monkeypatch.setattr("diffbutler.core.setup.discover_repository", no_repository)
     monkeypatch.setattr("diffbutler.core.setup.validate_access", stalled)
     monkeypatch.setattr("diffbutler.core.setup.SETUP_CHECK_TIMEOUT", 0.01)
-    answers = iter(["github", "acme/api", "reader", "anonymous"])
+    answers = iter(["github", "acme/api", "anonymous", "reader"])
     progress: list[str] = []
 
     async def ask(label: str, default: str) -> str:

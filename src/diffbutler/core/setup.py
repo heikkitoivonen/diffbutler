@@ -13,7 +13,7 @@ from diffbutler.config.settings import ConfigError, Forge, Reviewer, Settings, l
 from diffbutler.config.setup import save_setup
 from diffbutler.domain.forge import PRQuery, identity_part
 from diffbutler.forges.base import ForgeError
-from diffbutler.forges.github.setup import repository_is_public, validate_access
+from diffbutler.forges.github.setup import detect_login, repository_is_public, validate_access
 from diffbutler.sources.remotes import discover_repository
 
 SETUP_CHECK_TIMEOUT = 30.0
@@ -96,11 +96,6 @@ async def startup_settings(
     public = await check(
         "Checking GitHub repository visibility", repository_is_public(base_url, repository)
     )
-    login = await question("GitHub username for review requests", repository.split("/")[0])
-    try:
-        identity_part(login)
-    except ValueError:
-        raise ConfigError("Enter a valid GitHub username") from None
     token_env: str | None = None
     token: str | None = None
     if progress is not None:
@@ -125,6 +120,17 @@ async def startup_settings(
         token = os.environ.get(token_env)
         if not token:
             raise ConfigError("The selected token environment variable is unset or empty")
+    login = (
+        await check("Detecting GitHub username", detect_login(base_url, token))
+        if token is not None
+        else None
+    )
+    if login is None:
+        login = await question("GitHub username for review requests", repository.split("/")[0])
+    try:
+        identity_part(login)
+    except ValueError:
+        raise ConfigError("Enter a valid GitHub username") from None
     login = await check(
         "Checking GitHub username and PR access",
         validate_access(base_url, repository, login, token),
