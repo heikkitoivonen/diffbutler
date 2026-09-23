@@ -195,9 +195,7 @@ class ManagedReviews:
                 root / f"source-{claim.run.id}.json",
                 {
                     "repository": str(repository_path),
-                    "format": "git"
-                    if self.reviewer_preset(reviewer_id) == "codex"
-                    else "snapshots",
+                    "format": "git",
                 },
             )
             if transport is None:

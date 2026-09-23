@@ -49,8 +49,8 @@ uses the documented [Git environment controls](https://git-scm.com/docs/git) and
 
 The local Git executable and repository administration (including `.git` configuration
 and object storage) are trusted. This is source preparation, not an OS sandbox. The [native reviewer](native-reviews.md)
-uses the installed agent CLI’s read-only profile. Codex receives an owned Git
-checkout of original committed files; Claude receives redacted snapshots.
+uses the installed agent CLI’s read-only profile. Codex and Claude receive owned Git
+checkouts of original committed files.
 DiffButler does not provision an additional sandbox. Managed remote retrieval,
 pinned source workspaces, manifests, leases, and cleanup are implemented.
 
@@ -93,14 +93,14 @@ PR metadata, paths, trusted instructions/schema, and future transcripts are outs
 this source-only pass and need handling at the prompt serialization boundary below.
 The context explicitly records the heuristic limitation. A Python wrapper does
 not confine an executable or prevent access to its underlying objects; an isolated
-runner must expose only mediated redacted data. Claude snapshot preparation uses
-the same redactor. Codex checkouts expose original committed files and cached Git
+runner must expose only mediated redacted data. Legacy snapshot preparation uses
+the same redactor. Native checkouts expose original committed files and cached Git
 objects without source redaction.
 
 ## Prompt serialization
 
-Codex uses `render_git_prompt`: a short source-only instruction naming pinned base
-and head refs. It omits the embedded diff and file list; Codex inspects the checkout
+Codex and Claude use `render_git_prompt`: a short source-only instruction naming pinned base
+and head refs. It omits the embedded diff and file list; the agent inspects the checkout
 with Git. The policy forbids project execution and publication, and requests Markdown
 draft findings. The JSON serialization below applies to the snapshot path.
 

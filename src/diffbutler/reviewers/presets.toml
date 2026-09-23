@@ -4,8 +4,9 @@ background = ["-a", "never", "-s", "read-only", "exec", "--json", "--skip-git-re
 background_resume = ["-a", "never", "-s", "read-only", "exec", "resume", "--json", "--skip-git-repo-check", "{session_id}", "-"]
 foreground = ["-a", "on-request", "-s", "danger-full-access", "resume", "{session_id}"]
 
-# Verified against installed Claude Code 2.1.278 help, 2026-09-19.
+# Bash relies on native read-only command checks under dontAsk; do not blanket-allow it.
+# Restricted mode ignores project settings; safe mode disables customizations.
 [claude]
-background = ["--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none"]
-background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--resume", "{session_id}"]
+background = ["--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none"]
+background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--resume", "{session_id}"]
 foreground = ["--tools", "default", "--permission-mode", "manual", "--resume", "{session_id}"]

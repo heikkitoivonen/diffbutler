@@ -37,11 +37,12 @@ pytestmark = [
 FAKE = Path(__file__).parent / "fixtures" / "fake_codex.py"
 
 
+@pytest.mark.parametrize("preset", ["codex", "claude"])
 @pytest.mark.parametrize("temporary", [False, True])
 async def test_missing_snapshots_rebuild_without_new_review_or_local_checkout(
-    tmp_path: Path, temporary: bool
+    tmp_path: Path, temporary: bool, preset: str
 ) -> None:
-    settings, forge = await prepared(tmp_path)
+    settings, forge = await prepared(tmp_path, preset=preset)
     if temporary:
         settings.general.snapshot_root = tmp_path / "temporary-snapshots"
     database = Database(settings.db.url)
@@ -884,7 +885,9 @@ async def test_claude_environment_and_resume_permissions(
     assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"}.intersection(
         foreground
     )
-    assert "--restricted" in resumed and "Read,Glob,Grep" in resumed
+    assert "--restricted" in resumed
+    assert resumed[resumed.index("--tools") + 1] == "Read,Glob,Grep,Bash"
+    assert resumed[resumed.index("--allowedTools") + 1] == "Read,Glob,Grep"
     with pytest.raises(NativeError, match="identity"):
         preset.argv(("claude",), "--unsafe")
 

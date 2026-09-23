@@ -67,7 +67,7 @@ loop, and cancellation waits for that I/O to settle before propagating.
 The configured root and its parents are trusted administration, must remain private,
 and must never be mounted into a reviewer or contain nested filesystem mounts. This
 is resource ownership, not a sandbox. Root provisioning is internal, not CLI wiring.
-The native path creates pinned Git checkouts for Codex and blob snapshots for Claude,
+The native path creates pinned Git checkouts for Codex and Claude,
 optionally under a separate temporary root whose identity is recorded in the persistent session root before creation. Its
 session directories derive their ownership from the registered home manifests.
 Cleanup deletes those workspaces before the native home and releases only that session's

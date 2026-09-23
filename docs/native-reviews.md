@@ -1,23 +1,14 @@
 # Native CLI reviews
 
-The managed review presets support **Codex CLI and Claude Code on Linux and macOS**
-without version checks. DiffButler selects native read-only controls for background
-analysis; it does not create an additional OS sandbox. Host/boot verification supports both platforms; macOS validation and
-authentication limitations are described below.
-Claude's installed version and help were checked locally. Automated acceptance
-covers public CLI review, explicit retry, exact-session resume in a controlling PTY,
-completion, cleanup, and retained findings across process restarts. It uses a
-synthetic executable, disposable Git repositories, and SQLite; it makes no
-paid model requests. The earlier Linux/Codex terminal experiment was manually
-confirmed. The macOS managed-review fix was subsequently verified manually by the user.
+The managed review presets support **Codex CLI and Claude Code on Linux and macOS**.
+DiffButler selects native read-only controls for background analysis; it does not create an additional OS sandbox. Host/boot verification supports both platforms; macOS validation and authentication limitations are described below.
 
-## macOS terminal handoff validation
+Automated acceptance covers public CLI review, explicit retry, exact-session resume
+in a controlling PTY, completion, cleanup, and retained findings across process restarts. It uses a synthetic executable, disposable Git repositories, and SQLite; it makes no
+paid model requests.
 
-On macOS 26.6.2, the handoff probe successfully opened Codex CLI 0.155.1 and
-Claude Code 2.1.267, returned to the dashboard on agent exit, and opened each
-agent again. Codex was tested with `/quit` and Ctrl+D; Claude with `/exit` and
-Ctrl+C twice. The user also confirmed successful handoff with both CLIs in their
-own terminal. No model prompts were submitted in the automated-agent smoke check.
+## terminal handoff validation
+
 Reproduce in an interactive terminal:
 
 ```sh
@@ -34,19 +25,19 @@ The offline PTY tests also cover repeated conversation resume, selection retenti
 background output isolation, resize, interruptions, crashes, and launch failures.
 Their terminal-mode check runs before the session leader exits because macOS
 revokes the slave terminal at that point.
+
 The PTY harness rechecks completion when process exit races its wait condition.
 Git cleanup retries macOS's transient permission error while exited processes
 are being reaped; persistent permission errors still fail cleanup. These regression
 checks run as part of `make check` on Linux and macOS.
 
-Managed launches now read the macOS platform UUID and boot-session UUID before
+Managed launches read the macOS platform UUID and boot-session UUID before
 source preparation and again before launch. Offline native acceptance runs on
 macOS as well as Linux, using synthetic agents for review, retry, exact-session
-resume, and cleanup. The user manually verified the fix for review launch and
-session resume; this confirmation does not establish every backend/authentication combination.
+resume, and cleanup.
+
 Claude authentication bridging still assumes Linux's `.credentials.json` or an
-explicit authentication environment variable; macOS Keychain bridging is not
-implemented.
+explicit authentication environment variable.
 
 If a review fails before creating a conversation, `v` explains that another review
 is needed. Failed attempts return to pending AI review; only pressing `r` (or the
@@ -169,32 +160,16 @@ whole-repository retention, not a size limit: repositories with active sessions 
 Cleanup runs during the normal lifecycle and via `diffbutler cleanup`; it is not a
 separate scheduled service.
 
-New Codex runs use a private Git checkout on `diffbutler-pr`, with a pinned
-`diffbutler-base` branch. A short source-only prompt asks Codex to inspect the
-endpoint diff and surrounding files itself; no full diff JSON is sent. History may
-be shallow, so a merge-base comparison is not guaranteed. Native Git checks out
-original committed files, preserving modes and symlinks, without redacting source.
+New Codex and Claude runs use a private Git checkout on `diffbutler-pr`, with a pinned
+`diffbutler-base` branch. A short source-only prompt asks the agent to inspect the
+endpoint diff and surrounding files itself. Imports and fetches use shallow history.
+Reviews compare the pinned base and head directly, which can differ from the PR's
+merge-base diff. Native Git checks out
+original committed files, preserving modes and symlinks.
 The checkout shares the managed cache through Git alternates; session pins keep
 its objects alive until cleanup. It has independent Git administration, no copied
 user configuration, checkout hooks, or initialized submodules. The user’s local
-working tree and index are untouched. Background Codex retains its read-only profile.
-
-Claude runs and older saved sessions retain per-run `base/` and `head/` snapshots.
-These contain complete pinned, redacted Git blobs,
-including unchanged source, with no checkout hooks, Git administration, or project
-execution. They ignore working/index changes. Symlinks become regular files containing
-link text. Missing objects, submodules, and unsupported/binary diffs fail with a diagnostic.
-Each snapshot still stores its own files; Git object sharing does not deduplicate these
-copies. Large-diff splitting remains unimplemented.
-
-Snapshot preparation streams objects through one local `git cat-file --batch` process.
-Each distinct blob is read and redacted once across both revisions, then written to
-each required path as an independent file. This avoids starting Git for every file
-and does not download individual blobs: missing objects fail with lazy fetching disabled.
-Redaction and file writes run off the event loop. The dashboard and log report file
-counts during preparation, followed by `Running AI review…` when the reviewer starts.
-Complete snapshots still require disk space and I/O proportional to their contents;
-preparation remains within the configured review execution timeout.
+working tree and index are untouched. Both agents retain their native background permission controls.
 
 Source workspaces default to the persistent session directory. Set `general.snapshot_root`
 to a new private directory (for example `/tmp/diffbutler-snapshots-yourname`) to keep
@@ -207,6 +182,7 @@ silently using a newer revision. Existing unrelated or replaced roots are reject
 Temporary storage may be cleared at any time and may be memory-backed. Uncommitted edits
 or extra files created there during foreground sessions cannot be reconstructed.
 Existing sessions from before shared storage retain their original workspace behavior.
+Existing snapshot-based sessions retain their original format when resumed.
 
 ## Native permissions and authentication
 
@@ -221,8 +197,11 @@ originally based on Codex CLI 0.155.1 and Claude Code 2.1.278; these are referen
 versions, not requirements.
 [Codex documents JSON events, exact-ID resume, and read-only execution](https://learn.chatgpt.com/docs/non-interactive-mode).
 
-Claude background launches use `--restricted` with only `Read,Glob,Grep`,
-`dontAsk` permissions and `--permission-prompts none`. Safe mode disables
+Claude background launches use `--restricted` with `Read,Glob,Grep,Bash`,
+`dontAsk` permissions and `--permission-prompts none`. Only `Read,Glob,Grep`
+are explicitly allowed: Bash relies on Claude’s native read-only command checks,
+including read-only Git inspection; other commands requiring approval are denied.
+There is no blanket Bash or Git-command allow rule. Safe mode disables
 customizations, and strict empty MCP configuration disables external tools.
 The same controls apply on explicit retries. Foreground resume selects `manual`
 permissions and the default tool set so human-authorized forge commands can prompt;
@@ -250,7 +229,8 @@ Codex configuration is not imported into the managed home.
 This relies on the installed agent's sandbox and approval implementation. DiffButler
 does not independently restrict every host-file read, every tool, or network egress.
 Codex source-only review relies on instructions rather than a command-execution
-allowlist. Claude additionally limits background tools to Read, Glob, and Grep. Foreground posting requires explicit instruction inside the agent;
+allowlist. Claude additionally limits background tools to Read, Glob, Grep, and Bash under
+its native read-only command checks. Foreground posting requires explicit instruction inside the agent;
 opening a session grants no publication approval. Foreground resume sends no prompt;
 the human enters further instructions manually. On return, the
 core observes actual forge activity and retains a refresh-pending flag when reads fail. Credential redaction is heuristic,

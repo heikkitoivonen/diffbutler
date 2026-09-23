@@ -20,7 +20,7 @@ from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import RunClaim
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
 from diffbutler.reviewers.native import CapturedProcess, NativeError, native_preset
-from diffbutler.reviewers.prompt import render_git_prompt, render_prompt
+from diffbutler.reviewers.prompt import render_git_prompt
 from diffbutler.reviewers.resources import OwnedDirectories, OwnedSessionCleaner, settled_io
 from diffbutler.sources.git import GitSourceReader
 from diffbutler.store.base import LifecycleStore, ProcessStore, ReviewStore
@@ -137,21 +137,8 @@ class NativeExecution:
         resource = (await self.store.session_resources(self.claim.run.session_id))[0]
         snapshot_root = await self.workspaces.session_path(resource)
         workdir = snapshot_root / "runs" / str(context.run_id)
-        prepare_sources = materialize_checkout if self.preset_name == "codex" else materialize
-        await prepare_sources(self.sources, workdir, progress=self.progress)
-        prepared = replace(
-            context,
-            checkout_path=workdir,
-            limitations=(
-                "Pinned base/ and head/ are redacted source snapshots, not the local working tree.",
-                "Symlinks are represented by link text; executable modes are not retained.",
-                "Project tests, builds, and application code were not executed.",
-                *self.sources.limitations,
-            ),
-        )
-        prompt = (
-            render_git_prompt(context) if self.preset_name == "codex" else render_prompt(prepared)
-        )
+        await materialize_checkout(self.sources, workdir, progress=self.progress)
+        prompt = render_git_prompt(context)
 
         await save_json(root / "current.json", {"run_id": str(context.run_id)})
         env = background_environment(root / "agent-home", self.preset_name)
