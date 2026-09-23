@@ -81,3 +81,42 @@ def test_cli_logs_failure_and_reset_removes_logs(tmp_path: Path) -> None:
     assert "CLI operation failed" in log_path().read_text()
     main(["reset", "--force"])
     assert not state_path().exists()
+
+
+def test_debug_logging_is_opt_in_and_reconfiguration_resets_level() -> None:
+    logger = logging.getLogger("diffbutler.test")
+    path = configure_logging()
+    logger.debug("hidden before opt-in")
+    configure_logging(level=logging.DEBUG)
+    logger.debug("visible debug event")
+    configure_logging()
+    logger.debug("hidden after opt-out")
+    stop_logging()
+    content = path.read_text()
+    assert "Debug diagnostics enabled version=" in content
+    assert "visible debug event" in content
+    assert "hidden before opt-in" not in content
+    assert "hidden after opt-out" not in content
+
+
+@pytest.mark.parametrize(
+    "level,expected",
+    [
+        ("debug", logging.DEBUG),
+        ("DEBUG", logging.DEBUG),
+        ("warning", logging.WARNING),
+        ("error", logging.ERROR),
+        ("critical", logging.CRITICAL),
+        ("info", logging.INFO),
+    ],
+)
+def test_cli_log_level_option(level: str, expected: int) -> None:
+    main(["--log-level", level, "config"])
+    assert logging.getLogger("diffbutler").level == expected
+    assert ("Debug diagnostics enabled" in log_path().read_text()) == (expected == logging.DEBUG)
+
+
+def test_cli_rejects_unknown_log_level() -> None:
+    with pytest.raises(SystemExit) as error:
+        main(["--log-level", "verbose", "config"])
+    assert error.value.code == 2

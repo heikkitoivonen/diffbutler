@@ -26,6 +26,7 @@ def test_information_options(argument: str, capsys: pytest.CaptureFixture[str]) 
         assert output.strip() == f"diffbutler {version('diffbutler')}"
     else:
         assert "--version" in output
+        assert "--log-level" in output
 
 
 @pytest.mark.parametrize("command", ["config", "reset", "doctor", "review", "dashboard", "ls"])

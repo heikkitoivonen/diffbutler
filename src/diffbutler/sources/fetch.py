@@ -12,6 +12,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from diffbutler.domain.forge import PRRef
+from diffbutler.sources.diagnostics import GitTrace
 from diffbutler.sources.git import SourceError
 
 
@@ -127,22 +128,28 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
     )
     if local:
         env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull})
+    argv = (
+        executable,
+        "-C",
+        str(repository),
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "gc.auto=0",
+        "-c",
+        "maintenance.auto=false",
+        "-c",
+        "http.followRedirects=false",
+        *args,
+    )
+    trace = GitTrace(logging.getLogger(__name__), argv, env)
+    outcome = "interrupted"
+    status: int | None = None
     spawn = asyncio.create_task(
         asyncio.create_subprocess_exec(
-            executable,
-            "-C",
-            str(repository),
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "gc.auto=0",
-            "-c",
-            "maintenance.auto=false",
-            "-c",
-            "http.followRedirects=false",
-            *args,
+            *argv,
             env=env,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
@@ -158,6 +165,7 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
         output = bytearray()
         while chunk := await stream.read(65536):
             output.extend(chunk[: max(0, 65536 - len(output))])
+            trace.capture(chunk)
         return bytes(output)
 
     async def settle() -> None:
@@ -177,15 +185,18 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
             diagnostic = asyncio.create_task(collect(process.stderr))
             stderr = await asyncio.shield(diagnostic)
             status = await process.wait()
+            outcome = "exited"
             if status != 0:
                 raise SourceError(
                     f"Git {operation} failed (exit {status}): {_failure_hint(stderr)}"
                 )
     except TimeoutError:
+        outcome = "timeout"
         raise SourceError(
             f"Git {operation} timed out after 120s; check network access and retry"
         ) from None
     except OSError as exc:
+        outcome = f"os-error errno={exc.errno}"
         raise SourceError(
             f"Could not start Git {operation} (errno {exc.errno}); "
             "check installation and repository permissions"
@@ -203,6 +214,7 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
                 break
         with suppress(OSError):
             cleanup.result()
+        trace.finish(status, outcome)
         if cancelled:
             raise asyncio.CancelledError
 

@@ -3,6 +3,7 @@
 import asyncio
 import fcntl
 import json
+import logging
 import os
 import stat
 import time
@@ -16,6 +17,7 @@ from diffbutler.core.resources import save_json
 from diffbutler.domain.forge import PRRef
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.reviewers.resources import OwnedDirectories, settled_io
+from diffbutler.sources.diagnostics import debug_event
 from diffbutler.sources.fetch import fetch_repository, git_fetch_command
 from diffbutler.sources.git import GitSourceReader, SourceError
 
@@ -91,6 +93,18 @@ class RepositoryCache:
             directories = await open_directories(self.path)
             resource = self.resource(directories, ref)
             path = self.path / resource.name
+            debug_event(
+                logging.getLogger(__name__),
+                "Preparing source context",
+                repository=path,
+                local_path=local_path,
+                ref=ref,
+                base_sha=base_sha,
+                head_sha=head_sha,
+                transport=transport,
+                session_id=session_id,
+                run_id=run_id,
+            )
             if not path.exists():
                 await directories.create(resource)
             if path.is_symlink():
@@ -107,13 +121,16 @@ class RepositoryCache:
             learned: Literal["https", "ssh"] | None = None
             try:
                 await GitSourceReader.open(path, base_sha=base_sha, head_sha=head_sha)
-            except SourceError:
+            except SourceError as exc:
+                debug_event(logging.getLogger(__name__), "Cached source unavailable", reason=exc)
                 imported = False
                 if local_path is not None:
                     try:
                         await GitSourceReader.open(local_path, base_sha=base_sha, head_sha=head_sha)
-                    except SourceError:
-                        pass
+                    except SourceError as exc:
+                        debug_event(
+                            logging.getLogger(__name__), "Local source unavailable", reason=exc
+                        )
                     else:
                         await git_fetch_command(path, "init", "--bare", "--template=")
                         await git_fetch_command(

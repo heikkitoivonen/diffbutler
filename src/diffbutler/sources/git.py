@@ -1,6 +1,7 @@
 """Mediated Git object reads. This is not a sandbox for an agent executable."""
 
 import asyncio
+import logging
 import math
 import os
 import re
@@ -13,6 +14,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from diffbutler.domain.review import ChangedFile, Side, SourceFile
+from diffbutler.sources.diagnostics import GitTrace
 
 
 class SourceError(Exception):
@@ -221,42 +223,53 @@ class GitSourceReader:
             "GIT_ALLOW_PROTOCOL": "",
             "GIT_OPTIONAL_LOCKS": "0",
         }
+        argv = (
+            self._executable,
+            "--no-pager",
+            "-C",
+            str(self._repository),
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "gc.auto=0",
+            *args,
+        )
+        trace = GitTrace(logging.getLogger(__name__), argv, env)
+        outcome = "interrupted"
         try:
             process = await asyncio.create_subprocess_exec(
-                self._executable,
-                "--no-pager",
-                "-C",
-                str(self._repository),
-                "-c",
-                "core.fsmonitor=false",
-                "-c",
-                "gc.auto=0",
-                *args,
+                *argv,
                 env=env,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
-        except OSError:
+        except OSError as exc:
+            trace.finish(None, f"os-error errno={exc.errno}")
             raise SourceError("Could not start Git source retrieval") from None
         assert process.stdout is not None and process.stderr is not None
 
-        async def collect(stream: asyncio.StreamReader) -> bytes:
+        async def collect(stream: asyncio.StreamReader, *, diagnostic: bool = False) -> bytes:
             result = bytearray()
             while chunk := await stream.read(65536):
                 result.extend(chunk)
+                if diagnostic:
+                    trace.capture(chunk)
             return bytes(result)
 
         stdout = asyncio.create_task(collect(process.stdout))
-        stderr = asyncio.create_task(collect(process.stderr))
+        stderr = asyncio.create_task(collect(process.stderr, diagnostic=True))
         try:
             async with asyncio.timeout(self._limits.timeout_s):
                 output, _ = await asyncio.gather(stdout, stderr)
-                if await process.wait() != 0:
+                status = await process.wait()
+                outcome = "exited"
+                if status != 0:
                     raise SourceError("Git could not read the requested local source objects")
                 return output
         except TimeoutError:
+            outcome = "timeout"
             raise SourceError("Git source retrieval timed out") from None
         finally:
             # Terminate the owned group even if a child retained the output pipes.
@@ -273,3 +286,4 @@ class GitSourceReader:
             # Drain after killing so EOF closes both transports before returning.
             await asyncio.gather(discard(process.stdout), discard(process.stderr))
             await process.wait()
+            trace.finish(process.returncode, outcome)

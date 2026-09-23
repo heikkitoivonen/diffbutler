@@ -5,6 +5,7 @@ import logging
 import os
 import time
 import traceback
+from importlib.metadata import version
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import TracebackType
@@ -68,7 +69,7 @@ def stop_logging() -> None:
             handler.close()
 
 
-def configure_logging() -> Path:
+def configure_logging(*, level: int = logging.INFO) -> Path:
     path = log_path()
     stop_logging()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -81,7 +82,9 @@ def configure_logging() -> Path:
         DiagnosticFormatter("%(asctime)sZ %(levelname)s pid=%(process)d %(name)s %(message)s")
     )
     logger = logging.getLogger("diffbutler")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
     logger.propagate = False
     logger.addHandler(handler)
+    if level <= logging.DEBUG:
+        logger.debug("Debug diagnostics enabled version=%s", version("diffbutler"))
     return path

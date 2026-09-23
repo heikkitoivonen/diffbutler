@@ -56,6 +56,14 @@ ConfigOption = Annotated[Path | None, typer.Option(help="Explicit TOML configura
 ForgeOption = Annotated[int, typer.Option(min=1, help="Configured forge, numbered from one")]
 
 
+class LogLevel(StrEnum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+
 def run[T](operation: Coroutine[Any, Any, T]) -> T:
     try:
         return asyncio.run(operation)
@@ -93,13 +101,21 @@ def show_version(value: bool) -> None:
 @app.callback(invoke_without_command=True)
 def root(
     context: typer.Context,
+    log_level: Annotated[
+        LogLevel,
+        typer.Option(
+            "--log-level",
+            case_sensitive=False,
+            help="File log verbosity; debug includes redacted Git diagnostics.",
+        ),
+    ] = LogLevel.INFO,
     version_flag: Annotated[
         bool, typer.Option("--version", "-v", callback=show_version, is_eager=True)
     ] = False,
 ) -> None:
     if context.invoked_subcommand != "reset":
         try:
-            configure_logging()
+            configure_logging(level=getattr(logging, log_level.value.upper()))
         except OSError:
             typer.echo(
                 "Warning: diagnostic log unavailable; check state directory permissions.", err=True

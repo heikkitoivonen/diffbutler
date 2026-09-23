@@ -41,8 +41,8 @@ Use these options in order of preference, including when reviewing public reposi
    Source-preparation diagnostics record each attempted transport, the failed Git
    operation and exit status, and a safe explanation for recognized authentication,
    SSH host-trust, DNS, network, certificate, or missing-ref errors. If both transports
-   fail, both explanations are retained. Raw Git/SSH output is never logged; unknown
-   errors require reproducing the fetch outside DiffButler to inspect that output.
+   fail, both explanations are retained. Normal logs exclude Git/SSH output.
+   For unknown errors, enable the [Git debug log](#debugging-source-preparation).
    A missing `git_transport` setting means `auto` (HTTPS followed by SSH), even when
    your existing checkout uses SSH. To try SSH first, set `git_transport = "ssh"`
    under `[repos."owner/repo"]` in the selected configuration file.
@@ -240,3 +240,37 @@ Startup prints the current validation step. GitHub setup checks have a 30-second
 limit per phase; quota pacing waits longer than five seconds return a retry delay
 instead of silently blocking setup. No setup choices are saved on validation failure.
 Reset removes local files, not GitHub's server-side quota.
+
+## Debugging source preparation
+
+To diagnose a failure when pressing `r`, launch the dashboard with:
+
+```sh
+diffbutler --log-level debug
+```
+
+Reproduce the failure once, then inspect
+`$XDG_STATE_HOME/diffbutler/logs/diffbutler.log`, or
+`~/.local/state/diffbutler/logs/diffbutler.log` when `XDG_STATE_HOME` is unset.
+Use `--log-level` before any subcommand, for example
+`diffbutler --log-level debug dashboard`. Levels are `debug`, `info` (default),
+`warning`, `error`, and `critical`, case-insensitively.
+Restart without `--log-level debug` to return to normal logging. Existing debug
+records remain until log rotation or reset; logs rotate at 5 MiB with three backups.
+
+Debug records include the application version, managed repository and local checkout
+paths, PR identity, recorded base/head SHAs, transport preference, actual Git executable
+and argv, and the explicitly constructed Git environment. Relevant omitted Git/proxy
+variable **names** are recorded without their values. Each Git command has a unique ID,
+elapsed time, outcome, exit status when available, and up to 64 KiB of stderr with a
+byte count and truncation indicator. This includes initialization, HTTPS/SSH fetches,
+local object reads, and pin updates. Timeouts and cancellations retain collected stderr.
+Source stdout, blobs, diffs, the full parent environment, and Git configuration dumps
+are never logged. Debug logging does not enable Git tracing or verbose SSH output.
+
+Credential masking covers known token patterns, token/password/secret environment
+values of at least four characters, URL userinfo and query strings, credential assignments,
+authorization headers, and private-key blocks. Masking is heuristic: private repository
+names, hostnames, paths, commit IDs, server messages, and unrecognized secrets can remain.
+Review debug logs before sharing them. Files remain owner-only and logging never writes
+into the interactive agent's terminal. Normal user-facing errors retain safe summaries.
