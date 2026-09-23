@@ -133,7 +133,9 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
         }
     )
     if local:
-        env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull})
+        env.update(
+            {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_LAZY_FETCH": "1"}
+        )
     argv = (
         executable,
         "-C",

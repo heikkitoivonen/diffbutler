@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,11 +23,11 @@ if "exec" not in sys.argv:
 assert "read-only" in sys.argv and "never" in sys.argv
 assert "GH_TOKEN" not in os.environ and "GITHUB_TOKEN" not in os.environ
 payload = sys.stdin.read()
-assert "source-only review of the pinned base/head revisions." in payload
+assert "source-only review of PR" in payload
 assert "readable Markdown, not JSON" in payload
 assert "output_schema" not in payload
-assert Path("head/changed.py").read_text() == "after\n"
-assert Path("base/changed.py").read_text() == "before\n"
+assert Path("changed.py").read_text() == "after\n"
+assert subprocess.check_output(["git", "show", "diffbutler-base:changed.py"]) == b"before\n"
 if "resume" in sys.argv:
     assert identity in sys.argv and saved.exists()
 saved.write_text(json.dumps({"id": identity, "marker": "remembered orientation"}))

@@ -66,8 +66,8 @@ async def test_missing_snapshots_rebuild_without_new_review_or_local_checkout(
         resumed = await managed.prepare_handoff(row)
         assert resumed.cwd == original_cwd
         assert resumed.agent_home == launch.agent_home
-        assert (resumed.cwd / "head/changed.py").read_text() == "after\n"
-        assert (resumed.cwd / "base/changed.py").read_text() == "before\n"
+        assert (resumed.cwd / "changed.py").read_text() == "after\n"
+        assert await git(resumed.cwd, "show", "diffbutler-base:changed.py") == b"before\n"
         assert (await managed.reviews.get_session(run.session_id)).backend_session_id is not None
         latest = await managed.store.latest_run(run.task_id)
         assert latest is not None and latest.id == run.id
@@ -998,7 +998,7 @@ async def test_managed_fetch_review_resume_and_cleanup(
         assert cached is not None and cached.is_dir()
         assert "+after" in await diff_configured(config, run.task_id)
         launch = await managed.prepare_handoff(row)
-        assert (launch.cwd / "head" / "changed.py").read_text() == "after\n"
+        assert (launch.cwd / "changed.py").read_text() == "after\n"
         await managed.store.mark_approved(run.task_id)
         await managed.cleanup()
         assert root.exists()  # Foreground lease protects fetched objects too.

@@ -67,13 +67,14 @@ loop, and cancellation waits for that I/O to settle before propagating.
 The configured root and its parents are trusted administration, must remain private,
 and must never be mounted into a reviewer or contain nested filesystem mounts. This
 is resource ownership, not a sandbox. Root provisioning is internal, not CLI wiring.
-The native path creates pinned blob snapshots, optionally under a separate temporary
-root whose identity is recorded in the persistent session root before creation. Its
+The native path creates pinned Git checkouts for Codex and blob snapshots for Claude,
+optionally under a separate temporary root whose identity is recorded in the persistent session root before creation. Its
 session directories derive their ownership from the registered home manifests.
-Cleanup deletes those snapshots before the native home and releases only that session's
+Cleanup deletes those workspaces before the native home and releases only that session's
 shared-repository pins afterward. Missing temporary roots are already clean; replaced
-roots fail validation. Explicit resume reconstructs missing snapshots under its foreground
-lease. Whole inactive repositories have configurable retention; worktrees remain unimplemented.
+roots fail validation. Explicit resume reconstructs missing workspaces under its foreground
+lease, preserving the original workspace format. Whole inactive repositories have
+configurable retention.
 
 `OwnedSessionCleaner` validates all manifest entries before deletion and uses a
 reviewer-specific `BackendSessionDeleter` for opaque backend identities. Missing

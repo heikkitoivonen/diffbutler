@@ -74,6 +74,11 @@ class GitSourceReader:
         self._base_sha = ""
         self._head_sha = ""
 
+    async def common_directory(self) -> Path:
+        """Locate the trusted object store, including for linked worktrees."""
+        raw = await self._git("rev-parse", "--path-format=absolute", "--git-common-dir")
+        return Path(os.fsdecode(raw.rstrip(b"\n")))
+
     @classmethod
     async def open(
         cls,

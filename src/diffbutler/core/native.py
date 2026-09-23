@@ -14,13 +14,13 @@ from pydantic import BaseModel, ConfigDict
 from diffbutler.core.process import ProcessRecovery
 from diffbutler.core.repositories import RepositoryCache
 from diffbutler.core.resources import provision_directory, save_json
-from diffbutler.core.workspaces import SnapshotWorkspaces, materialize
+from diffbutler.core.workspaces import SnapshotWorkspaces, materialize, materialize_checkout
 from diffbutler.domain.lifecycle import CleanupSession
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import RunClaim
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
 from diffbutler.reviewers.native import CapturedProcess, NativeError, native_preset
-from diffbutler.reviewers.prompt import render_prompt
+from diffbutler.reviewers.prompt import render_git_prompt, render_prompt
 from diffbutler.reviewers.resources import OwnedDirectories, OwnedSessionCleaner, settled_io
 from diffbutler.sources.git import GitSourceReader
 from diffbutler.store.base import LifecycleStore, ProcessStore, ReviewStore
@@ -137,7 +137,8 @@ class NativeExecution:
         resource = (await self.store.session_resources(self.claim.run.session_id))[0]
         snapshot_root = await self.workspaces.session_path(resource)
         workdir = snapshot_root / "runs" / str(context.run_id)
-        await materialize(self.sources, workdir, progress=self.progress)
+        prepare_sources = materialize_checkout if self.preset_name == "codex" else materialize
+        await prepare_sources(self.sources, workdir, progress=self.progress)
         prepared = replace(
             context,
             checkout_path=workdir,
@@ -148,7 +149,9 @@ class NativeExecution:
                 *self.sources.limitations,
             ),
         )
-        prompt = render_prompt(prepared)
+        prompt = (
+            render_git_prompt(context) if self.preset_name == "codex" else render_prompt(prepared)
+        )
 
         await save_json(root / "current.json", {"run_id": str(context.run_id)})
         env = background_environment(root / "agent-home", self.preset_name)
@@ -274,7 +277,8 @@ async def prepare_native_handoff(
             reader = await GitSourceReader.open(
                 Path(data["repository"]), base_sha=run.base_sha, head_sha=run.head_sha
             )
-            await materialize(reader, cwd)
+            prepare_sources = materialize_checkout if data.get("format") == "git" else materialize
+            await prepare_sources(reader, cwd)
         if not cwd.is_dir():
             raise NativeError("Pinned review workspace is unavailable")
         preset = native_preset(preset_name)

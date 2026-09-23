@@ -153,7 +153,7 @@ class ManagedReviews:
         reviewer_id = reviewer_id or self.settings.review.default_reviewer
         command = self.reviewer_command(reviewer_id)
         selected = next(item for item in self.settings.reviewers if item.id == reviewer_id)
-        instructions = "Inspect pinned base/ and head/ sources; do not execute project code."
+        instructions = "Review the pinned revisions; do not execute project code."
         if self.settings.review.prompt is not None:
             instructions += "\n" + await asyncio.to_thread(self.settings.review.prompt.read_text)
         digest = hashlib.sha256(
@@ -192,7 +192,13 @@ class ManagedReviews:
                 transport=preferred,
             )
             await save_json(
-                root / f"source-{claim.run.id}.json", {"repository": str(repository_path)}
+                root / f"source-{claim.run.id}.json",
+                {
+                    "repository": str(repository_path),
+                    "format": "git"
+                    if self.reviewer_preset(reviewer_id) == "codex"
+                    else "snapshots",
+                },
             )
             if transport is None:
                 return

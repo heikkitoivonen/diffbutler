@@ -49,10 +49,10 @@ uses the documented [Git environment controls](https://git-scm.com/docs/git) and
 
 The local Git executable and repository administration (including `.git` configuration
 and object storage) are trusted. This is source preparation, not an OS sandbox. The [native reviewer](native-reviews.md)
-uses the installed agent CLI's read-only profile and owned pinned snapshots of these
-blobs. DiffButler does not provision an additional sandbox. Remote retrieval and
-worktrees are not implemented; owned snapshots, manifests, leases, and cleanup are
-implemented in the managed path.
+uses the installed agent CLI’s read-only profile. Codex receives an owned Git
+checkout of original committed files; Claude receives redacted snapshots.
+DiffButler does not provision an additional sandbox. Managed remote retrieval,
+pinned source workspaces, manifests, leases, and cleanup are implemented.
 
 Offline tests use disposable Git repositories and synthetic executables. They cover
 pinned reads with a dirty index/worktree, surrounding files, links, binary and unusual
@@ -93,9 +93,16 @@ PR metadata, paths, trusted instructions/schema, and future transcripts are outs
 this source-only pass and need handling at the prompt serialization boundary below.
 The context explicitly records the heuristic limitation. A Python wrapper does
 not confine an executable or prevent access to its underlying objects; an isolated
-runner must expose only mediated redacted data. Native snapshot preparation uses the same redactor.
+runner must expose only mediated redacted data. Claude snapshot preparation uses
+the same redactor. Codex checkouts expose original committed files and cached Git
+objects without source redaction.
 
 ## Prompt serialization
+
+Codex uses `render_git_prompt`: a short source-only instruction naming pinned base
+and head refs. It omits the embedded diff and file list; Codex inspects the checkout
+with Git. The policy forbids project execution and publication, and requests Markdown
+draft findings. The JSON serialization below applies to the snapshot path.
 
 `reviewers.prompt.render_prompt` builds a local UTF-8 payload with a versioned,
 precision-first source-only policy and the parser's generated `ReviewDocument` schema.

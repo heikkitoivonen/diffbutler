@@ -80,3 +80,18 @@ async def test_large_serialized_prompt_is_preserved() -> None:
     assert len(rendered.content) > 2_000_000
     payload = json.loads(rendered.content.splitlines()[-1])
     assert payload["trusted_instructions"] == instructions
+
+
+@pytest.mark.asyncio
+async def test_git_prompt_omits_diff_and_metadata() -> None:
+    from diffbutler.reviewers.prompt import render_git_prompt
+
+    ctx = replace(await context(), diff="huge diff marker" * 100_000)
+    rendered = render_git_prompt(ctx)
+    assert len(rendered.content) < 2500
+    assert b"huge diff marker" not in rendered.content
+    assert b"git diff diffbutler-base HEAD" in rendered.content
+    assert ctx.pr.base_sha.encode() in rendered.content
+    assert ctx.pr.head_sha.encode() in rendered.content
+    assert b"Review failure handling." in rendered.content
+    assert b"Do not execute project code" in rendered.content

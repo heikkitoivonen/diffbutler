@@ -10,6 +10,7 @@ from diffbutler.core.resources import save_json
 from diffbutler.core.snapshot import write_snapshot
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.reviewers.resources import OwnedDirectories, settled_io
+from diffbutler.sources.fetch import git_fetch_command
 from diffbutler.sources.git import GitSourceReader
 
 
@@ -81,4 +82,54 @@ async def materialize(
     temporary = destination.with_name(f".{destination.name}-{uuid4().hex}.tmp")
     await settled_io(lambda: destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True))
     await write_snapshot(reader, temporary, progress=progress)
+    await settled_io(lambda: temporary.rename(destination))
+
+
+async def materialize_checkout(
+    reader: GitSourceReader,
+    destination: Path,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> None:
+    """Create a private head checkout backed by the session-pinned object cache."""
+    temporary = destination.with_name(f".{destination.name}-{uuid4().hex}.tmp")
+    common = await reader.common_directory()
+    if progress is not None:
+        progress("Checking out PR sources…")
+    await settled_io(lambda: temporary.mkdir(mode=0o700, parents=True))
+    await git_fetch_command(
+        temporary,
+        "init",
+        "--template=",
+        f"--object-format={'sha256' if len(reader.head_sha) == 64 else 'sha1'}",
+        local=True,
+    )
+
+    def configure() -> None:
+        gitdir = temporary / ".git"
+        # Quote the alternate path using Git's C-style path syntax.
+        (gitdir / "objects/info/alternates").write_text(
+            json.dumps(str(common / "objects"), ensure_ascii=False) + "\n"
+        )
+        shallow = common / "shallow"
+        if shallow.is_file():
+            (gitdir / "shallow").write_bytes(shallow.read_bytes())
+        with (gitdir / "config").open("a") as config:
+            config.write(
+                "\n[core]\n\thooksPath = /dev/null\n\tfsmonitor = false\n\tautocrlf = false\n"
+            )
+
+    await settled_io(configure)
+    await git_fetch_command(
+        temporary, "update-ref", "refs/heads/diffbutler-base", reader.base_sha, local=True
+    )
+    await git_fetch_command(
+        temporary,
+        "checkout",
+        "--no-recurse-submodules",
+        "-b",
+        "diffbutler-pr",
+        reader.head_sha,
+        local=True,
+    )
     await settled_io(lambda: temporary.rename(destination))
