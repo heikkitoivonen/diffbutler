@@ -5,8 +5,8 @@ background_resume = ["-a", "never", "-s", "read-only", "exec", "resume", "--json
 foreground = ["-a", "on-request", "-s", "danger-full-access", "resume", "{session_id}"]
 
 # Bash relies on native read-only command checks under dontAsk; do not blanket-allow it.
-# Restricted mode ignores project settings; safe mode disables customizations.
+# Keep normal user configuration; override only background tools and permissions.
 [claude]
-background = ["--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none"]
-background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--resume", "{session_id}"]
+background = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none"]
+background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--resume", "{session_id}"]
 foreground = ["--tools", "default", "--permission-mode", "manual", "--resume", "{session_id}"]

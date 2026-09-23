@@ -31,7 +31,8 @@ only manifest-owned resources and supported backend session data. It receives a
 frozen record including the opaque backend ID, transcript reference, and manifest.
 Opaque IDs are never interpreted as filesystem paths by the core. Unsupported
 backend deletion must raise, rather than claim success. The filesystem adapter described below performs real local deletion in offline tests;
-the native path deletes its dedicated owned Codex home.
+the native path deletes owned workspaces and legacy private agent homes, while
+preserving conversations in the user’s normal agent home.
 
 On successful deletion, one transaction marks sessions cleaned, removes backend
 IDs/transcript references/manifests and raw run stdout/stderr, and completes the
@@ -70,7 +71,7 @@ is resource ownership, not a sandbox. Root provisioning is internal, not CLI wir
 The native path creates pinned Git checkouts for Codex and Claude,
 optionally under a separate temporary root whose identity is recorded in the persistent session root before creation. Its
 session directories derive their ownership from the registered home manifests.
-Cleanup deletes those workspaces before the native home and releases only that session's
+Cleanup deletes those workspaces before the owned session directory and releases only that session's
 shared-repository pins afterward. Missing temporary roots are already clean; replaced
 roots fail validation. Explicit resume reconstructs missing workspaces under its foreground
 lease, preserving the original workspace format. Whole inactive repositories have

@@ -55,7 +55,9 @@ async def test_missing_snapshots_rebuild_without_new_review_or_local_checkout(
         run = await managed.review(row)
         launch = await managed.prepare_handoff(row)
         original_cwd = launch.cwd
-        assert launch.agent_home.is_relative_to(settings.general.workspace_root)
+        assert launch.agent_home == Path(
+            os.environ["CODEX_HOME" if preset == "codex" else "CLAUDE_CONFIG_DIR"]
+        )
         if temporary:
             assert original_cwd.is_relative_to(tmp_path / "temporary-snapshots")
         await managed.lifecycle.release_foreground(launch.token)
@@ -77,7 +79,7 @@ async def test_missing_snapshots_rebuild_without_new_review_or_local_checkout(
         assert resumed.cwd.exists()
         await managed.lifecycle.release_foreground(resumed.token)
         await managed.cleanup()
-        assert not resumed.cwd.exists() and not resumed.agent_home.exists()
+        assert not resumed.cwd.exists() and resumed.agent_home.exists()
     finally:
         await database.close()
 
@@ -217,10 +219,12 @@ async def prepared(tmp_path: Path, preset: str = "codex") -> tuple[Settings, Fak
 
 
 @pytest.mark.parametrize("preset", ["codex", "claude"])
+@pytest.mark.parametrize("legacy", [False, True])
 async def test_review_restart_exact_resume_completion_cleanup_and_retained_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     preset: str,
+    legacy: bool,
 ) -> None:
     # Never expose a real native login to the synthetic executable.
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "empty-login"))
@@ -253,6 +257,17 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         assert "Draft comment:" in result.markdown
         assert result.document is None and result.selected_indices == ()
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_HUMAN_REVIEW"
+        if legacy:
+            # Recreate the pre-upgrade private-home layout without native calls.
+            resource = (await managed.store.session_resources(run.session_id))[0]
+            root = directories.path / resource.name
+            old_home = root / "agent-home"
+            old_home.mkdir()
+            (login / "conversation.json").replace(old_home / "conversation.json")
+            (old_home / credential.name).symlink_to(credential)
+            (root / "native-home.json").unlink()
+        # Environment changes after restart must not redirect an existing session.
+        monkeypatch.setenv(home_key, str(tmp_path / "another-login"))
     finally:
         await database.close()
     database = Database(settings.db.url)
@@ -261,7 +276,11 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         row = await resolve_local(SQLiteQueueStore(database), "acme/api#1", None)
         launch = await managed.prepare_handoff(row)
         assert (launch.agent_home / credential.name).resolve() == credential
-        assert not (launch.agent_home / "settings.json").exists()
+        if legacy:
+            assert launch.agent_home.name == "agent-home"
+        else:
+            assert launch.agent_home == login
+            assert (launch.agent_home / "settings.json").read_text() == "synthetic-user-settings"
         execution = CapturedProcess()
         try:
             resumed = await execution.capture(
@@ -279,7 +298,9 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         assert latest is not None and latest.id == run.id
         await managed.store.mark_approved(run.task_id)
         await managed.cleanup()
-        assert not launch.agent_home.exists() and not launch.cwd.exists()
+        assert not launch.cwd.exists()
+        assert launch.agent_home.exists() is (not legacy)
+        assert (login / "conversation.json").exists() is (not legacy)
         assert credential.read_text() == "synthetic-auth"
         assert (login / "settings.json").read_text() == "synthetic-user-settings"
         assert (await managed.reviews.get_session(run.session_id)).status == "cleaned"
@@ -873,7 +894,8 @@ async def test_claude_environment_and_resume_permissions(
     env = background_environment(tmp_path, "claude")
     assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path)
     assert env["ANTHROPIC_API_KEY"] == "synthetic"
-    assert "GH_TOKEN" not in env and "CODEX_API_KEY" not in env
+    assert env["GH_TOKEN"] == "synthetic-forge"
+    assert env["CODEX_API_KEY"] == "synthetic-codex"
     preset = native_preset("claude")
     identity = "01234567-89ab-cdef-0123-456789abcdef"
     resumed = preset.argv(("claude",), identity)
@@ -885,7 +907,9 @@ async def test_claude_environment_and_resume_permissions(
     assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"}.intersection(
         foreground
     )
-    assert "--restricted" in resumed
+    assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"}.intersection(
+        resumed
+    )
     assert resumed[resumed.index("--tools") + 1] == "Read,Glob,Grep,Bash"
     assert resumed[resumed.index("--allowedTools") + 1] == "Read,Glob,Grep"
     with pytest.raises(NativeError, match="identity"):
@@ -1048,3 +1072,34 @@ async def test_fetch_failure_keeps_owned_cleanup_and_never_launches_agent(
         assert not (managed.directories.path / resources[0].name).exists()
     finally:
         await database.close()
+
+
+@pytest.mark.parametrize("preset", ["codex", "claude"])
+async def test_native_home_defaults_and_pinned_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preset: str
+) -> None:
+    from diffbutler.core.native import native_agent_home
+
+    root = tmp_path / "session"
+    root.mkdir()
+    key = "CODEX_HOME" if preset == "codex" else "CLAUDE_CONFIG_DIR"
+    monkeypatch.delenv(key)
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    expected = tmp_path / "user" / (".codex" if preset == "codex" else ".claude")
+    assert await native_agent_home(root, preset) == expected
+    monkeypatch.setenv(key, str(tmp_path / "different-home"))
+    assert await native_agent_home(root, preset) == expected
+    # Recording a location does not create or modify the user's native home.
+    assert not expected.exists()
+
+
+@pytest.mark.parametrize("preset", ["codex", "claude"])
+async def test_legacy_native_home_remains_resumable(tmp_path: Path, preset: str) -> None:
+    from diffbutler.core.native import native_agent_home
+
+    legacy = tmp_path / "agent-home"
+    legacy.mkdir()
+    (legacy / "conversation.json").write_text("remembered")
+    assert await native_agent_home(tmp_path, preset) == legacy
+    assert (legacy / "conversation.json").read_text() == "remembered"
+    assert not (tmp_path / "native-home.json").exists()

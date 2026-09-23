@@ -10,6 +10,7 @@ assert "--version" not in sys.argv, "Native launches must not probe CLI versions
 assert sys.argv[sys.argv.index("--name") + 1] == "diffbutler-pr-1"
 
 root = Path(os.environ["CLAUDE_CONFIG_DIR"])
+root.mkdir(parents=True, exist_ok=True)
 saved = root / "conversation.json"
 identity = "01234567-89ab-cdef-0123-456789abcdef"
 if "--print" not in sys.argv:
@@ -22,14 +23,13 @@ if "--print" not in sys.argv:
     raise SystemExit
 
 assert "-C" not in sys.argv
-assert "--restricted" in sys.argv and "--safe-mode" in sys.argv
-assert "--strict-mcp-config" in sys.argv
+assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"}.intersection(
+    sys.argv
+)
 assert sys.argv[sys.argv.index("--tools") + 1] == "Read,Glob,Grep,Bash"
 assert sys.argv[sys.argv.index("--allowedTools") + 1] == "Read,Glob,Grep"
 assert sys.argv[sys.argv.index("--permission-mode") + 1] == "dontAsk"
 assert sys.argv[sys.argv.index("--permission-prompts") + 1] == "none"
-assert "CODEX_API_KEY" not in os.environ
-assert "GH_TOKEN" not in os.environ and "GITHUB_TOKEN" not in os.environ
 payload = sys.stdin.read()
 assert "source-only review of PR" in payload
 assert "readable Markdown, not JSON" in payload

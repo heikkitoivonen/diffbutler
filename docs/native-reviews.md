@@ -13,7 +13,7 @@ Reproduce in an interactive terminal:
 
 ```sh
 make handoff ARGS="-- codex --no-alt-screen"
-make handoff ARGS="-- claude --safe-mode"
+make handoff ARGS="-- claude"
 ```
 
 Press `v` to open the agent, exit the agent to return, then press `v` again.
@@ -36,8 +36,7 @@ source preparation and again before launch. Offline native acceptance runs on
 macOS as well as Linux, using synthetic agents for review, retry, exact-session
 resume, and cleanup.
 
-Claude authentication bridging still assumes Linux's `.credentials.json` or an
-explicit authentication environment variable.
+Authentication uses the installed agent’s normal configuration and environment.
 
 If a review fails before creating a conversation, `v` explains that another review
 is needed. Failed attempts return to pending AI review; only pressing `r` (or the
@@ -108,9 +107,11 @@ different repositories do not select the wrong conversation. Codex's documented
 launch options do not include session naming; its interactive `/rename` remains
 available for manual naming.
 
-Names stay in the session's managed native home. Opening the agent outside
-DiffButler requires that same `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to see its sessions;
-DiffButler does not copy them into the user's default agent home.
+New conversations use your normal native agent home and appear in the agent's own
+history. DiffButler records that home's location for exact-session retry and resume,
+even if `CODEX_HOME` or `CLAUDE_CONFIG_DIR` later changes. Existing conversations
+created in a private DiffButler agent home continue using that home so they remain
+resumable; those older sessions do not inherit your normal home configuration.
 
 `approved` records the user's completed approval locally; it does not submit a
 forge approval. Completion dispatches cleanup automatically, including when observed
@@ -124,9 +125,9 @@ state overrides and offline history.
 
 `general.workspace_root` selects the private persistent session root (default:
 `$XDG_DATA_HOME/diffbutler/reviews`, normally `~/.local/share/diffbutler/reviews`).
-Each session has a registered owned directory and dedicated `CODEX_HOME` or
-`CLAUDE_CONFIG_DIR`. Keep this root on persistent storage: it contains conversations,
-source-location records, and the identity needed to reconstruct temporary snapshots.
+Each session has a registered owned directory. Keep this root on persistent storage:
+it contains the native-home location, source-location records, and the identity needed
+to reconstruct temporary snapshots. New conversations live in your normal agent home.
 Never point managed roots at existing unrelated directories; initialization refuses
 to adopt them. Session, repository, and snapshot roots must be separate, non-nested paths.
 
@@ -177,8 +178,8 @@ only reconstructible source workspaces elsewhere. The persistent session root re
 that location and its ownership identity; do not change it for that session root.
 On explicit resume, a missing workspace/root is rebuilt at the original path from
 persistently pinned commits, without fetching or creating an AI review. Conversation
-files stay persistent. If cached objects are missing too, resume fails rather than
-silently using a newer revision. Existing unrelated or replaced roots are rejected.
+files stay in the native agent home. If cached objects are missing too, resume fails
+rather than silently using a newer revision. Existing unrelated or replaced roots are rejected.
 Temporary storage may be cleared at any time and may be memory-backed. Uncommitted edits
 or extra files created there during foreground sessions cannot be reconstructed.
 Existing sessions from before shared storage retain their original workspace behavior.
@@ -197,34 +198,27 @@ originally based on Codex CLI 0.155.1 and Claude Code 2.1.278; these are referen
 versions, not requirements.
 [Codex documents JSON events, exact-ID resume, and read-only execution](https://learn.chatgpt.com/docs/non-interactive-mode).
 
-Claude background launches use `--restricted` with `Read,Glob,Grep,Bash`,
-`dontAsk` permissions and `--permission-prompts none`. Only `Read,Glob,Grep`
-are explicitly allowed: Bash relies on Claude’s native read-only command checks,
-including read-only Git inspection; other commands requiring approval are denied.
-There is no blanket Bash or Git-command allow rule. Safe mode disables
-customizations, and strict empty MCP configuration disables external tools.
-The same controls apply on explicit retries. Foreground resume selects `manual`
-permissions and the default tool set so human-authorized forge commands can prompt;
-foreground does not pass safe mode or the empty MCP override. Background flags were checked
-against the installed CLI and the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
+Both agents inherit DiffButler's environment and use their normal user home
+(`CODEX_HOME` / `CLAUDE_CONFIG_DIR`, or `~/.codex` / `~/.claude`). DiffButler does
+not copy or filter user configuration and does not override model, reasoning effort,
+provider, or speed. Settings, authentication, plugins, hooks, and MCP configuration
+are loaded by the installed CLI as usual. Shell aliases are not expanded; put extra
+CLI arguments in the reviewer's `command` array when needed. Project settings are
+resolved from the pinned review checkout, not your original working tree.
 
-Claude background authentication accepts `ANTHROPIC_API_KEY`,
-`CLAUDE_CODE_OAUTH_TOKEN`, or the existing Linux `.credentials.json` login, linked
-from the user's `CLAUDE_CONFIG_DIR` (default `~/.claude`) into the owned config
-folder. User settings and custom providers are not imported. The dedicated config
-folder retains conversations for resume and is removed at cleanup. No live Claude
-model call or authenticated interactive session was used to validate this integration;
-automated tests exercise the launch and output contracts with a fake executable.
+Claude background launches retain `Read,Glob,Grep,Bash`, `dontAsk` permissions,
+and `--permission-prompts none`. Only `Read,Glob,Grep` are explicitly allowed;
+Bash uses the native permission checks, including the user's configured rules.
+DiffButler no longer passes `--restricted`, `--safe-mode`, or empty MCP configuration.
+Foreground resume selects `manual` permissions and the default tool set so it can
+accept human instructions. See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
 
-Only PATH, HOME, locale, and optional `CODEX_API_KEY` are passed to background Codex;
-forge token variables are omitted. The dedicated native home shares the existing
-`auth.json` through a symlink when available, without copying user plugins, MCP
-servers, rules, or configuration. Authentication values are never put in prompts,
-arguments, SQLite, or logs. Foreground resume inherits the user's interactive
-environment so the agent can use ordinary human-authorized forge tools. API-key-only
-background authentication does not automatically establish an interactive login;
-configure the native CLI login before interactive resume. Custom provider/global
-Codex configuration is not imported into the managed home.
+Codex retains its native read-only sandbox and noninteractive approval policy for
+background execution. Both agents retain the JSON output and exact-session resume
+arguments required by DiffButler. Foreground posting still requires explicit human
+instruction. User customizations run under the native CLI's own controls; DiffButler
+does not disable them or scrub provider/proxy/authentication environment variables.
+Authentication values are never deliberately put in prompts, arguments, SQLite, or logs.
 
 This relies on the installed agent's sandbox and approval implementation. DiffButler
 does not independently restrict every host-file read, every tool, or network egress.
@@ -261,8 +255,8 @@ macOS reboot recovery uses `kern.bootsessionuuid`, not the boot volume UUID or a
 
 Foreground leases exclude review and cleanup. The terminal layer restores ownership
 and modes after exit, failure, or cancellation. Completion during attachment keeps
-its cleanup job pending until foreground exit. Cleanup removes the entire owned
-native home and snapshots, including local conversation indexes, while preserving
-unrelated native sessions, the original login, repository files, and SQLite analysis.
+its cleanup job pending until foreground exit. Cleanup removes owned workspaces and
+legacy private native homes. It never deletes your normal agent home or conversations stored there; manage that history with the
+agent itself. Repository files and SQLite analysis are preserved.
 It makes no claim to delete provider-side records. Partial cleanup failures preserve
 manifests for idempotent retry and do not restore a completed task to the queue.

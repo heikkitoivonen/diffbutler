@@ -22,8 +22,12 @@ activation is needed. If `diffbutler` is not on your PATH, run `uv tool update-s
 and restart your shell.
 
 Install and sign in to Codex CLI or Claude Code before requesting AI reviews.
-The native presets support Codex CLI or Claude Code on Linux and macOS without version checks;
-see [supported agents and validation](docs/native-reviews.md) for details.
+The native presets support Codex CLI or Claude Code on Linux and macOS without version checks.
+Reviews use your normal agent settings, including model and reasoning effort, with
+background permission and output overrides. New conversations remain in the agent’s
+own history after DiffButler cleans up its workspaces; existing private sessions
+retain their original home for resume.
+See [supported agents and validation](docs/native-reviews.md) for details.
 
 ## Use
 

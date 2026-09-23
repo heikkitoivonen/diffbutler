@@ -10,6 +10,7 @@ assert "--version" not in sys.argv, "Native launches must not probe CLI versions
 assert "--name" not in sys.argv, "Codex has no session naming launch option"
 
 root = Path(os.environ["CODEX_HOME"])
+root.mkdir(parents=True, exist_ok=True)
 saved = root / "conversation.json"
 identity = "01234567-89ab-cdef-0123-456789abcdef"
 if "exec" not in sys.argv:
@@ -21,7 +22,6 @@ if "exec" not in sys.argv:
     raise SystemExit
 
 assert "read-only" in sys.argv and "never" in sys.argv
-assert "GH_TOKEN" not in os.environ and "GITHUB_TOKEN" not in os.environ
 payload = sys.stdin.read()
 assert "source-only review of PR" in payload
 assert "readable Markdown, not JSON" in payload

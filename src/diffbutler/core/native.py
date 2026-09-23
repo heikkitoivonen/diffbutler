@@ -27,18 +27,35 @@ from diffbutler.store.base import LifecycleStore, ProcessStore, ReviewStore
 
 
 def background_environment(agent_home: Path, preset_name: str = "codex") -> dict[str, str]:
-    auth_keys = (
-        ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
-        if preset_name == "claude"
-        else ("CODEX_API_KEY",)
+    # Provider selection, authentication, proxies, and user customizations belong
+    # to the native CLI. Keep its normal environment, pinning only the session home.
+    home_key = "CLAUDE_CONFIG_DIR" if preset_name == "claude" else "CODEX_HOME"
+    return {**os.environ, home_key: str(agent_home)}
+
+
+async def native_agent_home(root: Path, preset_name: str) -> Path:
+    """Remember the native home so retries and handoffs find the same conversation."""
+    record = root / "native-home.json"
+    if record.is_symlink():
+        raise NativeError("Native home record was replaced by a symlink")
+    if record.exists():
+        data = json.loads(await settled_io(record.read_text))
+        home = Path(data["path"])
+        if not home.is_absolute():
+            raise NativeError("Native home must be an absolute path")
+        return home
+    legacy = root / "agent-home"
+    if legacy.is_symlink():
+        raise NativeError("Managed native directory was replaced by a symlink")
+    if legacy.is_dir():
+        # Existing conversations remain in their original private home.
+        return legacy
+    key, default = (
+        ("CLAUDE_CONFIG_DIR", ".claude") if preset_name == "claude" else ("CODEX_HOME", ".codex")
     )
-    env = {
-        key: os.environ[key]
-        for key in ("PATH", "HOME", "LANG", "LC_ALL", *auth_keys)
-        if key in os.environ
-    }
-    env["CLAUDE_CONFIG_DIR" if preset_name == "claude" else "CODEX_HOME"] = str(agent_home)
-    return env
+    home = Path(os.environ.get(key, str(Path.home() / default))).expanduser().absolute()
+    await save_json(record, {"path": str(home)})
+    return home
 
 
 async def session_directory(
@@ -115,25 +132,7 @@ class NativeExecution:
             self.store, self.directories, self.claim, self.preset_name
         )
 
-        def initialize_home() -> None:
-            for name in ("agent-home", "runs"):
-                directory = root / name
-                if directory.is_symlink():
-                    raise NativeError("Managed native directory was replaced by a symlink")
-                directory.mkdir(mode=0o700, exist_ok=True)
-            # Share only the native login, not user MCP/plugins/rules/configuration.
-            if self.preset_name == "claude":
-                auth = (
-                    Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
-                    / ".credentials.json"
-                )
-            else:
-                auth = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "auth.json"
-            target = root / "agent-home" / auth.name
-            if auth.is_file() and not target.exists() and not target.is_symlink():
-                target.symlink_to(auth.absolute())
-
-        await settled_io(initialize_home)
+        agent_home = await native_agent_home(root, self.preset_name)
         resource = (await self.store.session_resources(self.claim.run.session_id))[0]
         snapshot_root = await self.workspaces.session_path(resource)
         workdir = snapshot_root / "runs" / str(context.run_id)
@@ -141,7 +140,7 @@ class NativeExecution:
         prompt = render_git_prompt(context)
 
         await save_json(root / "current.json", {"run_id": str(context.run_id)})
-        env = background_environment(root / "agent-home", self.preset_name)
+        env = background_environment(agent_home, self.preset_name)
         preset = native_preset(self.preset_name)
         if not await self.is_current():
             raise NativeError("Review became stale during source preparation")
@@ -187,7 +186,7 @@ class NativeExecution:
 
 
 class NativeSessionCleaner:
-    """Remove owned snapshots and native homes, then release shared object pins."""
+    """Remove owned workspaces and legacy homes, then release shared object pins."""
 
     def __init__(
         self,
@@ -210,8 +209,8 @@ class NativeSessionCleaner:
             len(resources) != 1 or resources[0].purpose not in {"codex_home", "claude_home"}
         ):
             raise NativeError("Native cleanup requires an owned native home manifest")
-        # Deleting the entire dedicated native home removes local conversation state,
-        # caches, and indexes without deriving paths from the opaque backend ID.
+        # Only registered owned directories are deleted. The recorded user home
+        # and its native conversation history are never cleanup targets.
         for resource in resources:
             await self.workspaces.cleanup(resource)
         await OwnedSessionCleaner(self.directories, {}).cleanup(
@@ -279,7 +278,7 @@ async def prepare_native_handoff(
                 session_name=f"diffbutler-pr-{pr_number}",
             ),
             cwd=cwd,
-            agent_home=root / "agent-home",
+            agent_home=await native_agent_home(root, preset_name),
             preset_name=preset_name,
         )
     except BaseException:
@@ -288,5 +287,4 @@ async def prepare_native_handoff(
 
 
 def foreground_environment(launch: SessionLaunch) -> Mapping[str, str]:
-    home_key = "CLAUDE_CONFIG_DIR" if launch.preset_name == "claude" else "CODEX_HOME"
-    return {**os.environ, home_key: str(launch.agent_home)}
+    return background_environment(launch.agent_home, launch.preset_name)
