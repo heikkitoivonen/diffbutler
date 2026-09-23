@@ -109,8 +109,10 @@ async def test_fetch_transports_preserve_pinned_revisions(
         result = await fetch_repository(tmp_path, REF, "a" * 40, "b" * 40, transport=preferred)
         assert result == ("https" if https_works else "ssh")
     else:
-        with pytest.raises(SourceError, match="transport unavailable"):
+        with pytest.raises(SourceError, match="transport unavailable") as error:
             await fetch_repository(tmp_path, REF, "a" * 40, "b" * 40, transport=preferred)
+        assert "https: transport unavailable" in str(error.value)
+        assert "ssh: transport unavailable" in str(error.value)
     assert calls[0] == ("init", "--bare", "--template=")
     first_works = ssh_works if preferred == "ssh" else https_works
     assert len(calls) == (2 if first_works else 3)
@@ -170,3 +172,50 @@ async def test_cancelled_https_fetch_does_not_try_ssh(
     with pytest.raises(asyncio.CancelledError):
         await fetch_repository(tmp_path, REF, "a" * 40, "b" * 40)
     assert calls == ["init", "fetch"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "output,hint",
+    [
+        ("Permission denied (publickey).", "SSH key authentication failed"),
+        ("Host key verification failed.", "SSH host trust failed"),
+        ("REMOTE HOST IDENTIFICATION HAS CHANGED", "SSH host key changed"),
+        ("Could not resolve hostname private-host", "Host resolution failed"),
+        ("Connection refused", "Connection refused"),
+        ("SSL certificate problem", "HTTPS certificate verification failed"),
+        ("fatal: couldn't find remote ref refs/pull/123/head", "Requested remote ref"),
+        ("unknown private server message", "Unrecognized Git failure"),
+    ],
+)
+async def test_fetch_failure_classification_keeps_raw_output_private(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    output: str,
+    hint: str,
+) -> None:
+    executable = tmp_path / "git"
+    executable.write_text(
+        f"#!{sys.executable}\nimport sys\n"
+        "if 'init' in sys.argv: sys.exit(0)\n"
+        f"sys.stderr.write({output!r} + '\\nsecret-token https://user:password@private-host/repo\\n')\n"
+        "sys.stderr.write('x' * 2_000_000)\n"
+        "sys.exit(128)\n"
+    )
+    executable.chmod(0o700)
+
+    def find_git(_: str) -> str:
+        return str(executable)
+
+    monkeypatch.setattr("diffbutler.sources.fetch.shutil.which", find_git)
+    async with asyncio.timeout(10):
+        with pytest.raises(SourceError) as error:
+            await fetch_repository(tmp_path, REF, "a" * 40, "b" * 40)
+    message = str(error.value)
+    assert f"Git fetch failed (exit 128): {hint}" in message
+    assert "https:" in message and "ssh:" in message
+    assert "https source fetch failed" in caplog.text
+    assert "ssh source fetch failed" in caplog.text
+    for secret in ("secret-token", "private-host", "user:password", "private server message"):
+        assert secret not in message + caplog.text

@@ -10,6 +10,7 @@ from pathlib import Path
 from types import TracebackType
 
 from diffbutler.config.settings import ConfigError
+from diffbutler.sources.git import SourceError
 
 
 def state_path() -> Path:
@@ -41,12 +42,12 @@ class DiagnosticFormatter(logging.Formatter):
         ei: ExceptionInfo,
     ) -> str:
         # Exception messages, source lines, and locals can contain remote content or secrets.
-        # ConfigError explicitly guarantees a user-facing message without input values.
+        # These exceptions guarantee safe diagnostics without raw command output.
         lines = ["Traceback (most recent call last):"]
         for frame in traceback.extract_tb(ei[2]):
             lines.append(f"  {Path(frame.filename).name}:{frame.lineno} in {frame.name}")
         lines.append(type(ei[1]).__name__)
-        if isinstance(ei[1], ConfigError):
+        if isinstance(ei[1], (ConfigError, SourceError)):
             lines.append(str(ei[1]))
         return "\n".join(lines)
 

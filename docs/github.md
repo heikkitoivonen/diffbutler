@@ -38,6 +38,15 @@ Use these options in order of preference, including when reviewing public reposi
    establish host trust outside DiffButler first. Git URL rewrites are honored
    for HTTPS and SSH; custom `GIT_SSH_COMMAND` overrides are not inherited.
 
+   Source-preparation diagnostics record each attempted transport, the failed Git
+   operation and exit status, and a safe explanation for recognized authentication,
+   SSH host-trust, DNS, network, certificate, or missing-ref errors. If both transports
+   fail, both explanations are retained. Raw Git/SSH output is never logged; unknown
+   errors require reproducing the fetch outside DiffButler to inspect that output.
+   A missing `git_transport` setting means `auto` (HTTPS followed by SSH), even when
+   your existing checkout uses SSH. To try SSH first, set `git_transport = "ssh"`
+   under `[repos."owner/repo"]` in the selected configuration file.
+
 2. **Create a fine-grained personal access token.** Open
    [Personal access tokens](https://github.com/settings/personal-access-tokens),
    choose the resource owner and repositories to monitor, and grant the repository

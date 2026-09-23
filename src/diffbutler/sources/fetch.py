@@ -42,7 +42,69 @@ def repository_url(ref: PRRef, *, transport: Literal["https", "ssh"] = "https") 
     return f"https://{host}/{ref.namespace}/{ref.repository}.git"
 
 
+def _failure_hint(stderr: bytes) -> str:
+    """Classify output without copying credentials, paths, or server text into logs."""
+    output = stderr.lower()
+    hints = (
+        (
+            b"host key verification failed",
+            "SSH host trust failed; verify the host outside DiffButler.",
+        ),
+        (
+            b"remote host identification has changed",
+            "SSH host key changed; verify it with your administrator.",
+        ),
+        (
+            b"permission denied (publickey",
+            "SSH key authentication failed; check the SSH agent and SSH configuration.",
+        ),
+        (
+            b"could not resolve",
+            "Host resolution failed; check DNS, VPN, and SSH host configuration.",
+        ),
+        (b"connection refused", "Connection refused; check the SSH port, VPN, and firewall."),
+        (b"connection timed out", "Connection timed out; check VPN, firewall, and network access."),
+        (
+            b"ssl certificate problem",
+            "HTTPS certificate verification failed; check the corporate CA configuration.",
+        ),
+        (
+            b"authentication failed",
+            "HTTPS authentication failed; check Git credential helpers and repository access.",
+        ),
+        (
+            b"could not read username",
+            "HTTPS credentials unavailable; configure a Git credential helper or use SSH.",
+        ),
+        (
+            b"repository not found",
+            "Repository unavailable; check repository access and the configured identity.",
+        ),
+        (
+            b"couldn't find remote ref",
+            "Requested remote ref is unavailable; refresh the PR and retry.",
+        ),
+        (
+            b"not our ref",
+            "Requested commit is unavailable on the remote; refresh the PR and retry.",
+        ),
+        (b"no space left on device", "Local disk is full; free space and retry."),
+        (
+            b"permission denied",
+            "Permission denied; check local repository permissions and remote access.",
+        ),
+    )
+    for marker, hint in hints:
+        if marker in output:
+            return hint
+    return (
+        "Unrecognized Git failure. Check Git HTTPS credentials or SSH keys, SSH host trust, "
+        "and network access; reproduce the fetch outside DiffButler for raw Git output."
+    )
+
+
 async def git_fetch_command(repository: Path, *args: str, local: bool = False) -> None:
+    operation = args[0] if args and args[0] in {"init", "fetch", "update-ref"} else "command"
     executable = shutil.which("git")
     if executable is None:
         raise SourceError("Git is unavailable; install Git and retry the review")
@@ -60,6 +122,7 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
             "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "
             "-o PermitLocalCommand=no",
             "GIT_SSH_VARIANT": "ssh",
+            "LC_ALL": "C",
         }
     )
     if local:
@@ -83,30 +146,49 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
             env=env,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
     )
+
+    diagnostic: asyncio.Task[bytes] | None = None
+
+    async def collect(stream: asyncio.StreamReader) -> bytes:
+        # Drain everything, retaining only a bounded prefix for classification.
+        output = bytearray()
+        while chunk := await stream.read(65536):
+            output.extend(chunk[: max(0, 65536 - len(output))])
+        return bytes(output)
 
     async def settle() -> None:
         process = await spawn
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
+        if diagnostic is not None:
+            await diagnostic
+        elif process.stderr is not None:
+            await collect(process.stderr)
         await process.wait()
 
     try:
         async with asyncio.timeout(120):
             process = await asyncio.shield(spawn)
-            if await process.wait() != 0:
+            assert process.stderr is not None
+            diagnostic = asyncio.create_task(collect(process.stderr))
+            stderr = await asyncio.shield(diagnostic)
+            status = await process.wait()
+            if status != 0:
                 raise SourceError(
-                    "Could not prepare PR commits. Check Git HTTPS credentials or SSH keys, "
-                    "SSH host trust, and network access, then refresh the PR and retry."
+                    f"Git {operation} failed (exit {status}): {_failure_hint(stderr)}"
                 )
     except TimeoutError:
-        raise SourceError("Fetching PR commits timed out; check network access and retry") from None
-    except OSError:
         raise SourceError(
-            "Could not start Git; check installation and repository permissions"
+            f"Git {operation} timed out after 120s; check network access and retry"
+        ) from None
+    except OSError as exc:
+        raise SourceError(
+            f"Could not start Git {operation} (errno {exc.errno}); "
+            "check installation and repository permissions"
         ) from None
     finally:
         # Do not release session ownership until even a cancelled spawn has settled.
@@ -143,7 +225,9 @@ async def fetch_repository(
     logging.getLogger(__name__).info("Preparing managed Git repository")
     await git_fetch_command(repository, "init", "--bare", "--template=")
     logging.getLogger(__name__).info("Fetching pinned PR commits")
+    failures: list[str] = []
     for index, remote in enumerate(remotes):
+        logging.getLogger(__name__).info("Attempting %s source fetch", transports[index])
         try:
             await git_fetch_command(
                 repository,
@@ -159,9 +243,13 @@ async def fetch_repository(
             )
             logging.getLogger(__name__).info("Pinned PR commits fetched")
             return transports[index]
-        except SourceError:
+        except SourceError as exc:
+            failures.append(f"{transports[index]}: {exc}")
+            logging.getLogger(__name__).warning(
+                "%s source fetch failed: %s", transports[index], exc
+            )
             if index == len(remotes) - 1:
-                raise
+                raise SourceError("Could not prepare PR commits. " + " | ".join(failures)) from None
             logging.getLogger(__name__).info(
                 "%s source fetch failed; trying %s", transports[index], transports[index + 1]
             )

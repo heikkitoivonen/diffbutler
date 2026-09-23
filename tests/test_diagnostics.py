@@ -13,6 +13,7 @@ from diffbutler.config.diagnostics import (
     stop_logging,
 )
 from diffbutler.config.settings import ConfigError
+from diffbutler.sources.git import SourceError
 from diffbutler.ui.cli import main
 
 
@@ -30,12 +31,17 @@ def test_diagnostic_tracebacks_exclude_untrusted_messages(
             raise ConfigError("Native review requires a configured local repository path")
         except ConfigError:
             logger.exception("Review failed")
+        try:
+            raise SourceError("Git fetch failed (exit 128): SSH host trust failed")
+        except SourceError:
+            logger.exception("Source preparation failed")
     finally:
         stop_logging()
     content = path.read_text()
     assert "ValueError" in content and "test_diagnostics.py:" in content
     assert "secret-token" not in content and "private PR title" not in content
     assert "Native review requires a configured local repository path" in content
+    assert "Git fetch failed (exit 128): SSH host trust failed" in content
     assert not capsys.readouterr().err
     assert path.parent.stat().st_mode & 0o777 == 0o700
     assert path.stat().st_mode & 0o777 == 0o600
