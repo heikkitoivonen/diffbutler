@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from diffbutler.config.diagnostics import configure_logging, stop_logging
 from diffbutler.config.file import show_config_file
+from diffbutler.config.instance import single_instance
 from diffbutler.config.settings import ConfigError
 from diffbutler.core.application import (
     browse_configured,
@@ -113,6 +114,11 @@ def root(
         bool, typer.Option("--version", "-v", callback=show_version, is_eager=True)
     ] = False,
 ) -> None:
+    try:
+        context.with_resource(single_instance())
+    except ConfigError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from None
     if context.invoked_subcommand != "reset":
         try:
             configure_logging(level=getattr(logging, log_level.value.upper()))

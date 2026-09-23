@@ -27,6 +27,28 @@ editor command, such as `vim` or `code --wait`; quoted arguments are supported a
 the command runs without a shell. An unset/empty `EDITOR`, launch failure, or
 unsuccessful editor exit is reported as an error.
 
+## Single instance
+
+DiffButler permits one running command or dashboard per `XDG_DATA_HOME`, including
+commands using custom configuration files. A second invocation fails immediately
+with the owner's PID when available, before changing logs or application data.
+Top-level `--help` and `--version` remain available.
+
+The owner-only `$XDG_DATA_HOME/.diffbutler-instance.lock` (default
+`~/.local/share/.diffbutler-instance.lock`) records the PID and holds an OS advisory
+lock for the entire command, including an attached foreground session. The OS
+releases the lock when the process exits or crashes. A leftover PID does not block
+startup, and PID reuse is not used to determine ownership. The file stays in place
+on exit and through reset; deleting a held lock file would allow two owners.
+Processes with different data homes must not share custom database or resource paths.
+
+This guard does not establish that orphaned Git or agent processes have stopped.
+Git lock files are not automatically deleted, and neither are SQLite journals or
+existing resource/session locks. Before removing a Git lock, identify its path using
+[`--log-level debug`](github.md#debugging-source-preparation) and verify that its owner
+has exited. Close any surviving agents before resetting after a crash. Older versions
+without the instance guard must also be closed before starting this version or resetting.
+
 ## First-run setup
 
 To start over, close running DiffButler sessions and run `diffbutler reset`.

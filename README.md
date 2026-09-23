@@ -89,6 +89,12 @@ Close running DiffButler sessions, then run:
 diffbutler reset
 ```
 
+DiffButler refuses a second command or dashboard using the same data home, including
+`reset`, while another instance is running. Its instance lock releases on process
+exit; a leftover PID file does not block startup. See the
+[locking details](docs/configuration.md#single-instance) before handling Git lock files
+or resetting after a crash.
+
 After confirmation, this permanently removes DiffButler's standard configuration,
 data, and state directories, including review history, saved sessions, and diagnostic
 logs. Custom files outside those directories are preserved. Use `diffbutler reset --force`

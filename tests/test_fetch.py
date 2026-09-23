@@ -185,6 +185,10 @@ async def test_cancelled_https_fetch_does_not_try_ssh(
         ("Connection refused", "Connection refused"),
         ("SSL certificate problem", "HTTPS certificate verification failed"),
         ("fatal: couldn't find remote ref refs/pull/123/head", "Requested remote ref"),
+        (
+            "fatal: Unable to create '/private/repo/shallow.lock': File exists.",
+            "Git lock file already exists",
+        ),
         ("unknown private server message", "Unrecognized Git failure"),
     ],
 )

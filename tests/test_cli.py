@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from diffbutler.config.settings import config_path, load_settings
+from diffbutler.config.settings import config_path, data_path, load_settings
 from diffbutler.ui.cli import main
 
 
@@ -62,7 +62,7 @@ def test_config_creates_defaults_and_shows_path(
     monkeypatch.delenv("DIFFBUTLER_GENERAL__POLL_INTERVAL_S")
     monkeypatch.delenv("DIFFBUTLER_REVIEWERS")
     assert load_settings(path).model_dump() == expected
-    assert not (tmp_path / "data").exists()
+    assert not data_path().exists()
     if custom:
         assert not config_path().exists()
 

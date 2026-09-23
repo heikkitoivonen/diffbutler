@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from diffbutler.config.settings import config_path, load_settings
+from diffbutler.config.settings import config_path, data_path, load_settings
 from diffbutler.ui.cli import main
 
 
@@ -46,7 +46,7 @@ def test_config_edit_waits_for_editor_and_preserves_contents(
         assert load_settings(path).general.poll_interval_s is None
         assert load_settings(path).effective_poll_interval_s == 600
     assert not (tmp_path / "injected").exists()
-    assert not (tmp_path / "data").exists()
+    assert not data_path().exists()
 
 
 @pytest.mark.parametrize(

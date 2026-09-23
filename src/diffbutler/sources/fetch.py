@@ -46,6 +46,12 @@ def repository_url(ref: PRRef, *, transport: Literal["https", "ssh"] = "https") 
 def _failure_hint(stderr: bytes) -> str:
     """Classify output without copying credentials, paths, or server text into logs."""
     output = stderr.lower()
+    if b".lock" in output and b"file exists" in output:
+        return (
+            "Git lock file already exists; another Git process or an interrupted operation "
+            "may own it. Use --log-level debug to identify the lock and verify its owner "
+            "has stopped before removing it."
+        )
     hints = (
         (
             b"host key verification failed",
