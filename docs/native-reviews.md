@@ -145,6 +145,13 @@ repository identity, shared across PRs, runs, and application restarts. On an ex
 review request, DiffButler reuses cached commits, imports the pinned pair from the
 configured local checkout when available, or fetches missing objects using the preferred
 Git transport with fallback. Imports and fetches are shallow, without tags or submodules.
+If the local checkout lacks either PR commit, DiffButler first attempts a shallow
+import of the PR base commit into the managed cache, falling back to local `HEAD`
+if that base is unavailable. A retained seed ref lets the
+following forge fetch negotiate from that commit and reuse shared objects where
+possible. This imports committed objects only, not working-tree changes, untracked
+or ignored files, or full history. If seeding fails, the forge fetch is still attempted.
+Preparation remains on demand; startup does not copy or refresh the whole repository.
 Local imports create independent objects: there is no dependency on the checkout staying
 present, and its branches, index, files, and Git metadata are never changed. Simply
 launching from a different directory does not change the configured source path.
@@ -168,6 +175,15 @@ execution. They ignore working/index changes. Symlinks become regular files cont
 link text. Missing objects, submodules, and unsupported/binary diffs fail with a diagnostic.
 Each snapshot still stores its own files; Git object sharing does not deduplicate these
 copies. Worktrees and large-diff splitting remain unimplemented.
+
+Snapshot preparation streams objects through one local `git cat-file --batch` process.
+Each distinct blob is read and redacted once across both revisions, then written to
+each required path as an independent file. This avoids starting Git for every file
+and does not download individual blobs: missing objects fail with lazy fetching disabled.
+Redaction and file writes run off the event loop. The dashboard and log report file
+counts during preparation, followed by `Running AI review…` when the reviewer starts.
+Complete snapshots still require disk space and I/O proportional to their contents;
+preparation remains within the configured review execution timeout.
 
 Snapshots default to the persistent session directory. Set `general.snapshot_root`
 to a new private directory (for example `/tmp/diffbutler-snapshots-yourname`) to keep

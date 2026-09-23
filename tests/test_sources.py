@@ -5,6 +5,7 @@ import os
 import shutil
 import signal
 import sys
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any
 
@@ -159,6 +160,9 @@ async def test_submodules_and_mode_changes(tmp_path: Path) -> None:
     assert {item.path for item in reader.changed_files} == {"submodule", "surrounding.py"}
     with pytest.raises(SourceError, match="Submodule"):
         await reader.read_file(SourceFile("submodule", Side.HEAD))
+    with pytest.raises(SourceError, match="Submodule"):
+        async with aclosing(reader.read_blobs()) as blobs:
+            await anext(blobs)
     assert await reader.read_file(SourceFile("submodule/private", Side.HEAD)) is None
 
 
@@ -265,6 +269,10 @@ async def test_missing_promisor_blob_does_not_launch_remote_helper(tmp_path: Pat
     reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
     with pytest.raises(SourceError, match="local source objects"):
         await reader.read_file(SourceFile("changed.py", Side.HEAD))
+    with pytest.raises(SourceError, match="local source objects"):
+        async with aclosing(reader.read_blobs()) as blobs:
+            async for _ in blobs:
+                pass
     assert not marker.exists()
 
 

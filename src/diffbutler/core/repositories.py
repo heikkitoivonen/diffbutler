@@ -131,6 +131,30 @@ class RepositoryCache:
                         debug_event(
                             logging.getLogger(__name__), "Local source unavailable", reason=exc
                         )
+                        # Even without the PR head, a local commit can supply most blobs.
+                        # Retain a ref so the remote fetch can negotiate from this commit.
+                        await git_fetch_command(path, "init", "--bare", "--template=")
+                        logging.getLogger(__name__).info(
+                            "Seeding PR object cache from local commits"
+                        )
+                        for revision in (base_sha, "HEAD"):
+                            try:
+                                await git_fetch_command(
+                                    path,
+                                    "fetch",
+                                    "--depth=1",
+                                    "--no-tags",
+                                    "--no-recurse-submodules",
+                                    "--",
+                                    str(local_path.absolute()),
+                                    f"+{revision}:refs/diffbutler/local-seed",
+                                    local=True,
+                                )
+                                break
+                            except SourceError as seed_error:
+                                logging.getLogger(__name__).info(
+                                    "Local cache seed unavailable: %s", seed_error
+                                )
                     else:
                         await git_fetch_command(path, "init", "--bare", "--template=")
                         await git_fetch_command(

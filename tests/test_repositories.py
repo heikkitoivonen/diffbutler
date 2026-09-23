@@ -138,3 +138,92 @@ async def test_cache_refuses_another_kind_of_owned_root(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         await RepositoryCache(root.path, retention_days=0).prune()
     assert (home / "conversation").read_text() == "keep"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_in_local", [True, False])
+async def test_missing_pr_head_seeds_local_commit_before_remote_fetch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    base_in_local: bool,
+) -> None:
+    settings, forge = await prepared(tmp_path)
+    local = tmp_path / "repository"
+    remote = tmp_path / "remote"
+    await git(tmp_path, "clone", "--no-hardlinks", str(local), str(remote))
+    (remote / "new.py").write_text("remote-only source\n")
+    await git(remote, "add", ".")
+    await git(remote, "commit", "-m", "remote head")
+    head = (await git(remote, "rev-parse", "HEAD")).decode().strip()
+    base = forge.prs[REF].head_sha
+    local_head = base
+    if not base_in_local:
+        base = head
+        (remote / "new.py").write_text("another remote change\n")
+        await git(remote, "commit", "-am", "second remote head")
+        head = (await git(remote, "rev-parse", "HEAD")).decode().strip()
+    prior = forge.prs[REF].base_sha
+    (local / "build-output").write_text("untracked local data")
+    original_refs = await git(local, "show-ref")
+    original_status = await git(local, "status", "--porcelain")
+    calls = 0
+
+    async def fetch(path: Path, ref: PRRef, base_sha: str, head_sha: str, **kwargs: object) -> str:
+        nonlocal calls
+        calls += 1
+        assert (
+            await git(path, "rev-parse", "refs/diffbutler/local-seed")
+        ).decode().strip() == local_head
+        assert await git(path, "show", f"{local_head}:changed.py") == b"after\n"
+        assert (
+            await git(path, "rev-list", "--count", "refs/diffbutler/local-seed")
+        ).strip() == b"1"
+        assert prior not in (path / "shallow").read_text()
+        assert not (path / "objects/info/alternates").exists()
+        await git(path, "fetch", "--depth=1", remote.as_uri(), base_sha, head_sha)
+        return "ssh"
+
+    monkeypatch.setattr("diffbutler.core.repositories.fetch_repository", fetch)
+    cache = RepositoryCache(settings.general.repository_root)
+    path, transport = await cache.prepare(REF, uuid4(), uuid4(), base, head, local_path=local)
+    assert transport == "ssh" and calls == 1
+    assert await git(path, "show", f"{head}:new.py") == (remote / "new.py").read_bytes()
+    assert await git(local, "show-ref") == original_refs
+    assert await git(local, "status", "--porcelain") == original_status
+    assert (local / "changed.py").read_text() == "dirty unrelated work\n"
+    assert not (path / "build-output").exists()
+    # Subsequent requests use the pinned cache without re-seeding or fetching.
+    local.rename(tmp_path / "moved-local")
+    again, transport = await cache.prepare(REF, uuid4(), uuid4(), base, head, local_path=local)
+    assert again == path and transport is None and calls == 1
+
+
+@pytest.mark.asyncio
+async def test_unavailable_local_seed_falls_back_to_remote(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings, forge = await prepared(tmp_path)
+    pr = forge.prs[REF]
+    remote = tmp_path / "repository"
+    calls = 0
+
+    async def fetch(path: Path, ref: PRRef, base: str, head: str, **kwargs: object) -> str:
+        nonlocal calls
+        calls += 1
+        await git(path, "init", "--bare", "--template=")
+        await git(path, "fetch", "--depth=1", remote.as_uri(), base, head)
+        return "https"
+
+    monkeypatch.setattr("diffbutler.core.repositories.fetch_repository", fetch)
+    cache = RepositoryCache(settings.general.repository_root)
+    path, transport = await cache.prepare(
+        REF,
+        uuid4(),
+        uuid4(),
+        pr.base_sha,
+        pr.head_sha,
+        local_path=tmp_path / "absent",
+    )
+    assert transport == "https" and calls == 1
+    assert await git(path, "show", f"{pr.head_sha}:changed.py") == b"after\n"

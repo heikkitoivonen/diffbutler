@@ -59,6 +59,13 @@ pinned reads with a dirty index/worktree, surrounding files, links, binary and u
 filenames, mode changes, submodules, replacement refs, filters, missing promisor objects,
 environment filtering, safe diagnostics, large output, timeout, and cancellation.
 
+For full native snapshots, `read_blobs` uses one streaming `cat-file --batch` process
+and groups paths from both trees by object ID. Each unique blob is read once, using
+the same environment and protocol restrictions as single-file reads. Batch responses
+must match the requested ID, blob type, length, and record boundary. Cancellation,
+early iterator closure, and errors terminate and reap the owned process group.
+Snapshot callers close the iterator explicitly and publish only after all reads succeed.
+
 ## Source redaction
 
 Context assembly masks credential patterns in the diff and wraps all subsequent
@@ -74,8 +81,9 @@ Assignment values require at least 16 characters and 3.5 bits of Shannon entropy
 per character; recognized token prefixes and PEM blocks do not use that threshold.
 Matches become same-length asterisks with CR/LF positions preserved, including
 non-UTF-8 file content. Overlapping matches count once; repeated occurrences count
-separately. Each diff/file pass emits an INFO log containing only the count, never
-values, hashes, paths, or snippets.
+separately. Mediated diff/file reads emit an INFO log containing only the count, never
+values, hashes, paths, or snippets. Snapshot preparation reports an aggregate count
+for unique blobs when complete, avoiding per-file redaction log entries.
 
 This is heuristic masking, not proof that source is secret-free. Encoded, split,
 unknown-format, low-entropy, and partial private-key secrets can remain; false

@@ -90,7 +90,9 @@ class NativeExecution:
         is_current: Callable[[], Awaitable[bool]],
         preset_name: Literal["codex", "claude"] = "codex",
         workspaces: SnapshotWorkspaces | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> None:
+        self.progress = progress
         self.preset_name: Literal["codex", "claude"] = preset_name
         self.workspaces = workspaces or SnapshotWorkspaces(directories)
         self.claim = claim
@@ -135,7 +137,7 @@ class NativeExecution:
         resource = (await self.store.session_resources(self.claim.run.session_id))[0]
         snapshot_root = await self.workspaces.session_path(resource)
         workdir = snapshot_root / "runs" / str(context.run_id)
-        await materialize(self.sources, workdir)
+        await materialize(self.sources, workdir, progress=self.progress)
         prepared = replace(
             context,
             checkout_path=workdir,
@@ -154,6 +156,8 @@ class NativeExecution:
         if not await self.is_current():
             raise NativeError("Review became stale during source preparation")
         await self.recovery.prepare_launch(self.claim.token, "background")
+        if self.progress is not None:
+            self.progress("Running AI review…")
 
         async def native_checkpoint(identity: str) -> None:
             try:

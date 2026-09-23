@@ -8,7 +8,7 @@ import re
 import shutil
 import signal
 import sys
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -209,10 +209,133 @@ class GitSourceReader:
         # The object ID came from the pinned tree, not from a caller's expression.
         return await self._git("cat-file", "blob", entry.oid)
 
-    async def _git(self, *args: str) -> bytes:
+    async def read_blobs(self) -> AsyncGenerator[tuple[tuple[SourceFile, ...], bytes]]:
+        """Stream each distinct pinned blob once; callers must close the generator.
+
+        Object contents are streamed without a repository-sized cache. Requests contain
+        only verified object IDs, never filenames or revision expressions.
+        Lazy fetch stays disabled.
+        """
+        objects: dict[str, list[SourceFile]] = {}
+        for side in Side:
+            for path, entry in self._trees[side].items():
+                if entry.mode == "160000":
+                    raise SourceError("Submodule source is unavailable in this repository context")
+                objects.setdefault(entry.oid, []).append(SourceFile(path, side))
+        if not objects:
+            return
+        env = self._environment()
+        argv = (
+            self._executable,
+            "--no-pager",
+            "-C",
+            str(self._repository),
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "gc.auto=0",
+            "cat-file",
+            "--batch",
+        )
+        trace = GitTrace(logging.getLogger(__name__), argv, env)
+        spawn = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                *argv,
+                env=env,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+        )
+        errors: asyncio.Task[None] | None = None
+        outcome = "interrupted"
+
+        async def drain(stream: asyncio.StreamReader, *, diagnostic: bool = False) -> None:
+            while chunk := await stream.read(65536):
+                if diagnostic:
+                    trace.capture(chunk)
+
+        async def cleanup() -> None:
+            try:
+                process = await spawn
+            except OSError:
+                trace.finish(None, outcome)
+                return
+            await _terminate_group(process.pid)
+            assert (
+                process.stdin is not None
+                and process.stdout is not None
+                and process.stderr is not None
+            )
+            process.stdin.close()
+            # Drain after killing, even if cancellation interrupted the initial spawn.
+            await asyncio.gather(
+                drain(process.stdout),
+                errors if errors is not None else drain(process.stderr, diagnostic=True),
+                return_exceptions=True,
+            )
+            await process.wait()
+            trace.finish(process.returncode, outcome)
+
+        try:
+            process = await asyncio.shield(spawn)
+            assert (
+                process.stdin is not None
+                and process.stdout is not None
+                and process.stderr is not None
+            )
+            errors = asyncio.create_task(drain(process.stderr, diagnostic=True))
+            for oid, sources in objects.items():
+                async with asyncio.timeout(self._limits.timeout_s):
+                    process.stdin.write(oid.encode("ascii") + b"\n")
+                    await process.stdin.drain()
+                    header = await process.stdout.readline()
+                    fields = header.rstrip(b"\n").split(b" ")
+                    if (
+                        len(fields) != 3
+                        or fields[0] != oid.encode("ascii")
+                        or fields[1] != b"blob"
+                        or not fields[2].isdigit()
+                    ):
+                        raise SourceError(
+                            "Git batch could not read the requested local source objects"
+                        )
+                    content = await process.stdout.readexactly(int(fields[2]))
+                    if await process.stdout.readexactly(1) != b"\n":
+                        raise SourceError("Git batch returned an invalid source object boundary")
+                yield tuple(sources), content
+            process.stdin.close()
+            async with asyncio.timeout(self._limits.timeout_s):
+                await asyncio.shield(errors)
+                status = await process.wait()
+            outcome = "exited"
+            if status != 0:
+                raise SourceError("Git batch source retrieval failed")
+        except TimeoutError:
+            outcome = "timeout"
+            raise SourceError("Git batch source retrieval timed out") from None
+        except asyncio.IncompleteReadError, OSError, ValueError:
+            raise SourceError(
+                "Git batch could not read the requested local source objects"
+            ) from None
+        finally:
+            closing = asyncio.create_task(cleanup())
+            cancelled = False
+            while not closing.done():
+                try:
+                    await asyncio.shield(closing)
+                except asyncio.CancelledError:
+                    cancelled = True
+            closing.result()
+            if cancelled:
+                raise asyncio.CancelledError
+
+    @staticmethod
+    def _environment() -> dict[str, str]:
         # No inherited tokens, Git overrides, HOME configuration, or SSH agents.
         # Protocol denial also protects Git versions without GIT_NO_LAZY_FETCH.
-        env = {
+        return {
             "PATH": os.defpath,
             "LC_ALL": "C",
             "GIT_CONFIG_NOSYSTEM": "1",
@@ -223,6 +346,9 @@ class GitSourceReader:
             "GIT_ALLOW_PROTOCOL": "",
             "GIT_OPTIONAL_LOCKS": "0",
         }
+
+    async def _git(self, *args: str) -> bytes:
+        env = self._environment()
         argv = (
             self._executable,
             "--no-pager",

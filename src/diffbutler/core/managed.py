@@ -243,6 +243,7 @@ class ManagedReviews:
                 lambda: self.reviews.claim_is_current(claim.token),
                 self.reviewer_preset(reviewer_id),
                 self.workspaces,
+                progress=report,
             )
 
         worker = ReviewWorker(

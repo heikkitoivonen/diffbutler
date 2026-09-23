@@ -1,6 +1,7 @@
 """Reconstructible snapshots; persistent native homes retain their identities."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -70,9 +71,14 @@ class SnapshotWorkspaces:
             await directories.delete(self.resource(directories, home))
 
 
-async def materialize(reader: GitSourceReader, destination: Path) -> None:
+async def materialize(
+    reader: GitSourceReader,
+    destination: Path,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> None:
     """Publish only complete snapshots; an interrupted preparation is reconstructible."""
     temporary = destination.with_name(f".{destination.name}-{uuid4().hex}.tmp")
     await settled_io(lambda: destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True))
-    await write_snapshot(reader, temporary)
+    await write_snapshot(reader, temporary, progress=progress)
     await settled_io(lambda: temporary.rename(destination))
