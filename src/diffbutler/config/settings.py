@@ -101,6 +101,7 @@ class Attention(Section):
 
 
 class UI(Section):
+    include_own_prs: bool = False
     browser_command: list[str] | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")

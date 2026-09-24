@@ -85,6 +85,10 @@ model provider.
 See the [dashboard guide](docs/dashboard.md) for all actions and
 [configuration guide](docs/configuration.md) for settings.
 
+Your own PRs are hidden from the review queue by default, including direct and team
+requests. Set `include_own_prs = true` in `[ui]` to review them, such as PRs an agent
+created using your account.
+
 ## Reset
 
 Close running DiffButler sessions, then run:

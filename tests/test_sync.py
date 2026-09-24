@@ -242,6 +242,24 @@ async def test_partial_activity_does_not_consume_events_or_approve(database: Dat
 
 
 @pytest.mark.asyncio
+async def test_own_pr_visibility_is_per_reviewing_account(database: Database) -> None:
+    forge = FakeForge()
+    own = replace(PR, author="READER")
+    forge.prs[REF] = own
+    forge.discovery = Discovery((RequestedPR(own, ("team:acme/reviewers",)),), True)
+    store = SQLiteQueueStore(database)
+    await DiffButler(store, forge).sync()
+    forge.account = replace(ACCOUNT, login="second")
+    forge.activity = ReviewActivity(forge.account)
+    await DiffButler(store, forge).sync()
+
+    rows = await list_queue(store, view="requested")
+    assert [row.account.login for row in rows] == ["second"]
+    assert len(await list_queue(store, include_own_prs=True)) == 2
+    assert await list_queue(store, login="reader") == ()
+
+
+@pytest.mark.asyncio
 async def test_account_isolation_expected_login_and_stale_writes(database: Database) -> None:
     forge = FakeForge()
     store = SQLiteQueueStore(database)

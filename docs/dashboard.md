@@ -17,6 +17,20 @@ renewed requests, and returning from a session never request another run.
 
 ## Working through the queue
 
+PRs authored by the reviewing account are hidden from all local queue views by
+default, even with direct or team review requests, following, or all-PR monitoring.
+Author matching ignores letter case and uses each row's forge account.
+To review PRs created by an agent using your account, set this in your configuration:
+
+```toml
+[ui]
+include_own_prs = true
+```
+
+This also applies to CLI local queue listings. The setting only changes visibility;
+saved review state and monitoring are retained. History and accessible-PR search
+continue to include your PRs. Following a search result does not override this setting.
+
 The default columns are PR, Title, Author, and State.
 The selected PR's repository, AI status, findings count, and age appear in the preview
 and full details. Age is the time since the PR was created, shown in hours. Headers use

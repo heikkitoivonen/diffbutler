@@ -236,6 +236,12 @@ Revision `0008` retains claim-protected launch intent and host/boot identities f
 Revision `0009` adds retained forge receipts, per-cycle PR snapshots, refresh-pending
 status and persistent UI preferences. See [dashboard operation](dashboard.md).
 
+`ui.include_own_prs` defaults to `false`, hiding PRs authored by the reviewing account
+from dashboard and CLI local queue views, regardless of direct/team requests or
+monitoring scope. Set it to `true` to include them (for example, agent-created PRs
+using your account), or use `DIFFBUTLER_UI__INCLUDE_OWN_PRS=true`. History and
+accessible-PR search remain available. Saved state is preserved when toggling it.
+
 `ui.columns` and `ui.sort_by` accept the registered IDs listed in SPEC §10.2;
 unknown IDs fail validation. `ui.browser_command` accepts an argv list, for example
 `["firefox", "--new-tab"]`; the UI appends the PR URL without a shell. The dashboard

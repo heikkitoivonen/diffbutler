@@ -93,5 +93,7 @@ async def local_queue(
     view: Literal["active", "requested", "following"],
     login: str | None,
 ) -> tuple[PullRequestRow, ...]:
-    async with local_store(path) as (store, _settings):
-        return await list_queue(store, view=view, login=login)
+    async with local_store(path) as (store, settings):
+        return await list_queue(
+            store, view=view, login=login, include_own_prs=settings.ui.include_own_prs
+        )

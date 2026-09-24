@@ -17,6 +17,7 @@ from tests.test_sync import ACCOUNT, NOW, PR, REF, FakeForge
 from textual.widgets import DataTable, Static
 
 from diffbutler.config.settings import load_settings
+from diffbutler.core.application import local_queue
 from diffbutler.core.dashboard import (
     DashboardRow,
     DashboardService,
@@ -63,6 +64,36 @@ async def ledger(
         yield database, queue, forge, path
     finally:
         await database.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sources", [("user:reader",), ("team:acme/reviewers",), ()])
+async def test_own_pr_visibility_and_config_override(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], sources: tuple[str, ...]
+) -> None:
+    _, queue, forge, path = ledger
+    own = replace(PR, author="ReAdEr")
+    forge.prs[REF] = own
+    forge.discovery = Discovery((RequestedPR(own, sources),), True)
+    service = DiffButler(queue, forge, monitor_repositories=("acme/api",))
+    await service.sync()
+    before = await queue.snapshot(ACCOUNT)
+    for view in ("active", "requested", "following", "triage", "posted"):
+        assert await dashboard_rows(path, view) == ()
+    assert await local_queue(path, "active", None) == ()
+
+    # Configuration applies to already-saved rows, without a remote refresh.
+    path.write_text(path.read_text() + "\n[ui]\ninclude_own_prs = true\n")
+    assert len(await dashboard_rows(path)) == 1
+    assert len(await local_queue(path, "active", None)) == 1
+    assert len(await dashboard_rows(path, "requested")) == bool(sources)
+    assert await queue.snapshot(ACCOUNT) == before
+
+    path.write_text(path.read_text().replace("include_own_prs = true", "include_own_prs = false"))
+    assert await dashboard_rows(path) == ()
+    # Search still permits finding an own PR; following alone does not bypass the filter.
+    await service.follow_pr(REF)
+    assert await dashboard_rows(path, "following") == ()
 
 
 @pytest.mark.asyncio

@@ -11,8 +11,19 @@ def test_defaults_do_not_need_a_config_or_forge(tmp_path: Path) -> None:
     settings = load_settings()
     assert settings.forges == settings.reviewers == []
     assert settings.review.mode == "source_only"
+    assert settings.ui.include_own_prs is False
     assert settings.db.url == f"sqlite+aiosqlite:///{tmp_path}/data/diffbutler/diffbutler.db"
     assert not (tmp_path / "data").exists()
+
+
+def test_own_pr_visibility_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[ui]\ninclude_own_prs = true\n")
+    assert load_settings(path).ui.include_own_prs is True
+    monkeypatch.setenv("DIFFBUTLER_UI__INCLUDE_OWN_PRS", "false")
+    assert load_settings(path).ui.include_own_prs is False
 
 
 @pytest.mark.parametrize(

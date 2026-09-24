@@ -213,6 +213,7 @@ async def list_queue(
     *,
     view: Literal["active", "requested", "following"] = "active",
     login: str | None = None,
+    include_own_prs: bool = False,
 ) -> tuple[PullRequestRow, ...]:
     """Read local accounts without resolving credentials or making network requests."""
     rows: list[PullRequestRow] = []
@@ -220,6 +221,11 @@ async def list_queue(
         if login is not None and account.login.lower() != login.lower():
             continue
         for item in (await store.snapshot(account)).items:
+            if (
+                not include_own_prs
+                and item.pull_request.author.casefold() == account.login.casefold()
+            ):
+                continue
             include = (
                 item.state != "DONE"
                 if view == "active"
