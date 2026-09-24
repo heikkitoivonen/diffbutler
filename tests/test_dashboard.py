@@ -735,11 +735,68 @@ async def test_monitoring_switch_persists_and_drives_sync(
         )
         await pilot.pause()
         assert (await preferences_configured(path))["monitor_all_prs"] == "false"
+        assert restarted.view == "active"
+        assert restarted.query_one(DataTable).row_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("completion", ["local", "merged", "closed", "approval"])
+async def test_posted_review_stays_visible_after_request_removal_until_completion(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], completion: str
+) -> None:
+    database, queue, forge, path = ledger
+    service = DiffButler(queue, forge)
+    forge.activity = ReviewActivity(ACCOUNT, reviews=(feedback(),))
+    await service.sync()
+    forge.discovery = Discovery((), True)
+    forge.prs[REF] = replace(PR, requested_users=())
+    for _ in range(2):
+        await service.sync()
+    saved = (await queue.snapshot(ACCOUNT)).items[0]
+    assert saved.following and saved.sources == ()
+    assert saved.state == "PENDING_AUTHOR_CHANGES"
+    assert saved.task_id is not None
+
+    # A new dashboard uses persisted active state despite the empty request query.
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test() as pilot:
+        assert app.view == "active"
+        assert app.selected() is not None
+        assert app.rows[str(saved.task_id)].row.tracked.state == "PENDING_AUTHOR_CHANGES"
+        await pilot.press("h", "h")
+        await pilot.pause()
+        assert app.query_one(DataTable).row_count == 1
+
+        forge.prs[REF] = replace(forge.prs[REF], head_sha="updated-head")
+        await service.sync()
+        await app.reload()
+        assert app.rows[str(saved.task_id)].row.tracked.state == "PENDING_AI_REVIEW"
+        async with database.sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(AIRun)) == 0
+
+        if completion == "local":
+            await SQLiteReviewStore(database).mark_approved(saved.task_id)
+        elif completion == "approval":
+            forge.activity = ReviewActivity(
+                ACCOUNT,
+                reviews=(
+                    replace(
+                        feedback(state="APPROVED", head="updated-head", id="review:2"),
+                        created_at=NOW + timedelta(days=2),
+                    ),
+                ),
+            )
+        else:
+            forge.prs[REF] = replace(forge.prs[REF], state=completion)
+        await service.sync()
+        await app.reload()
+        assert app.query_one(DataTable).row_count == 0
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "DONE"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sources", [(), ("assignee:reader",), ("user:someone-else",)])
-async def test_default_personal_view_excludes_followed_prs_without_review_requests(
+async def test_default_personal_view_retains_followed_prs_without_review_requests(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], sources: tuple[str, ...]
 ) -> None:
     _, queue, _, path = ledger
@@ -749,9 +806,13 @@ async def test_default_personal_view_excludes_followed_prs_without_review_reques
     app = Dashboard(path, load_settings(path), offline=True)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        assert app.view == "requested"
-        assert app.query_one(DataTable).row_count == 0
+        assert app.view == "active"
+        assert app.query_one(DataTable).row_count == 1
         await pilot.press("h", "h")
+        await pilot.pause()
+        assert app.view == "active"
+        assert app.query_one(DataTable).row_count == 1
+        await pilot.press("f")
         await pilot.pause()
         assert app.view == "requested"
         assert app.query_one(DataTable).row_count == 0

@@ -126,8 +126,8 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
             asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
         )
         await pilot.pause()
-        assert app.view == "requested"
-        assert app.query_one(DataTable).row_count == expected_rows
+        assert app.view == "active"
+        assert app.query_one(DataTable).row_count == 3
         assert refreshes == 0 and len(calls) == before
         await pilot.press("R")
         await asyncio.wait_for(
@@ -136,15 +136,19 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
         await pilot.pause()
         assert refreshes == 1
         assert "GitHub rate limit is exhausted" in str(app.query_one("#status", Static).content)
-        assert app.query_one(DataTable).row_count == expected_rows
+        assert app.query_one(DataTable).row_count == 3
 
     restarted = Dashboard(path, load_settings(path), offline=True)
     async with restarted.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        assert restarted.view == "requested"
-        assert restarted.query_one(DataTable).row_count == expected_rows
+        assert restarted.view == "active"
+        assert restarted.query_one(DataTable).row_count == 3
         assert not restarted.review_tasks
         await pilot.press("h", "h")
+        await pilot.pause()
+        assert restarted.view == "active"
+        assert restarted.query_one(DataTable).row_count == 3
+        await pilot.press("f")
         await pilot.pause()
         assert restarted.view == "requested"
         assert restarted.query_one(DataTable).row_count == expected_rows

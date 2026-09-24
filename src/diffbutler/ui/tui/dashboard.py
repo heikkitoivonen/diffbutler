@@ -297,8 +297,6 @@ class Dashboard(TerminalApp):
         preferences = await preferences_configured(self.path)
         self.ai_paused = preferences.get("reviews_paused") == "true"
         self.monitor_all_prs = preferences.get("monitor_all_prs") == "true"
-        if not self.monitor_all_prs and self.view == "active":
-            self.view = "requested"
         if (
             preferences.get("sort_by") in self.settings.ui.columns
             or preferences.get("sort_by") == "attention"
@@ -736,24 +734,20 @@ class Dashboard(TerminalApp):
                 self.status(str(exc))
                 return
             self.monitor_all_prs = enabled
-            self.view = "active" if enabled else "requested"
+            self.view = "active"
             self.query_one(Input).value = ""
             if enabled and not self.offline:
                 await self.sync()
             self.status(
                 "Monitoring all open PRs in configured repositories."
                 if enabled
-                else "Showing review requests; followed PRs remain monitored."
+                else "Monitoring review requests and followed PRs."
             )
 
         self.start(toggle())
 
     async def action_view_history(self) -> None:
-        self.view = (
-            ("active" if self.monitor_all_prs else "requested")
-            if self.view == "history"
-            else "history"
-        )
+        self.view = "active" if self.view == "history" else "history"
         await self.reload()
 
     async def action_cycle_filter_preset(self) -> None:

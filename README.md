@@ -58,6 +58,10 @@ private repositories require it. Setup asks for the token's environment variable
 and validates access. It never saves the token.
 Later launches reuse your configuration.
 
+The dashboard shows active reviews, including followed PRs whose GitHub review
+requests have disappeared after you posted feedback. Waiting-for-author reviews
+stay visible across refreshes and restarts.
+
 Select a PR with the arrow keys, then work through the review:
 
 1. Press `r` to start a background AI review. Reviews start only when you request them.

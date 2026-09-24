@@ -200,12 +200,17 @@ requests and all open PRs in every configured forge's `repositories` list. Each 
 must have a nonempty repository list before enabling this. The switch is saved in the
 local database, alongside other dashboard preferences, and also applies to CLI sync.
 Enabling all-PR monitoring refreshes immediately in live mode; offline mode saves the
-choice for the next live sync. Switching back immediately shows the saved Requested
-view without another network request; normal polling updates it. Already followed PRs
-remain monitored and can be viewed in Active/Following. Requested includes direct/team
+choice for the next live sync. Switching back shows the saved Active view without
+another network request; normal polling updates it. Already followed PRs remain
+monitored and visible, including PRs discovered while all-PR monitoring was enabled.
+Requested includes direct/team
 review requests; assignees do not affect membership, including stale saved assignment
-entries. When all-PR monitoring is off, the default view and return from History show
-Requested. Refresh failures show the specific safe forge diagnostic
+entries. The default view and return from History show Active. A discovered PR is
+automatically followed, so submitting comments or losing its GitHub review request
+does not hide an unfinished review. Waiting-for-author reviews remain visible across
+polls and restarts, and new commits return them to pending without starting AI.
+Use the Requested filter explicitly to see only current review requests.
+Refresh failures show the specific safe forge diagnostic
 and preserve saved rows. No AI review starts as a result of this switch.
 
 Pressing `r` prepares missing repository sources automatically. The status area shows
