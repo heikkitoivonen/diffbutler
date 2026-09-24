@@ -90,7 +90,7 @@ async def test_git_prompt_omits_diff_and_metadata() -> None:
     rendered = render_git_prompt(ctx)
     assert len(rendered.content) < 2500
     assert b"huge diff marker" not in rendered.content
-    assert b"git diff diffbutler-base HEAD" in rendered.content
+    assert b"git diff diffbutler-merge-base HEAD" in rendered.content
     assert ctx.pr.base_sha.encode() in rendered.content
     assert ctx.pr.head_sha.encode() in rendered.content
     assert b"Review failure handling." in rendered.content

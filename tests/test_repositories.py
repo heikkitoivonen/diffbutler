@@ -11,25 +11,34 @@ from tests.test_native import prepared
 from tests.test_sources import git
 from tests.test_sync import REF
 
-from diffbutler.core.repositories import RepositoryCache, file_lock
+from diffbutler.core.repositories import RepositoryCache, file_lock, open_directories
 from diffbutler.domain.forge import PRRef
 from diffbutler.reviewers.resources import OwnedDirectories
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("existing_shallow", [False, True])
 async def test_local_objects_are_independent_and_local_checkout_is_untouched(
     tmp_path: Path,
+    existing_shallow: bool,
 ) -> None:
     settings, forge = await prepared(tmp_path)
     local = tmp_path / "repository"
     before = await git(local, "show-ref")
     pr = forge.prs[REF]
     cache = RepositoryCache(settings.general.repository_root)
+    if existing_shallow:
+        directories = await open_directories(cache.path)
+        cached = await directories.create(cache.resource(directories, REF))
+        await git(cached, "init", "--bare", "--template=")
+        await git(cached, "fetch", "--depth=1", local.as_uri(), pr.base_sha, pr.head_sha)
     session, run = uuid4(), uuid4()
     path, transport = await cache.prepare(
         REF, session, run, pr.base_sha, pr.head_sha, local_path=local
     )
     assert transport is None
+    assert not (path / "shallow").exists()
+    assert (await git(path, "rev-list", "--count", pr.head_sha)).strip() == b"2"
     assert await git(local, "show-ref") == before
     assert (local / "changed.py").read_text() == "dirty unrelated work\n"
     assert not (path / "objects/info/alternates").exists()
@@ -66,7 +75,7 @@ async def test_concurrent_preparation_fetches_once_and_retention_protects_each_s
         calls += 1
         await asyncio.sleep(0.05)
         await git(path, "init", "--bare", "--template=")
-        await git(path, "fetch", "--depth=1", remote.as_uri(), base, head)
+        await git(path, "fetch", remote.as_uri(), base, head)
         return "https"
 
     monkeypatch.setattr("diffbutler.core.repositories.fetch_repository", fetch)
@@ -162,7 +171,6 @@ async def test_missing_pr_head_seeds_local_commit_before_remote_fetch(
         (remote / "new.py").write_text("another remote change\n")
         await git(remote, "commit", "-am", "second remote head")
         head = (await git(remote, "rev-parse", "HEAD")).decode().strip()
-    prior = forge.prs[REF].base_sha
     (local / "build-output").write_text("untracked local data")
     original_refs = await git(local, "show-ref")
     original_status = await git(local, "status", "--porcelain")
@@ -177,10 +185,10 @@ async def test_missing_pr_head_seeds_local_commit_before_remote_fetch(
         assert await git(path, "show", f"{local_head}:changed.py") == b"after\n"
         assert (
             await git(path, "rev-list", "--count", "refs/diffbutler/local-seed")
-        ).strip() == b"1"
-        assert prior not in (path / "shallow").read_text()
+        ).strip() == b"2"
+        assert not (path / "shallow").exists()
         assert not (path / "objects/info/alternates").exists()
-        await git(path, "fetch", "--depth=1", remote.as_uri(), base_sha, head_sha)
+        await git(path, "fetch", remote.as_uri(), base_sha, head_sha)
         return "ssh"
 
     monkeypatch.setattr("diffbutler.core.repositories.fetch_repository", fetch)
@@ -212,7 +220,7 @@ async def test_unavailable_local_seed_falls_back_to_remote(
         nonlocal calls
         calls += 1
         await git(path, "init", "--bare", "--template=")
-        await git(path, "fetch", "--depth=1", remote.as_uri(), base, head)
+        await git(path, "fetch", remote.as_uri(), base, head)
         return "https"
 
     monkeypatch.setattr("diffbutler.core.repositories.fetch_repository", fetch)
@@ -227,3 +235,64 @@ async def test_unavailable_local_seed_falls_back_to_remote(
     )
     assert transport == "https" and calls == 1
     assert await git(path, "show", f"{pr.head_sha}:changed.py") == b"after\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_shallow", [False, True])
+async def test_existing_shallow_cache_upgrades_and_incrementally_fetches_full_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    existing_shallow: bool,
+) -> None:
+    from tests.test_sources import divergent_repository
+
+    from diffbutler.sources import fetch as fetch_module
+    from diffbutler.sources.git import GitSourceReader
+
+    remote, ancestor, base, head = await divergent_repository(tmp_path)
+    await git(remote, "update-ref", f"refs/pull/{REF.number}/head", head)
+    # Like a fork PR, its head is available via the pull ref, not a base-repo branch.
+    await git(remote, "branch", "-D", "topic")
+    cache = RepositoryCache(tmp_path / "cache")
+    directories = await open_directories(cache.path)
+    path = await directories.create(cache.resource(directories, REF))
+    await git(path, "init", "--bare", "--template=")
+    if existing_shallow:
+        await git(path, "fetch", "--depth=1", remote.as_uri(), base, head)
+    calls: list[tuple[str, ...]] = []
+    original = fetch_module.git_fetch_command
+
+    async def local_transport(repository: Path, *args: str) -> None:
+        calls.append(args)
+        await original(repository, *args, local=True)
+
+    def remote_url(ref: PRRef, *, transport: str) -> str:
+        return remote.as_uri()
+
+    monkeypatch.setattr(fetch_module, "git_fetch_command", local_transport)
+    monkeypatch.setattr(fetch_module, "repository_url", remote_url)
+    session, run = uuid4(), uuid4()
+    prepared_path, _ = await cache.prepare(REF, session, run, base, head)
+    assert prepared_path == path and not (path / "shallow").exists()
+    fetches = [args for args in calls if args[0] == "fetch"]
+    assert len(fetches) == 1
+    assert ("--unshallow" in fetches[0]) == existing_shallow
+    assert (await git(path, "rev-parse", "refs/remotes/origin/main")).decode().strip() == base
+    pin = f"refs/diffbutler/{session.hex}/{run.hex}/merge-base"
+    assert (await git(path, "rev-parse", pin)).decode().strip() == ancestor
+    reader = await GitSourceReader.open(path, base_sha=base, head_sha=head)
+    assert "template.html" not in await reader.read_diff()
+    await git(remote, "checkout", "-b", "topic", head)
+    (remote / "persistence.py").write_text("next PR revision\n")
+    await git(remote, "commit", "-am", "update PR")
+    next_head = (await git(remote, "rev-parse", "HEAD")).decode().strip()
+    await git(remote, "update-ref", f"refs/pull/{REF.number}/head", next_head)
+    await cache.prepare(REF, session, uuid4(), base, next_head)
+    fetches = [args for args in calls if args[0] == "fetch"]
+    assert len(fetches) == 2 and "--unshallow" not in fetches[1]
+    assert (await git(path, "rev-parse", pin)).decode().strip() == ancestor
+    assert await git(path, "show", f"{head}:persistence.py") == b"new persistence\n"
+    await cache.prepare(REF, session, uuid4(), base, next_head)
+    assert len([args for args in calls if args[0] == "fetch"]) == 2
+    await cache.release(session)
+    assert session.hex not in (await git(path, "for-each-ref")).decode()

@@ -12,7 +12,7 @@ from diffbutler.domain.review import ChangedFile, SourceFile
 
 
 class SourceReader(Protocol):
-    """Bound to this PR's exact base/head. Implementations must confine all reads."""
+    """Pinned PR source: BASE means the comparison merge base, HEAD the PR head."""
 
     async def read_file(self, source: SourceFile) -> bytes | None: ...
 
@@ -22,6 +22,9 @@ class ReviewSources(SourceReader, Protocol):
 
     @property
     def base_sha(self) -> str: ...
+
+    @property
+    def comparison_base_sha(self) -> str: ...
 
     @property
     def head_sha(self) -> str: ...
@@ -55,6 +58,7 @@ class ReviewContext:
     instructions: str
     schema_json: str
     budget: ReviewBudget
+    comparison_base_sha: str
     diff_index: DiffIndex | None = None
     checkout_path: Path | None = None
     limitations: tuple[str, ...] = ()

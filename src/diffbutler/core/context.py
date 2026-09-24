@@ -35,6 +35,9 @@ async def assemble_context(
         pr=pr,
         session_id=run.session_id,
         run_id=run.id,
+        comparison_base_sha=sources.comparison_base_sha,
+        # Anchor identity records the requested PR pair; hunks and BASE reads
+        # both come from its resolved merge base, not the target branch tip.
         diff_index=DiffIndex.parse(diff, base_sha=run.base_sha, head_sha=run.head_sha),
         diff=redact_and_report(diff.encode("utf-8")).decode("utf-8"),
         changed_files=sources.changed_files,

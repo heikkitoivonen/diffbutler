@@ -142,7 +142,7 @@ class RepositoryCache:
                                 await git_fetch_command(
                                     path,
                                     "fetch",
-                                    "--depth=1",
+                                    *(("--unshallow",) if (path / "shallow").is_file() else ()),
                                     "--no-tags",
                                     "--no-recurse-submodules",
                                     "--",
@@ -160,11 +160,12 @@ class RepositoryCache:
                         await git_fetch_command(
                             path,
                             "fetch",
-                            "--depth=1",
+                            *(("--unshallow",) if (path / "shallow").is_file() else ()),
                             "--no-tags",
                             "--no-recurse-submodules",
                             "--",
                             str(local_path.absolute()),
+                            "+refs/heads/*:refs/remotes/local/*",
                             base_sha,
                             head_sha,
                             local=True,
@@ -174,8 +175,20 @@ class RepositoryCache:
                     learned = await fetch_repository(
                         path, ref, base_sha, head_sha, transport=transport
                     )
-            await GitSourceReader.open(path, base_sha=base_sha, head_sha=head_sha)
-            for side, sha in (("base", base_sha), ("head", head_sha)):
+            reader = await GitSourceReader.open(path, base_sha=base_sha, head_sha=head_sha)
+            await save_json(
+                pin,
+                {
+                    "base": base_sha,
+                    "head": head_sha,
+                    "merge-base": reader.comparison_base_sha,
+                },
+            )
+            for side, sha in (
+                ("base", base_sha),
+                ("head", head_sha),
+                ("merge-base", reader.comparison_base_sha),
+            ):
                 await git_fetch_command(
                     path, "update-ref", f"refs/diffbutler/{session_id.hex}/{run_id.hex}/{side}", sha
                 )
@@ -194,7 +207,7 @@ class RepositoryCache:
                 for pin in pins:
                     run_id = UUID(pin.stem.split("-")[1])
                     if (path / "HEAD").exists():
-                        for side in ("base", "head"):
+                        for side in ("base", "head", "merge-base"):
                             await git_fetch_command(
                                 path,
                                 "update-ref",

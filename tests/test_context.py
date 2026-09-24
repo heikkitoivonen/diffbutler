@@ -23,6 +23,7 @@ from diffbutler.reviewers.base import ReviewBudget
 class FakeSources:
     base_sha = "base"
     head_sha = "head"
+    comparison_base_sha = "base"
     changed_files = (ChangedFile("changed.py"),)
     limitations = ("Synthetic source limitation.",)
 

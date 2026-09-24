@@ -136,13 +136,16 @@ to adopt them. Session, repository, and snapshot roots must be separate, non-nes
 repository identity, shared across PRs, runs, and application restarts. On an explicit
 review request, DiffButler reuses cached commits, imports the pinned pair from the
 configured local checkout when available, or fetches missing objects using the preferred
-Git transport with fallback. Imports and fetches are shallow, without tags or submodules.
-If the local checkout lacks either PR commit, DiffButler first attempts a shallow
+Git transport with fallback. Imports and fetches retain full history and branch refs,
+without tags or submodules. Existing shallow caches are unshallowed before review.
+The initial transfer can be larger; later fetches reuse cached objects. Each fetch
+has a 15-minute timeout and remains cancellable.
+If the local checkout lacks either PR commit, DiffButler first attempts an
 import of the PR base commit into the managed cache, falling back to local `HEAD`
 if that base is unavailable. A retained seed ref lets the
 following forge fetch negotiate from that commit and reuse shared objects where
 possible. This imports committed objects only, not working-tree changes, untracked
-or ignored files, or full history. If seeding fails, the forge fetch is still attempted.
+or ignored files. If seeding fails, the forge fetch is still attempted.
 Preparation remains on demand; startup does not copy or refresh the whole repository.
 Local imports create independent objects: there is no dependency on the checkout staying
 present, and its branches, index, files, and Git metadata are never changed. Simply
@@ -151,8 +154,8 @@ GitHub pull refs support fork PRs. The working HTTPS/SSH transport is remembered
 `git_transport`; new repositories try HTTPS then SSH. Private repositories require
 working HTTPS credentials or noninteractive SSH authentication and trusted host keys.
 
-Every run pins its exact base and head with session-owned refs. Preparation and cache
-maintenance are serialized across processes. Completion removes that session's pins
+Every run pins its exact target branch tip, head, and resolved merge base with
+session-owned refs. Preparation and cache maintenance are serialized across processes. Completion removes that session's pins
 only after foreground/background ownership is released and its workspaces are removed.
 Other sessions' pins remain intact. Unused repositories are evicted by cleanup after
 `general.repository_retention_days` (default 30) days since their last use/release;
@@ -162,11 +165,13 @@ Cleanup runs during the normal lifecycle and via `diffbutler cleanup`; it is not
 separate scheduled service.
 
 New Codex and Claude runs use a private Git checkout on `diffbutler-pr`, with a pinned
-`diffbutler-base` branch. A short source-only prompt asks the agent to inspect the
-endpoint diff and surrounding files itself. Imports and fetches use shallow history.
-Reviews compare the pinned base and head directly, which can differ from the PR's
-merge-base diff. Native Git checks out
-original committed files, preserving modes and symlinks.
+`diffbutler-base` target branch tip and `diffbutler-merge-base` comparison branch.
+A short source-only prompt asks the agent to inspect
+`git diff diffbutler-merge-base HEAD` and surrounding files. Reviews, source snapshots,
+and changed-file inventories compare the merge base to the pinned PR head, excluding
+changes present only on the target branch. Preparation fails if complete history or
+a unique merge base cannot be established; it never substitutes an endpoint diff.
+Native Git checks out original committed files, preserving modes and symlinks.
 The checkout shares the managed cache through Git alternates; session pins keep
 its objects alive until cleanup. It has independent Git administration, no copied
 user configuration, checkout hooks, or initialized submodules. The user’s local
@@ -183,6 +188,10 @@ rather than silently using a newer revision. Existing unrelated or replaced root
 Temporary storage may be cleared at any time and may be memory-backed. Uncommitted edits
 or extra files created there during foreground sessions cannot be reconstructed.
 Existing sessions from before shared storage retain their original workspace behavior.
+Previously saved findings and conversations are not rewritten. Request a new review
+explicitly to replace a review made with the old endpoint comparison; resume alone
+does not rerun analysis. Rebuilding a legacy shallow workspace can fail until a new
+review has prepared complete history.
 Existing snapshot-based sessions retain their original format when resumed.
 
 ## Native permissions and authentication

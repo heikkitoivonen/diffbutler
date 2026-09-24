@@ -111,9 +111,6 @@ async def materialize_checkout(
         (gitdir / "objects/info/alternates").write_text(
             json.dumps(str(common / "objects"), ensure_ascii=False) + "\n"
         )
-        shallow = common / "shallow"
-        if shallow.is_file():
-            (gitdir / "shallow").write_bytes(shallow.read_bytes())
         with (gitdir / "config").open("a") as config:
             config.write(
                 "\n[core]\n\thooksPath = /dev/null\n\tfsmonitor = false\n\tautocrlf = false\n"
@@ -122,6 +119,13 @@ async def materialize_checkout(
     await settled_io(configure)
     await git_fetch_command(
         temporary, "update-ref", "refs/heads/diffbutler-base", reader.base_sha, local=True
+    )
+    await git_fetch_command(
+        temporary,
+        "update-ref",
+        "refs/heads/diffbutler-merge-base",
+        reader.comparison_base_sha,
+        local=True,
     )
     await git_fetch_command(
         temporary,

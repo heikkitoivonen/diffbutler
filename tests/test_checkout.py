@@ -48,3 +48,51 @@ async def test_checkout_preserves_source_and_ignores_local_configuration(tmp_pat
     assert not await git(checkout, "status", "--porcelain")
     assert (checkout / ".git/objects/info/alternates").is_file()
     assert source.read_text() == "dirty\n"
+
+
+@pytest.mark.asyncio
+async def test_diverged_review_context_snapshots_and_checkout_agree(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from tests.test_context import records
+    from tests.test_sources import divergent_repository
+
+    from diffbutler.core.context import assemble_context
+    from diffbutler.core.snapshot import write_snapshot
+    from diffbutler.domain.diff import DiffAnchor
+    from diffbutler.domain.review import Side, SourceFile
+    from diffbutler.reviewers.base import ReviewBudget
+    from diffbutler.reviewers.prompt import render_git_prompt
+
+    repo, ancestor, base, head = await divergent_repository(tmp_path)
+    reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
+    run, pr = records()
+    context = await assemble_context(
+        run=replace(run, base_sha=base, head_sha=head),
+        pr=replace(pr, base_sha=base, head_sha=head),
+        sources=reader,
+        instructions="",
+        schema_json="{}",
+        budget=ReviewBudget(),
+    )
+    assert context.comparison_base_sha == ancestor
+    assert context.diff_index is not None
+    assert context.diff_index.base_sha == base  # Requested PR identity stays unchanged.
+    assert "template.html" not in context.diff
+    assert context.diff_index.is_commentable(DiffAnchor("persistence.py", 1, Side.BASE))
+    assert not context.diff_index.is_commentable(DiffAnchor("template.html", 1, Side.HEAD))
+    assert (
+        await context.sources.read_file(SourceFile("template.html", Side.BASE))
+        == b"original template\n"
+    )
+    checkout = tmp_path / "checkout"
+    await materialize_checkout(reader, checkout)
+    assert (await git(checkout, "rev-parse", "diffbutler-base")).decode().strip() == base
+    assert (await git(checkout, "rev-parse", "diffbutler-merge-base")).decode().strip() == ancestor
+    diff = await git(checkout, "diff", "diffbutler-merge-base", "HEAD")
+    assert diff == await git(checkout, "diff", "diffbutler-base...HEAD")
+    assert b"template.html" not in diff and b"persistence.py" in diff
+    assert ancestor.encode() in render_git_prompt(context).content
+    snapshot = tmp_path / "snapshot"
+    await write_snapshot(reader, snapshot)
+    assert (snapshot / "base/template.html").read_text() == "original template\n"

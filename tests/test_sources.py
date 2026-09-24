@@ -401,3 +401,74 @@ async def test_diff_empty_mode_rename_and_submodule_changes(tmp_path: Path) -> N
     assert "--- a/surrounding.py\n+++ /dev/null" in diff
     assert "--- /dev/null\n+++ b/renamed.py" in diff
     assert f"+Subproject commit {base}" in diff
+
+
+async def divergent_repository(tmp_path: Path) -> tuple[Path, str, str, str]:
+    repo = tmp_path / "diverged"
+    repo.mkdir()
+    await git(repo, "init", "--template=", "-b", "main")
+    (repo / "persistence.py").write_text("old persistence\n")
+    (repo / "template.html").write_text("original template\n")
+    await git(repo, "add", ".")
+    await git(repo, "commit", "-m", "common ancestor")
+    ancestor = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    await git(repo, "checkout", "-b", "topic")
+    (repo / "persistence.py").write_text("new persistence\n")
+    await git(repo, "commit", "-am", "PR persistence change")
+    head = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    await git(repo, "checkout", "main")
+    for number in range(4):
+        (repo / "template.html").write_text(f"newer main template {number}\n")
+        await git(repo, "commit", "-am", f"independent main change {number}")
+    base = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    return repo, ancestor, base, head
+
+
+@pytest.mark.asyncio
+async def test_diverged_base_excludes_target_only_changes_and_reads_ancestor(
+    tmp_path: Path,
+) -> None:
+    repo, ancestor, base, head = await divergent_repository(tmp_path)
+    reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
+    assert reader.base_sha == base and reader.comparison_base_sha == ancestor
+    assert [file.path for file in reader.changed_files] == ["persistence.py"]
+    diff = await reader.read_diff()
+    assert "template.html" not in diff
+    assert "-old persistence\n+new persistence" in diff
+    assert await reader.read_file(SourceFile("template.html", Side.BASE)) == b"original template\n"
+    # Moving branch refs cannot change this reader's pinned comparison.
+    await git(repo, "update-ref", "refs/heads/main", head)
+    assert await reader.read_diff() == diff
+
+
+@pytest.mark.asyncio
+async def test_shallow_history_never_falls_back_to_endpoint_diff(tmp_path: Path) -> None:
+    repo, _, base, head = await divergent_repository(tmp_path)
+    shallow = tmp_path / "shallow"
+    shallow.mkdir()
+    await git(shallow, "init", "--bare", "--template=")
+    await git(shallow, "fetch", "--depth=1", repo.as_uri(), base, head)
+    with pytest.raises(SourceError, match="complete Git history"):
+        await GitSourceReader.open(shallow, base_sha=base, head_sha=head)
+
+
+@pytest.mark.asyncio
+async def test_unrelated_and_ambiguous_histories_fail_closed(tmp_path: Path) -> None:
+    repo, ancestor, base, head = await divergent_repository(tmp_path)
+    tree = (await git(repo, "rev-parse", f"{ancestor}^{{tree}}")).decode().strip()
+    unrelated = (await git(repo, "commit-tree", tree, "-m", "unrelated root")).decode().strip()
+    with pytest.raises(SourceError, match="merge base"):
+        await GitSourceReader.open(repo, base_sha=unrelated, head_sha=head)
+    # Two independent merges of the same parents have two best common ancestors.
+    left = (
+        (await git(repo, "commit-tree", tree, "-p", base, "-p", head, "-m", "left"))
+        .decode()
+        .strip()
+    )
+    right = (
+        (await git(repo, "commit-tree", tree, "-p", head, "-p", base, "-m", "right"))
+        .decode()
+        .strip()
+    )
+    with pytest.raises(SourceError, match="unique PR merge base"):
+        await GitSourceReader.open(repo, base_sha=left, head_sha=right)

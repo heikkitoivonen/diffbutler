@@ -73,6 +73,7 @@ class GitSourceReader:
         self._trees = trees
         self._base_sha = ""
         self._head_sha = ""
+        self._comparison_base_sha = ""
 
     async def common_directory(self) -> Path:
         """Locate the trusted object store, including for linked worktrees."""
@@ -97,10 +98,21 @@ class GitSourceReader:
         if executable is None:
             raise SourceError("Git is unavailable")
         reader = cls(repository.absolute(), executable, limits, {})
-        trees: dict[Side, Mapping[str, _Entry]] = {}
-        for side, revision in ((Side.BASE, base_sha), (Side.HEAD, head_sha)):
+        for revision in (base_sha, head_sha):
             if await reader._git("cat-file", "-t", revision) != b"commit\n":
                 raise SourceError("Source revision is not a commit")
+        if await reader._git("rev-parse", "--is-shallow-repository") != b"false\n":
+            raise SourceError("Review requires complete Git history; prepare the repository again")
+        try:
+            raw_bases = await reader._git("merge-base", "--all", base_sha, head_sha)
+            bases = raw_bases.decode("ascii").split()
+        except SourceError:
+            raise SourceError("Could not establish the PR merge base from local history") from None
+        if len(bases) != 1 or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", bases[0]) is None:
+            raise SourceError("Review requires a unique PR merge base")
+        reader._comparison_base_sha = bases[0]
+        trees: dict[Side, Mapping[str, _Entry]] = {}
+        for side, revision in ((Side.BASE, reader.comparison_base_sha), (Side.HEAD, head_sha)):
             raw = await reader._git(
                 "ls-tree",
                 "-r",
@@ -143,18 +155,23 @@ class GitSourceReader:
         return self._base_sha
 
     @property
+    def comparison_base_sha(self) -> str:
+        """Unique merge base used for BASE source, changed files, and diff hunks."""
+        return self._comparison_base_sha
+
+    @property
     def head_sha(self) -> str:
         return self._head_sha
 
     @property
     def limitations(self) -> tuple[str, ...]:
         return (
-            "Diff compares the recorded base and head directly, not their merge base.",
+            f"PR diff and base-side source use merge base {self.comparison_base_sha}.",
             "Renames are represented as deletion and addition; submodule contents are unavailable.",
         )
 
     async def read_diff(self) -> str:
-        """Endpoint diff; reject binary/non-UTF-8 content, never truncate.
+        """Merge-base-to-head diff; reject binary/non-UTF-8 content, never truncate.
 
         Force text so working-tree attributes cannot hide changes as binary or
         invoke custom drivers. No textconv, external diff, or project execution.
@@ -179,7 +196,7 @@ class GitSourceReader:
             "--no-indent-heuristic",
             "--ignore-submodules=none",
             "--submodule=short",
-            self.base_sha,
+            self.comparison_base_sha,
             self.head_sha,
             "--",
         )

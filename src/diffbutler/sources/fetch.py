@@ -187,7 +187,8 @@ async def git_fetch_command(repository: Path, *args: str, local: bool = False) -
         await process.wait()
 
     try:
-        async with asyncio.timeout(120):
+        # Initial full-history transfers need more time than local Git operations.
+        async with asyncio.timeout(900 if operation == "fetch" else 120):
             process = await asyncio.shield(spawn)
             assert process.stderr is not None
             diagnostic = asyncio.create_task(collect(process.stderr))
@@ -252,11 +253,12 @@ async def fetch_repository(
             await git_fetch_command(
                 repository,
                 "fetch",
-                "--depth=1",
+                *(("--unshallow",) if (repository / "shallow").is_file() else ()),
                 "--no-tags",
                 "--no-recurse-submodules",
                 "--",
                 remote,
+                "+refs/heads/*:refs/remotes/origin/*",
                 base_sha,
                 head_sha,
                 f"refs/pull/{ref.number}/head",

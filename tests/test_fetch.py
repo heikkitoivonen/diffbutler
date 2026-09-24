@@ -119,10 +119,12 @@ async def test_fetch_transports_preserve_pinned_revisions(
     for args in calls[1:]:
         assert args[-3:] == ("a" * 40, "b" * 40, f"refs/pull/{REF.number}/head")
         assert "--no-recurse-submodules" in args
+        assert "--depth=1" not in args
+        assert "+refs/heads/*:refs/remotes/origin/*" in args
     first = "ssh" if preferred == "ssh" else "https"
-    assert calls[1][-4] == repository_url(REF, transport=first)
+    assert calls[1][-5] == repository_url(REF, transport=first)
     if not first_works:
-        assert calls[2][-4] == repository_url(REF, transport="https" if first == "ssh" else "ssh")
+        assert calls[2][-5] == repository_url(REF, transport="https" if first == "ssh" else "ssh")
 
 
 @pytest.mark.asyncio

@@ -3,8 +3,11 @@
 `forges.base.DiffIndex` exposes a pure domain implementation shared by adapters and
 context assembly. It indexes the original pinned unified Git diff before redaction,
 retaining only paths and hunk coordinates, never source text. The index records the
-base/head pair. Context preparation rejects malformed hunks, overlapping hunks,
-invalid paths, binary patches and combined diffs. Empty and mode-only diffs have no
+requested PR target-tip/head pair as its identity. In managed reviews, hunk
+coordinates and base-side source come from that pair's resolved merge base, not
+from the target tip. This keeps run freshness checks tied to forge metadata while
+validating locations against the actual PR changes. Context preparation rejects
+malformed hunks, overlapping hunks, invalid paths, binary patches and combined diffs. Empty and mode-only diffs have no
 commentable lines. Git quoted UTF-8 paths and no-final-newline markers are supported.
 The local source reader represents renames as deletion plus addition; an externally
 provided rename diff uses the new path with `old_path` retained.

@@ -5,9 +5,11 @@ dashboard-mediated reads from a configured, trusted local Git repository. It is
 used by the managed native review workflow and independently testable.
 
 Opening a context requires full base and head commit object IDs already available
-locally. The reader inventories both trees and serves only blobs named in those
-trees. Surrounding unchanged files are available, independently of the current
-branch, index, and uncommitted or untracked files. Branch names, abbreviated IDs,
+locally, with complete history and a unique merge base. The reader inventories
+the merge-base and head trees and serves only blobs named in those trees.
+The recorded PR base tip remains separate from the resolved comparison base.
+Surrounding unchanged files are available, independently of the current branch,
+index, and uncommitted or untracked files. Branch names, abbreviated IDs,
 and revision expressions are rejected. Missing objects fail without fetching.
 
 Reads return original bytes. Symlinks return the stored link text and are never
@@ -15,13 +17,16 @@ followed; submodule entries report unavailable source. Missing paths return `Non
 Non-UTF-8 or lexically unsupported tree paths reject context preparation rather
 than silently hiding files. Changed-file inventory includes additions, deletions,
 content changes, and mode changes. Renames appear as deletion plus addition.
-The adapter also provides a unified diff between those exact two commits.
-It compares endpoints, not the merge base; the context records that limitation.
+The adapter provides a unified diff from the resolved merge base to the pinned head.
+Base-side reads, snapshots, and changed-file inventory use that same merge base.
+Newer commits present only on the target branch are excluded. Missing or shallow
+history, unrelated histories, and multiple best merge bases fail preparation;
+there is no endpoint-diff fallback.
 Renames remain deletion/addition pairs. Diff generation forces text and disables
 external drivers and textconv, so working-tree attributes cannot hide changes as
 binary. Diffs containing NUL bytes or invalid UTF-8 fail preparation; they are not
-silently omitted, decoded lossily, or truncated. Binary-aware diff context and
-merge-base comparison are not implemented.
+silently omitted, decoded lossily, or truncated. Binary-aware diff context is not
+implemented.
 
 `core.context.assemble_context` consumes the `ReviewSources` protocol and builds an
 immutable `ReviewContext` for a running attempt and an open PR. Both source and PR
@@ -99,9 +104,9 @@ objects without source redaction.
 
 ## Prompt serialization
 
-Codex and Claude use `render_git_prompt`: a short source-only instruction naming pinned base
-and head refs. It omits the embedded diff and file list; the agent inspects the checkout
-with Git. The policy forbids project execution and publication, and requests Markdown
+Codex and Claude use `render_git_prompt`: a short source-only instruction naming
+the pinned target tip, merge base, and head refs. It omits the embedded diff and
+file list; the agent inspects the checkout with Git. The policy forbids project execution and publication, and requests Markdown
 draft findings. The JSON serialization below applies to the snapshot path.
 
 `reviewers.prompt.render_prompt` builds a local UTF-8 payload with a versioned,
