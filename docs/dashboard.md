@@ -143,6 +143,10 @@ responsive while reads and native reviews
 run. Polling never replays writes or requests AI. Pausing AI dispatch also applies to
 configured CLI reviews; an already explicitly requested run may wait queued until resume.
 
+The routine refresh-start and refresh-success status messages each appear only once
+per dashboard launch, including manual refreshes. Later refreshes preserve other
+status messages; refresh errors remain visible every time and sync activity is logged.
+
 Quitting waits for polling and action workers to finish cleanup as well as cancelling
 reviews launched by this dashboard. Database connections finish closing before
 cancellation propagates, including when quitting just after returning from an agent.

@@ -97,6 +97,56 @@ async def test_own_pr_visibility_and_config_override(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("initial_failure", [False, True])
+async def test_routine_refresh_notices_display_once_per_launch(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    initial_failure: bool,
+) -> None:
+    from diffbutler.forges.base import ForgeError
+
+    path = ledger[3]
+    refreshing = "Refreshing GitHub; requests are paced to respect rate limits."
+    fail = initial_failure
+    observed: list[str] = []
+
+    async def poll(_: Path | None) -> None:
+        observed.append(str(app.query_one("#status", Static).content))
+        if fail:
+            raise ForgeError("Synthetic refresh failure")
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.poll_configured", poll)
+    for _ in range(2):
+        app = Dashboard(path, load_settings(path), offline=True)
+        fail = initial_failure
+        async with app.run_test():
+            if fail:
+                with pytest.raises(ForgeError):
+                    await app.sync()
+                assert "Synthetic refresh failure" in str(app.query_one("#status", Static).content)
+                fail = False
+            else:
+                await app.sync()
+            assert observed[-1] == refreshing
+            if initial_failure:
+                app.status("Review ready")
+                await app.sync()
+                assert observed[-1] == "Review ready"
+            assert str(app.query_one("#status", Static).content) == "Forge refreshed"
+
+            app.status("Review ready")
+            await app.sync()
+            assert observed[-1] == "Review ready"
+            assert str(app.query_one("#status", Static).content) == "Review ready"
+            fail = True
+            for _ in range(2):
+                app.status("Review ready")
+                with pytest.raises(ForgeError):
+                    await app.sync()
+                assert "Synthetic refresh failure" in str(app.query_one("#status", Static).content)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("quit_action", [False, True])
 async def test_shutdown_waits_for_nonreview_worker_cleanup(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], quit_action: bool

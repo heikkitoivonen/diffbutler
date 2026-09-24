@@ -265,6 +265,7 @@ class Dashboard(TerminalApp):
         self.monitor_all_prs = False
         self.reload_lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
+        self.refresh_notices: set[str] = set()
         self.review_tasks: dict[str, asyncio.Task[None]] = {}
         self.poller = Poller(self.sync, settings.effective_poll_interval_s)
         self.ready = False
@@ -328,6 +329,15 @@ class Dashboard(TerminalApp):
     def status(self, message: str) -> None:
         if not self.attached and len(self.screen_stack) == 1:
             self.query_one("#status", Static).update(safe(message))
+
+    def refresh_status_once(self, message: str) -> None:
+        if (
+            message not in self.refresh_notices
+            and not self.attached
+            and len(self.screen_stack) == 1
+        ):
+            self.status(message)
+            self.refresh_notices.add(message)
 
     async def local_tick(self) -> None:
         if self.ready and not self.closing and not self.attached and not self.reload_lock.locked():
@@ -525,11 +535,13 @@ class Dashboard(TerminalApp):
             return
         async with self.sync_lock:
             try:
-                self.status("Refreshing GitHub; requests are paced to respect rate limits.")
+                self.refresh_status_once(
+                    "Refreshing GitHub; requests are paced to respect rate limits."
+                )
                 logging.getLogger(__name__).info("Forge sync started")
                 await poll_configured(self.path)
                 logging.getLogger(__name__).info("Forge sync completed")
-                self.status("Forge refreshed")
+                self.refresh_status_once("Forge refreshed")
             except ForgeError as exc:
                 logging.getLogger(__name__).exception("Forge sync failed")
                 self.status(f"Refresh pending: {exc}. Previous evidence retained.")
