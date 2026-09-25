@@ -1,14 +1,48 @@
 """Shared terminal command and keyboard behavior."""
 
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from textual.command import CommandPalette
 from textual.widgets import HelpPanel
 
 from diffbutler.config.settings import load_settings
+from diffbutler.core.dashboard import DashboardRow
 from diffbutler.ui.tui.dashboard import Dashboard
 from diffbutler.ui.tui.handoff_probe import HandoffProbe
+
+
+@pytest.mark.parametrize("code", [0, 1, 127, -15])
+@pytest.mark.asyncio
+async def test_agent_exit_status_only_reports_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text("")
+    app = Dashboard(config, load_settings(config), offline=True)
+    handoff = MagicMock()
+    handoff.__aenter__.return_value = (Mock(), Mock())
+    monkeypatch.setattr(
+        "diffbutler.ui.tui.dashboard.handoff_configured", Mock(return_value=handoff)
+    )
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.foreground_environment", Mock(return_value={}))
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.run_foreground", AsyncMock(return_value=code))
+    monkeypatch.setattr(app, "suspend", nullcontext)
+    status = Mock()
+    monkeypatch.setattr(app, "status", status)
+
+    await app.attach(Mock(spec=DashboardRow, row=Mock()))
+
+    assert not app.attached
+    handoff.__aexit__.assert_awaited_once()
+    if code == 0:
+        status.assert_not_called()
+    else:
+        status.assert_called_once_with(
+            f"Agent exited {code}; forge refresh attempted. Check refresh-pending badges."
+        )
 
 
 @pytest.mark.parametrize("authenticated,expected", [(True, 60), (False, 600)])

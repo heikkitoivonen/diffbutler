@@ -749,9 +749,14 @@ async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_hist
 
 async def test_public_dashboard_native_handoff_restores_controlling_terminal(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tests.test_handoff_pty import Terminal
 
+    from diffbutler.config.diagnostics import log_path
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    diagnostics = log_path()
     settings, forge = await prepared(tmp_path)
     config = configuration(tmp_path, settings)
     database = Database(settings.db.url)
@@ -778,7 +783,9 @@ async def test_public_dashboard_native_handoff_restores_controlling_terminal(
         await asyncio.to_thread(terminal.wait, lambda: b"AI Status: succeeded" in terminal.output)
         terminal.send(b"v")
         await asyncio.to_thread(terminal.wait, lambda: b"remembered orientation" in terminal.output)
-        await asyncio.to_thread(terminal.wait, lambda: b"Agent exited 0" in terminal.output)
+        await asyncio.to_thread(
+            terminal.wait, lambda: "Foreground agent exited code=0" in diagnostics.read_text()
+        )
         assert os.tcgetpgrp(terminal.master) == terminal.process.pid
         # Returning leaves a resumable conversation, no approval and no extra AI run.
         terminal.send(b"v")
@@ -786,9 +793,12 @@ async def test_public_dashboard_native_handoff_restores_controlling_terminal(
             terminal.wait, lambda: terminal.output.count(b"remembered orientation") == 2
         )
         await asyncio.to_thread(
-            terminal.wait, lambda: os.tcgetpgrp(terminal.master) == terminal.process.pid
+            terminal.wait,
+            lambda: diagnostics.read_text().count("Foreground agent exited code=0") == 2,
         )
+        assert os.tcgetpgrp(terminal.master) == terminal.process.pid
         await asyncio.to_thread(terminal.quit)
+        assert b"Agent exited 0" not in terminal.output
     finally:
         terminal.close()
     database = Database(settings.db.url)

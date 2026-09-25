@@ -671,7 +671,10 @@ class Dashboard(TerminalApp):
         finally:
             self.attached = False
         logging.getLogger(__name__).info("Foreground agent exited code=%s", code)
-        self.status(f"Agent exited {code}; forge refresh attempted. Check refresh-pending badges.")
+        if code != 0:
+            self.status(
+                f"Agent exited {code}; forge refresh attempted. Check refresh-pending badges."
+            )
 
     def action_resume_session(self) -> None:
         row = self.selected()

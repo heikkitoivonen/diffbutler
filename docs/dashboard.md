@@ -115,6 +115,7 @@ On verified foreground exit, the core refreshes that PR using its configured acc
 and reads paginated request events, submitted reviews, inline comments, and discussion
 comments. Successful polling repeats this reconciliation for followed PRs independently
 of current request membership. Agent output claiming publication is never evidence.
+Successful agent exits show no status message; nonzero exits remain visible.
 
 - Closure/merge or a newly observed own approval completes the cycle and schedules cleanup.
 - A new head or renewed request returns attention to pending AI review. Feedback on an
