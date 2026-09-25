@@ -100,9 +100,9 @@ def reconcile(
     # Watermarks never move backwards when access or remote history changes.
     request_key = max(current.request_key, request_key)
     review_key = max(current.review_key, review_key)
-    changed = previous is not None and (
-        pr.head_sha != previous.pull_request.head_sha or request_key > previous.request_key
-    )
+    head_changed = previous is not None and pr.head_sha != previous.pull_request.head_sha
+    requested_again = previous is not None and request_key > previous.request_key
+    changed = head_changed or requested_again
     result = replace(
         current,
         pull_request=pr,
@@ -113,16 +113,25 @@ def reconcile(
         refresh_pending=not activity.complete,
     )
     if changed and pr.state == "open":
+        changed_after_approval = (
+            head_changed
+            and not requested_again
+            and (
+                current.state == "DONE_PLUS"
+                or (
+                    current.state == "DONE"
+                    and current.completion_reason in {"own_approval", "local_approval"}
+                )
+            )
+        )
         result = replace(
             result,
-            state="PENDING_AI_REVIEW",
+            state="DONE_PLUS" if changed_after_approval else "PENDING_AI_REVIEW",
             completion_reason=None,
             completion_event=None,
             cycle=current.cycle + (current.state == "DONE"),
             task_id=None if current.state == "DONE" else current.task_id,
-            notice="New commits detected"
-            if pr.head_sha != current.pull_request.head_sha
-            else "Review requested again",
+            notice="Review requested again" if requested_again else "New commits detected",
             posted_at=None if current.state == "DONE" else current.posted_at,
         )
     feedback = (

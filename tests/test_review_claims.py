@@ -224,3 +224,22 @@ async def test_upgrade_0003_preserves_queued_attempt(database: Database) -> None
     assert status.revision == "0009" and status.backup is not None
     assert (await service(database).request_review(identity)).id == run.id
     assert await service(database).claim_review(run.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_explicit_review_can_start_for_changes_after_approval(database: Database) -> None:
+    forge, identity = await seed(database)
+    queue = SQLiteQueueStore(database)
+    await SQLiteReviewStore(database).mark_approved(identity.task_id)
+    forge.prs[REF] = replace(PR, head_sha="new-head")
+    await DiffButler(queue, forge).sync()
+    changed = (await queue.snapshot(ACCOUNT)).items[0]
+    assert changed.state == "DONE_PLUS" and changed.task_id is not None
+    reviews = service(database)
+    run = await reviews.request_review(
+        replace(identity, task_id=changed.task_id, head_sha="new-head")
+    )
+    assert run.status == RunStatus.QUEUED
+    assert (await queue.snapshot(ACCOUNT)).items[0].state == "QUEUED"
+    assert await reviews.claim_review(run.id) is not None
+    assert (await queue.snapshot(ACCOUNT)).items[0].state == "AI_RUNNING"

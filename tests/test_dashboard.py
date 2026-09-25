@@ -344,7 +344,7 @@ async def test_history_preserves_each_cycle_and_filters_without_reactivation(
     forge.prs[REF] = replace(PR, head_sha="new-head", title="New title")
     await DiffButler(queue, forge).sync()
     current = (await queue.snapshot(ACCOUNT)).items[0]
-    assert current.cycle == 2 and current.task_id != task and current.state == "PENDING_AI_REVIEW"
+    assert current.cycle == 2 and current.task_id != task and current.state == "DONE_PLUS"
     dashboard = DashboardService(SQLiteDashboardStore(database), reviews)
     history = await dashboard.history(
         HistoryFilter(repository="acme/api", number=1, reason="local_approval")
@@ -902,3 +902,55 @@ async def test_review_configuration_failure_is_visible_and_logged(
         assert type(error).__name__ in content and "in fail" in content
     finally:
         stop_logging()
+
+
+@pytest.mark.parametrize("column", COLUMN_IDS)
+@pytest.mark.parametrize("descending", [False, True])
+def test_post_approval_changes_sort_last_for_every_column_and_direction(
+    column: str, descending: bool
+) -> None:
+    active = DashboardRow(row=PullRequestRow(account=ACCOUNT, tracked=TrackedPR(PR)))
+    changed = DashboardRow(
+        row=PullRequestRow(account=ACCOUNT, tracked=TrackedPR(PR, state="DONE_PLUS")),
+        attention=1_000_000,
+        findings=99,
+    )
+    another = changed.model_copy(update={"attention": 0, "findings": None})
+    spec = SortSpec(column=column, descending=descending)
+    ordered = sort_rows((changed, active, another), spec)
+    assert ordered[0] == active
+    assert ordered[1:] == sort_rows((changed, another), spec)
+    assert column_value(changed, "state") == "done+"
+
+
+@pytest.mark.parametrize("head_changed", [False, True])
+@pytest.mark.parametrize(
+    "state",
+    [
+        "PENDING_AI_REVIEW",
+        "QUEUED",
+        "AI_RUNNING",
+        "PENDING_HUMAN_REVIEW",
+        "FINDINGS_TRIAGE",
+        "PENDING_AUTHOR_CHANGES",
+        "DONE",
+        "DONE_PLUS",
+    ],
+)
+def test_renewed_request_takes_precedence_over_every_open_pr_state(
+    state: str, head_changed: bool
+) -> None:
+    approval = ReviewEvent("approved", NOW, ACCOUNT.login, "APPROVED", PR.head_sha)
+    previous = TrackedPR(
+        PR,
+        state=state,
+        completion_reason="own_approval" if state == "DONE" else None,
+        review_key=approval.key,
+    )
+    request = RequestEvent("requested-again", NOW + timedelta(seconds=1))
+    pr = replace(PR, head_sha="new-head") if head_changed else PR
+    result = reconcile(previous, pr, ReviewActivity(ACCOUNT, (request,), (approval,)), ())
+    assert result.state == "PENDING_AI_REVIEW"
+    assert result.notice == "Review requested again"
+    assert result.cycle == (2 if state == "DONE" else 1)
+    assert result.completion_reason is None

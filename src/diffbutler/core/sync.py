@@ -248,6 +248,7 @@ async def list_queue(
         sorted(
             rows,
             key=lambda row: (
+                row.tracked.state == "DONE_PLUS",
                 row.account.forge,
                 row.account.login,
                 row.tracked.pull_request.ref.namespace,

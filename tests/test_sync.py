@@ -25,8 +25,9 @@ from diffbutler.domain.sync import RequestEvent, ReviewActivity, ReviewEvent
 from diffbutler.forges.base import ForgeError
 from diffbutler.store.base import SyncConflict
 from diffbutler.store.database import Database
-from diffbutler.store.models import CleanupJob, ReviewTask
+from diffbutler.store.models import AIRun, CleanupJob, ReviewTask
 from diffbutler.store.queue import SQLiteQueueStore
+from diffbutler.store.review import SQLiteReviewStore
 
 NOW = datetime(2026, 9, 1, tzinfo=UTC)
 ACCOUNT = Account("github:https://api.github.com", "reader", "Reader")
@@ -454,3 +455,80 @@ async def test_monitor_search_failure_preserves_followed_prs(database: Database)
     assert report.refreshed == 1
     assert any("Synthetic search failure" in warning for warning in report.warnings)
     assert (await store.snapshot(ACCOUNT)).items[0].sources == ("user:reader",)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("finish", ["approved", "merged", "closed", "requested"])
+async def test_post_approval_changes_stay_visible_last_without_starting_ai(
+    database: Database, local: bool, finish: str
+) -> None:
+    forge = FakeForge()
+    queue = SQLiteQueueStore(database)
+    sync = DiffButler(queue, forge)
+    await sync.sync()
+    original = (await queue.snapshot(ACCOUNT)).items[0]
+    assert original.task_id is not None
+    approval = ReviewEvent("approval", NOW, "reader", "APPROVED", PR.head_sha)
+    if local:
+        await SQLiteReviewStore(database).mark_approved(original.task_id)
+    else:
+        forge.activity = ReviewActivity(ACCOUNT, reviews=(approval,))
+        await sync.sync()
+    assert await list_queue(queue) == ()
+    # Monitoring must work after request membership disappears.
+    forge.discovery = Discovery((), True)
+    forge.prs[REF] = replace(PR, head_sha="after-approval")
+    await sync.sync()
+    changed = (await queue.snapshot(ACCOUNT)).items[0]
+    assert changed.state == "DONE_PLUS" and changed.cycle == 2
+    assert changed.task_id != original.task_id
+    assert changed.completion_reason is None
+    forge.prs[REF] = replace(PR, head_sha="another-push")
+    await sync.sync()
+    forge.activity = replace(forge.activity, complete=False)
+    await sync.sync()
+    forge.activity = replace(forge.activity, complete=True)
+    await sync.sync()
+    reopened = Database(str(database.url))
+    try:
+        saved = (await SQLiteQueueStore(reopened).snapshot(ACCOUNT)).items[0]
+        assert saved.state == "DONE_PLUS" and saved.task_id == changed.task_id
+        assert saved.cycle == 2
+    finally:
+        await reopened.close()
+    second = replace(PR, ref=replace(REF, number=2), head_sha="second-pr-head")
+    forge.prs[second.ref] = second
+    await sync.follow_pr(second.ref)
+    rows = await list_queue(queue)
+    assert [row.tracked.pull_request.ref.number for row in rows] == [2, 1]
+    async with database.sessions() as db:
+        old = await db.get(ReviewTask, original.task_id)
+        assert old is not None and old.state == "DONE"
+        assert old.completed_head_sha == PR.head_sha
+        assert await db.scalar(select(func.count()).select_from(CleanupJob)) == 1
+        assert await db.scalar(select(func.count()).select_from(AIRun)) == 0
+    if finish == "approved":
+        forge.activity = ReviewActivity(
+            ACCOUNT,
+            reviews=(
+                replace(
+                    approval,
+                    id="new",
+                    head_sha="another-push",
+                    created_at=NOW + timedelta(seconds=1),
+                ),
+            ),
+        )
+    elif finish == "requested":
+        forge.activity = replace(
+            forge.activity, requests=(RequestEvent("renewed", NOW + timedelta(seconds=2)),)
+        )
+    else:
+        forge.prs[REF] = replace(forge.prs[REF], state=finish)
+    await sync.sync()
+    final = next(
+        item for item in (await queue.snapshot(ACCOUNT)).items if item.pull_request.ref == REF
+    )
+    assert final.state == ("PENDING_AI_REVIEW" if finish == "requested" else "DONE")
+    assert final.task_id == changed.task_id

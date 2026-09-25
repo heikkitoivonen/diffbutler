@@ -60,7 +60,8 @@ Later launches reuse your configuration.
 
 The dashboard shows active reviews, including followed PRs whose GitHub review
 requests have disappeared after you posted feedback. Waiting-for-author reviews
-stay visible across refreshes and restarts.
+stay visible across refreshes and restarts. If an approved PR receives new commits,
+it reappears as `done+` at the end of the queue without starting another AI review.
 
 Select a PR with the arrow keys, then work through the review:
 

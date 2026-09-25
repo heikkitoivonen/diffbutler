@@ -59,4 +59,5 @@ STATE_LABELS = {
     "FINDINGS_TRIAGE": "check",
     "PENDING_AUTHOR_CHANGES": "author",
     "DONE": "done",
+    "DONE_PLUS": "done+",
 }

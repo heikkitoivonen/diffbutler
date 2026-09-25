@@ -51,9 +51,18 @@ columns = ["number", "title", "author", "state"]
 
 State labels are `pending` (awaiting AI review), `queued`, `running`, `approve`
 (awaiting human review), `check` (review needs inspection), `author` (awaiting author
-changes), and `done` (completed cycle). The `approve` and `check` labels indicate
-the next human step; they do not trigger publication or approval.
+changes), `done` (completed cycle), and `done+` (new commits after your approval).
+The `approve` and `check` labels indicate the next human step; they do not trigger
+publication or approval.
 A trailing `-` marks a pending forge refresh (for example, `check -`).
+
+When an approved, still-open PR receives new commits, it reappears as `done+`.
+These rows sort after all other visible PRs, regardless of sort column or direction,
+and stay `done+` across further pushes and refreshes. The completed approval cycle
+remains in history. No AI run starts automatically; press `r` to review the new
+changes or `o` to continue in the browser. A renewed review request returns any
+open PR to `pending`, including when new commits arrive in the same refresh.
+A new approval, closure, or merge completes it.
 
 At widths of 80 terminal columns or more, the PR table fits the available width
 and hides its scrollbars; keyboard navigation still reaches every row. Smaller
@@ -132,8 +141,10 @@ of current request membership. Agent output claiming publication is never eviden
 Successful agent exits show no status message; nonzero exits remain visible.
 
 - Closure/merge or a newly observed own approval completes the cycle and schedules cleanup.
-- A new head or renewed request returns attention to pending AI review. Feedback on an
-  older head cannot hide that work.
+- A renewed review request returns any open PR to `pending`, taking precedence over
+  new commits. Otherwise, new commits after approval start a visible `done+` cycle
+  at the end of the queue; other new heads return attention to pending AI review.
+  Feedback on an older head cannot hide that work.
 - A newly observed own submitted COMMENTED/CHANGES_REQUESTED review on the current head
   defaults to waiting for author changes and shows the observed inline-comment count.
 - Standalone comments and other people's reviews are retained and surfaced as activity;

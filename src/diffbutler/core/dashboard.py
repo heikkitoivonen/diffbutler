@@ -153,7 +153,9 @@ def sort_rows(rows: tuple[DashboardRow, ...], sort: SortSpec) -> tuple[Dashboard
         assert value is not None
         return value
 
-    return tuple(sorted(present, key=key, reverse=sort.descending) + missing)
+    ordered = sorted(present, key=key, reverse=sort.descending) + missing
+    # Keep post-approval changes last regardless of sort column or direction.
+    return tuple(sorted(ordered, key=lambda row: row.row.tracked.state == "DONE_PLUS"))
 
 
 async def dashboard_rows(
