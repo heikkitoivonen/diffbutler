@@ -1,10 +1,79 @@
 """HTTP failure handling and token confinement using an offline transport."""
 
+import asyncio
+import logging
+
 import httpx
 import pytest
 
 from diffbutler.forges.base import ForgeError
+from diffbutler.forges.diagnostics import collect_rate_limits
 from diffbutler.forges.github.http import GitHubHTTP, api_url
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [200, 304, 403, 429, 503])
+async def test_response_log_level(status: int, caplog: pytest.LogCaptureFixture) -> None:
+    http = GitHubHTTP(
+        "https://api.github.com",
+        None,
+        transport=httpx.MockTransport(lambda _: httpx.Response(status)),
+        request_interval=0,
+    )
+    try:
+        with caplog.at_level(logging.DEBUG, logger="diffbutler.forges.github.http"):
+            await http.paced_get(http.checked_url("user"), {})
+        records = [record for record in caplog.records if "GitHub response" in record.message]
+        assert len(records) == 1
+        assert records[0].levelno == (logging.DEBUG if status in {200, 304} else logging.INFO)
+    finally:
+        await http.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_quota_observations_keep_minimum_and_isolate_concurrent_scopes() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        remaining = request.url.params["remaining"]
+        search = request.url.path == "/search/issues"
+        return httpx.Response(
+            200,
+            json={},
+            headers={
+                "X-RateLimit-Resource": "search" if search else "core",
+                "X-RateLimit-Remaining": remaining,
+                "X-RateLimit-Limit": "30" if search else "5000",
+                "X-RateLimit-Reset": "2000000000",
+            },
+        )
+
+    async def sync(remaining: int) -> None:
+        http = GitHubHTTP(
+            "https://api.github.com",
+            None,
+            transport=httpx.MockTransport(handle),
+            request_interval=0,
+        )
+        try:
+            await http.get("search/issues", {"remaining": 1})
+            with collect_rate_limits() as observations:
+                await http.get("user", {"remaining": 4999})
+                await asyncio.sleep(0)
+                await http.get("search/issues", {"remaining": remaining})
+                await http.get("search/issues", {"remaining": 30})
+                # Missing/invalid headers must not reuse the last known quota.
+                http.record_limit(httpx.Headers())
+                http.record_limit(httpx.Headers({"x-ratelimit-resource": "search"}))
+            assert observations.minimum is not None
+            assert observations.minimum.remaining == remaining
+            assert observations.minimum.limit == 30
+            with collect_rate_limits() as fresh:
+                assert fresh.minimum is None
+            await http.get("search/issues", {"remaining": 0})
+            assert observations.minimum.remaining == remaining
+        finally:
+            await http.close()
+
+    await asyncio.gather(sync(5), sync(12))
 
 
 @pytest.mark.asyncio

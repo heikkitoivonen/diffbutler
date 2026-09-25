@@ -16,6 +16,7 @@ import httpx
 
 from diffbutler.domain.forge import RateLimit
 from diffbutler.forges.base import ForgeError
+from diffbutler.forges.diagnostics import observe_rate_limit
 
 
 def api_url(value: str) -> httpx.URL:
@@ -153,7 +154,8 @@ class GitHubHTTP:
             raise
         self.record_limit(response.headers)
         quota = self.limits.get(resource)
-        logging.getLogger(__name__).info(
+        logging.getLogger(__name__).log(
+            logging.DEBUG if response.is_success or response.status_code == 304 else logging.INFO,
             "GitHub response resource=%s status=%d elapsed_s=%.3f "
             "limit=%s remaining=%s reset=%s retry_after_s=%s",
             resource,
@@ -192,6 +194,7 @@ class GitHubHTTP:
             )
         except KeyError, ValueError, OverflowError, OSError:
             return
+        observe_rate_limit(self.limits[resource])
 
     def retry_delay(self, response: httpx.Response) -> float | None:
         headers = response.headers

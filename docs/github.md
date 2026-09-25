@@ -258,6 +258,12 @@ Use `--log-level` before any subcommand, for example
 Restart without `--log-level debug` to return to normal logging. Existing debug
 records remain until log rotation or reset; logs rotate at 5 MiB with three backups.
 
+Successful GitHub response records (including cached `304` reads) use debug level;
+other responses remain at info level. The dashboard's `Forge sync completed` info
+record includes `limit` and `remaining`: the smallest remaining quota observed
+during that sync, across accounts and core/search resources, and its corresponding
+limit. Both are `None` if no valid rate-limit headers were observed.
+
 Debug records include the application version, managed repository and local checkout
 paths, PR identity, recorded base/head SHAs, transport preference, actual Git executable
 and argv, and the explicitly constructed Git environment. Relevant omitted Git/proxy

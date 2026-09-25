@@ -1,6 +1,7 @@
 """Offline acceptance: published evidence, overrides, history and dashboard actions."""
 
 import asyncio
+import logging
 import sys
 from collections.abc import AsyncGenerator
 from dataclasses import replace
@@ -174,6 +175,43 @@ async def test_routine_refresh_notices_display_once_per_launch(
                 with pytest.raises(ForgeError):
                     await app.sync()
                 assert "Synthetic refresh failure" in str(app.query_one("#status", Static).content)
+
+
+@pytest.mark.asyncio
+async def test_sync_logs_minimum_quota_and_resets_between_refreshes(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from diffbutler.domain.forge import RateLimit
+    from diffbutler.forges.diagnostics import observe_rate_limit
+
+    quotas = [
+        RateLimit("core", 4900, 5000, NOW),
+        RateLimit("search", 12, 30, NOW),
+        RateLimit("search", 30, 30, NOW),
+    ]
+
+    async def poll(_: Path | None) -> None:
+        for quota in quotas:
+            observe_rate_limit(quota)
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.poll_configured", poll)
+    path = ledger[3]
+    app = Dashboard(path, load_settings(path), offline=True)
+    with caplog.at_level(logging.INFO, logger="diffbutler.ui.tui.dashboard"):
+        async with app.run_test():
+            await app.sync()
+            quotas.clear()
+            await app.sync()
+    assert [
+        record.message
+        for record in caplog.records
+        if record.message.startswith("Forge sync completed")
+    ] == [
+        "Forge sync completed limit=30 remaining=12",
+        "Forge sync completed limit=None remaining=None",
+    ]
 
 
 @pytest.mark.asyncio
