@@ -115,7 +115,7 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
     monkeypatch.setattr("diffbutler.ui.tui.dashboard.poll_configured", failing_refresh)
     app = Dashboard(path, load_settings(path), offline=True)
     async with app.run_test(size=(120, 40)) as pilot:
-        assert app.query_one(DataTable).row_count == 3
+        assert app.query_one(DataTable).row_count == 2
         # Enable live actions without starting the periodic poller in this test.
         app.offline = False
         before = len(calls)
@@ -127,7 +127,7 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
         )
         await pilot.pause()
         assert app.view == "active"
-        assert app.query_one(DataTable).row_count == 3
+        assert app.query_one(DataTable).row_count == 2
         assert refreshes == 0 and len(calls) == before
         await pilot.press("R")
         await asyncio.wait_for(
@@ -136,18 +136,18 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
         await pilot.pause()
         assert refreshes == 1
         assert "GitHub rate limit is exhausted" in str(app.query_one("#status", Static).content)
-        assert app.query_one(DataTable).row_count == 3
+        assert app.query_one(DataTable).row_count == 2
 
     restarted = Dashboard(path, load_settings(path), offline=True)
     async with restarted.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         assert restarted.view == "active"
-        assert restarted.query_one(DataTable).row_count == 3
+        assert restarted.query_one(DataTable).row_count == 2
         assert not restarted.review_tasks
         await pilot.press("h", "h")
         await pilot.pause()
         assert restarted.view == "active"
-        assert restarted.query_one(DataTable).row_count == 3
+        assert restarted.query_one(DataTable).row_count == 2
         await pilot.press("f")
         await pilot.pause()
         assert restarted.view == "requested"
@@ -157,6 +157,8 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
     review_requested = False
     await sync_configured(path)
     assert not await local_queue(path, "requested", None)
+    assert len(await local_queue(path, "following", None)) == 2
+    path.write_text(path.read_text() + "\n[ui]\ninclude_assigned_prs = true\n")
     assert len(await local_queue(path, "following", None)) == 3
 
 

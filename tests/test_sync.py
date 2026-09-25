@@ -242,9 +242,12 @@ async def test_partial_activity_does_not_consume_events_or_approve(database: Dat
 
 
 @pytest.mark.asyncio
-async def test_own_pr_visibility_is_per_reviewing_account(database: Database) -> None:
+@pytest.mark.parametrize("assigned", [False, True])
+async def test_own_pr_visibility_is_per_reviewing_account(
+    database: Database, assigned: bool
+) -> None:
     forge = FakeForge()
-    own = replace(PR, author="READER")
+    own = replace(PR, assignees=("READER",)) if assigned else replace(PR, author="READER")
     forge.prs[REF] = own
     forge.discovery = Discovery((RequestedPR(own, ("team:acme/reviewers",)),), True)
     store = SQLiteQueueStore(database)
@@ -255,7 +258,8 @@ async def test_own_pr_visibility_is_per_reviewing_account(database: Database) ->
 
     rows = await list_queue(store, view="requested")
     assert [row.account.login for row in rows] == ["second"]
-    assert len(await list_queue(store, include_own_prs=True)) == 2
+    rows = await list_queue(store, include_own_prs=not assigned, include_assigned_prs=assigned)
+    assert len(rows) == 2
     assert await list_queue(store, login="reader") == ()
 
 

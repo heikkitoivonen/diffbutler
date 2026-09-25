@@ -95,5 +95,9 @@ async def local_queue(
 ) -> tuple[PullRequestRow, ...]:
     async with local_store(path) as (store, settings):
         return await list_queue(
-            store, view=view, login=login, include_own_prs=settings.ui.include_own_prs
+            store,
+            view=view,
+            login=login,
+            include_own_prs=settings.ui.include_own_prs,
+            include_assigned_prs=settings.ui.include_assigned_prs,
         )

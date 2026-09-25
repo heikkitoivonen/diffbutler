@@ -242,6 +242,14 @@ monitoring scope. Set it to `true` to include them (for example, agent-created P
 using your account), or use `DIFFBUTLER_UI__INCLUDE_OWN_PRS=true`. History and
 accessible-PR search remain available. Saved state is preserved when toggling it.
 
+`ui.include_assigned_prs` defaults to `false`, hiding PRs assigned to the reviewing
+account from the same local queue views, even with direct or team review requests.
+Set it to `true` or use `DIFFBUTLER_UI__INCLUDE_ASSIGNED_PRS=true` to include them.
+Matching ignores letter case. This setting is independent of `include_own_prs`;
+both must be enabled for a PR you authored and are assigned to. Assignees are saved
+on forge refresh; older cached PRs need a successful refresh before this filter applies.
+History, accessible-PR search, monitoring, and saved review state are preserved.
+
 `ui.columns` and `ui.sort_by` accept the registered IDs listed in SPEC §10.2;
 unknown IDs fail validation. `ui.browser_command` accepts an argv list, for example
 `["firefox", "--new-tab"]`; the UI appends the PR URL without a shell. The dashboard

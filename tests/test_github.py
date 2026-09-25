@@ -498,3 +498,19 @@ async def test_partial_activity_preserves_results_and_safe_warning() -> None:
         assert activity.warnings and "PRIVATE BODY" not in str(activity)
     finally:
         await forge.close()
+
+
+@pytest.mark.parametrize("assignees", [None, [], [{"login": "READER"}, {"login": "Other"}]])
+def test_pull_request_assignees(assignees: list[dict[str, str]] | None) -> None:
+    from diffbutler.forges.github.mapping import pull_request
+    from diffbutler.store.queue import PR_ADAPTER
+
+    data = pull()
+    if assignees is not None:
+        data["assignees"] = assignees
+    pr = pull_request(data, forge="github:https://api.github.com", web_base="https://github.com")
+    assert pr.assignees == tuple(user["login"].lower() for user in assignees or [])
+    assert PR_ADAPTER.validate_json(PR_ADAPTER.dump_json(pr)) == pr
+    legacy = PR_ADAPTER.dump_python(pr, mode="json")
+    legacy.pop("assignees")
+    assert PR_ADAPTER.validate_python(legacy).assignees == ()

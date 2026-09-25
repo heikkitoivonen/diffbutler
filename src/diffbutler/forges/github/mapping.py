@@ -59,6 +59,7 @@ class Pull(ResponseModel):
     # malformed booleans, IDs, or list contents via non-strict model validation.
     created_at: str
     updated_at: str
+    assignees: list[User] = Field(default_factory=list[User])
     requested_reviewers: list[User]
     requested_teams: list[Team]
 
@@ -120,6 +121,7 @@ def pull_request(value: object, *, forge: str, web_base: str) -> PullRequest:
             deletions=data.deletions,
             files=data.changed_files,
             labels=tuple(label.name for label in data.labels),
+            assignees=tuple(user.login.lower() for user in data.assignees),
             requested_users=tuple(user.login.lower() for user in data.requested_reviewers),
             requested_teams=tuple(
                 f"{owner.lower()}/{team.slug.lower()}" for team in data.requested_teams

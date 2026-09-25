@@ -35,6 +35,7 @@ checkout = "worktree" # Native reviews currently use pinned source snapshots.
 
 [ui]
 include_own_prs = false # Set true to review PRs authored by your account.
+include_assigned_prs = false # Set true to review PRs assigned to your account.
 columns = ["number", "title", "author", "state"]
 sort_by = "attention"
 sort_desc = true

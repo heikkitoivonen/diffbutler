@@ -214,6 +214,7 @@ async def list_queue(
     view: Literal["active", "requested", "following"] = "active",
     login: str | None = None,
     include_own_prs: bool = False,
+    include_assigned_prs: bool = False,
 ) -> tuple[PullRequestRow, ...]:
     """Read local accounts without resolving credentials or making network requests."""
     rows: list[PullRequestRow] = []
@@ -224,6 +225,11 @@ async def list_queue(
             if (
                 not include_own_prs
                 and item.pull_request.author.casefold() == account.login.casefold()
+            ):
+                continue
+            if not include_assigned_prs and any(
+                assignee.casefold() == account.login.casefold()
+                for assignee in item.pull_request.assignees
             ):
                 continue
             include = (

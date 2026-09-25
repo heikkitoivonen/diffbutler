@@ -95,7 +95,9 @@ See the [dashboard guide](docs/dashboard.md) for all actions and
 
 Your own PRs are hidden from the review queue by default, including direct and team
 requests. Set `include_own_prs = true` in `[ui]` to review them, such as PRs an agent
-created using your account.
+created using your account. PRs assigned to you are also hidden by default, even when
+you are requested directly or through a team. Set `include_assigned_prs = true` in
+`[ui]` to include them.
 
 ## Reset
 

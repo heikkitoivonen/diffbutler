@@ -68,11 +68,15 @@ async def ledger(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sources", [("user:reader",), ("team:acme/reviewers",), ()])
+@pytest.mark.parametrize("assigned", [False, True])
 async def test_own_pr_visibility_and_config_override(
-    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], sources: tuple[str, ...]
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    sources: tuple[str, ...],
+    assigned: bool,
 ) -> None:
     _, queue, forge, path = ledger
-    own = replace(PR, author="ReAdEr")
+    setting = "include_assigned_prs" if assigned else "include_own_prs"
+    own = replace(PR, assignees=("someone", "ReAdEr")) if assigned else replace(PR, author="ReAdEr")
     forge.prs[REF] = own
     forge.discovery = Discovery((RequestedPR(own, sources),), True)
     service = DiffButler(queue, forge, monitor_repositories=("acme/api",))
@@ -83,17 +87,43 @@ async def test_own_pr_visibility_and_config_override(
     assert await local_queue(path, "active", None) == ()
 
     # Configuration applies to already-saved rows, without a remote refresh.
-    path.write_text(path.read_text() + "\n[ui]\ninclude_own_prs = true\n")
+    path.write_text(path.read_text() + f"\n[ui]\n{setting} = true\n")
     assert len(await dashboard_rows(path)) == 1
     assert len(await local_queue(path, "active", None)) == 1
     assert len(await dashboard_rows(path, "requested")) == bool(sources)
     assert await queue.snapshot(ACCOUNT) == before
 
-    path.write_text(path.read_text().replace("include_own_prs = true", "include_own_prs = false"))
+    path.write_text(path.read_text().replace(f"{setting} = true", f"{setting} = false"))
     assert await dashboard_rows(path) == ()
     # Search still permits finding an own PR; following alone does not bypass the filter.
     await service.follow_pr(REF)
     assert await dashboard_rows(path, "following") == ()
+
+
+@pytest.mark.asyncio
+async def test_assignment_refresh_and_independent_visibility_overrides(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+) -> None:
+    _, queue, forge, path = ledger
+    service = DiffButler(queue, forge)
+    for assignees, visible in ((("other",), True), (("READER",), False), ((), True)):
+        pr = replace(PR, assignees=assignees)
+        forge.prs[REF] = pr
+        forge.discovery = Discovery((RequestedPR(pr, ("user:reader",)),), True)
+        await service.sync()
+        assert bool(await dashboard_rows(path)) is visible
+
+    pr = replace(PR, author="reader", assignees=("reader",))
+    forge.prs[REF] = pr
+    forge.discovery = Discovery((RequestedPR(pr, ("user:reader",)),), True)
+    await service.sync()
+    config = path.read_text()
+    for own, assigned in ((True, False), (False, True), (True, True)):
+        path.write_text(
+            config + f"\n[ui]\ninclude_own_prs = {str(own).lower()}\n"
+            f"include_assigned_prs = {str(assigned).lower()}\n"
+        )
+        assert bool(await dashboard_rows(path)) is (own and assigned)
 
 
 @pytest.mark.asyncio

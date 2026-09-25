@@ -163,7 +163,12 @@ async def dashboard_rows(
         selected: Literal["active", "requested", "following"] = (
             "requested" if view == "requested" else "following" if view == "following" else "active"
         )
-        rows = await list_queue(queue, view=selected, include_own_prs=settings.ui.include_own_prs)
+        rows = await list_queue(
+            queue,
+            view=selected,
+            include_own_prs=settings.ui.include_own_prs,
+            include_assigned_prs=settings.ui.include_assigned_prs,
+        )
         store = SQLiteReviewStore(queue.database)
         reviews = ReviewService(store, ReviewPolicy(frozenset()))
         result: list[DashboardRow] = []

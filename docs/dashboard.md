@@ -31,6 +31,13 @@ This also applies to CLI local queue listings. The setting only changes visibili
 saved review state and monitoring are retained. History and accessible-PR search
 continue to include your PRs. Following a search result does not override this setting.
 
+PRs assigned to the reviewing account are also hidden by default, even with direct
+or team review requests. Set `include_assigned_prs = true` in `[ui]` to include them.
+This independent filter uses the same case-insensitive, per-account matching and
+applies to all dashboard and CLI local queue views. Both settings must be enabled
+for PRs you authored and are assigned to. Existing saved PRs gain assignee data on
+the next successful forge refresh; history and accessible-PR search are unaffected.
+
 The default columns are PR, Title, Author, and State.
 The selected PR's repository, AI status, findings count, and age appear in the preview
 and full details. Age is the time since the PR was created, shown in hours. Headers use
@@ -203,7 +210,8 @@ local database, alongside other dashboard preferences, and also applies to CLI s
 Enabling all-PR monitoring refreshes immediately in live mode; offline mode saves the
 choice for the next live sync. Switching back shows the saved Active view without
 another network request; normal polling updates it. Already followed PRs remain
-monitored and visible, including PRs discovered while all-PR monitoring was enabled.
+monitored, including PRs discovered while all-PR monitoring was enabled. Visibility
+respects the author and assignee filters.
 Requested includes direct/team
 review requests; assignees do not affect membership, including stale saved assignment
 entries. The default view and return from History show Active. A discovered PR is

@@ -54,6 +54,7 @@ class PullRequest:
     files: int | None = None
     labels: tuple[str, ...] = ()
     ci: str = "unknown"
+    assignees: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
