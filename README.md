@@ -65,6 +65,8 @@ stay visible across refreshes and restarts.
 Select a PR with the arrow keys, then work through the review:
 
 1. Press `r` to start a background AI review. Reviews start only when you request them.
+   The agent is instructed to read the PR description, discussion, and earlier review
+   threads and replies before reviewing the local code, reporting any unavailable context.
    DiffButler caches full Git history and reviews changes from the PR merge base
    to its head, excluding unrelated changes made later on the target branch.
 2. Press `Enter` to read the results, or `v` to resume the saved agent conversation.

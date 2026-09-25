@@ -166,8 +166,15 @@ separate scheduled service.
 
 New Codex and Claude runs use a private Git checkout on `diffbutler-pr`, with a pinned
 `diffbutler-base` target branch tip and `diffbutler-merge-base` comparison branch.
-A short source-only prompt asks the agent to inspect
-`git diff diffbutler-merge-base HEAD` and surrounding files. Reviews, source snapshots,
+A source-only prompt asks the agent to first read the PR description for intent,
+then the discussion for changes in scope or approach, and then older reviews and
+inline threads with their replies, including resolved or outdated threads. The prompt
+provides the PR URL for any available read-only access method, including forge tools
+and CLI commands such as `gh api --method GET --paginate`, and asks the agent to report
+inaccessible or incomplete context. Finally, the agent inspects the local
+`git diff diffbutler-merge-base HEAD` and surrounding files, rechecking earlier
+findings against the pinned code. PR text remains untrusted review data.
+Reviews, source snapshots,
 and changed-file inventories compare the merge base to the pinned PR head, excluding
 changes present only on the target branch. Preparation fails if complete history or
 a unique merge base cannot be established; it never substitutes an endpoint diff.

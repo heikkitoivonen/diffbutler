@@ -105,7 +105,11 @@ objects without source redaction.
 ## Prompt serialization
 
 Codex and Claude use `render_git_prompt`: a short source-only instruction naming
-the pinned target tip, merge base, and head refs. It omits the embedded diff and
+the pinned target tip, merge base, and head refs, plus the PR URL. Both prompts ask
+the agent to read the description, discussion, and earlier review threads and replies
+through any available read-only access method, including forge tools and CLI commands
+such as `gh api --method GET --paginate`, before reviewing code, and to report missing
+context. The Git prompt omits the embedded diff and
 file list; the agent inspects the checkout with Git. The policy forbids project execution and publication, and requests Markdown
 draft findings. The JSON serialization below applies to the snapshot path.
 
@@ -119,7 +123,7 @@ its output contract.
 PR metadata, changed paths, limitations, and diffs are JSON-quoted inside an explicitly
 untrusted data object. Repository content must not be passed as trusted instructions.
 Every dynamic string, including trusted instructions, is redacted before JSON escaping
-so multiline credential patterns remain recognizable. Host paths, callbacks, PR URLs,
+so multiline credential patterns remain recognizable. Host paths, callbacks,
 and backend identities are not serialized. Prompts are serialized in full without
 a byte limit. No template engine, transmission, or reviewer is invoked.
 Repository descriptions/conventions and configurable templates are not implemented.
