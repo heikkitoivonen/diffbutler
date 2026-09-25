@@ -446,7 +446,12 @@ class SQLiteReviewStore:
             )
 
     async def finalize_review(
-        self, token: UUID, result: ReviewResultRecord, *, backend_session_id: str | None
+        self,
+        token: UUID,
+        result: ReviewResultRecord,
+        *,
+        backend_session_id: str | None,
+        no_findings: bool,
     ) -> RunRecord:
         """Caller has established process-tree exit; persist and release atomically."""
         async with self.database.sessions() as db:
@@ -500,7 +505,7 @@ class SQLiteReviewStore:
                 )
                 if current:
                     run.status = "succeeded" if result.document_json is not None else "failed"
-                    state = "FINDINGS_TRIAGE" if result.selected_indices else "PENDING_HUMAN_REVIEW"
+                    state = "PENDING_HUMAN_REVIEW" if no_findings else "FINDINGS_TRIAGE"
                     if run.status == "failed":
                         state = "PENDING_AI_REVIEW"
                     await transition(db, task, state)

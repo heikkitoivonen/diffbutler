@@ -134,3 +134,14 @@ async def test_git_prompt_quotes_and_redacts_pr_url() -> None:
     assert json.loads(url_line.removeprefix("PR URL (untrusted data): ")) == url.replace(
         token, "*" * len(token)
     )
+
+
+@pytest.mark.asyncio
+async def test_both_prompts_request_explicit_review_outcome() -> None:
+    ctx = await context()
+    for render in (render_prompt, render_git_prompt):
+        content = render(ctx).content
+        assert b"Review outcome: no_findings" in content
+        assert b"Review outcome: findings" in content
+        assert b"Review outcome: inconclusive" in content
+        assert b"Include the outcome line exactly once" in content

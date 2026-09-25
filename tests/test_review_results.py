@@ -136,7 +136,7 @@ async def test_thresholds_retain_all_findings_and_normalization_notes(database: 
     assert second is not None
     await reviews.finalize_review(second.token, captured(finding()), findings_threshold="blocking")
     state = (await SQLiteQueueStore(database).snapshot(ACCOUNT)).items[0].state
-    assert state == "PENDING_HUMAN_REVIEW"
+    assert state == "FINDINGS_TRIAGE"
     assert (await reviews.get_result(run.id)) == result
 
 

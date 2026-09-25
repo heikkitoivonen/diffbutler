@@ -247,6 +247,11 @@ class ReviewService:
                 token,
                 result,
                 backend_session_id=parsed.output.backend_session_id,
+                no_findings=(
+                    parsed.draft.no_findings
+                    if parsed.draft is not None
+                    else parsed.document is not None and not parsed.document.findings
+                ),
             ),
             from_attributes=True,
         )

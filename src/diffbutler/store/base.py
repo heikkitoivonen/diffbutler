@@ -58,7 +58,12 @@ class ReviewStore(Protocol):
     async def release_review(self, token: UUID) -> RunRecord: ...
     async def get_result(self, run_id: UUID) -> ReviewResultRecord | None: ...
     async def finalize_review(
-        self, token: UUID, result: ReviewResultRecord, *, backend_session_id: str | None
+        self,
+        token: UUID,
+        result: ReviewResultRecord,
+        *,
+        backend_session_id: str | None,
+        no_findings: bool,
     ) -> RunRecord: ...
 
 

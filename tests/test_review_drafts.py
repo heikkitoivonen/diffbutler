@@ -7,6 +7,7 @@ import pytest
 from tests.test_review_claims import seed, service
 from tests.test_sync import ACCOUNT
 
+from diffbutler.domain.dashboard import STATE_LABELS
 from diffbutler.reviewers.base import ReviewOutput
 from diffbutler.reviewers.extraction import StreamFormat
 from diffbutler.reviewers.parsing import parse_review
@@ -59,15 +60,22 @@ def test_invalid_drafts_are_not_successful_reviews(text: bytes, exit_code: int, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "text",
+    ("text", "expected_state"),
     [
-        DRAFT,
-        "No issues found. Project checks were not executed.",
-        pytest.param("Review notes.\n" * 310_000, id="large-output"),
+        (DRAFT, "FINDINGS_TRIAGE"),
+        ("No issues found. Project checks were not executed.", "FINDINGS_TRIAGE"),
+        ("Review outcome: no_findings\n\nNo issues found.", "PENDING_HUMAN_REVIEW"),
+        ("Review outcome: findings\n\n" + DRAFT, "FINDINGS_TRIAGE"),
+        ("Review outcome: inconclusive\nContext unavailable.", "FINDINGS_TRIAGE"),
+        ("Review outcome: unknown\nNo issues found.", "FINDINGS_TRIAGE"),
+        ("```\nReview outcome: no_findings\n```", "FINDINGS_TRIAGE"),
+        ("Review outcome: no_findings\nReview outcome: findings", "FINDINGS_TRIAGE"),
+        ("Review outcome: no_findings\nReview outcome: no_findings", "FINDINGS_TRIAGE"),
+        pytest.param("Review notes.\n" * 310_000, "FINDINGS_TRIAGE", id="large-output"),
     ],
 )
-async def test_drafts_survive_restart_and_always_await_human_review(
-    tmp_path: Path, text: str
+async def test_draft_outcomes_survive_restart(
+    tmp_path: Path, text: str, expected_state: str
 ) -> None:
     url = f"sqlite+aiosqlite:///{tmp_path}/drafts.db"
     database = Database(url)
@@ -92,6 +100,9 @@ async def test_drafts_survive_restart_and_always_await_human_review(
         assert result.selected_indices == () and result.anchors is None
         assert result.parse_tier == "markdown"
         snapshot = await SQLiteQueueStore(reopened).snapshot(ACCOUNT)
-        assert snapshot.items[0].state == "PENDING_HUMAN_REVIEW"
+        assert snapshot.items[0].state == expected_state
+        assert STATE_LABELS[expected_state] == (
+            "approve" if expected_state == "PENDING_HUMAN_REVIEW" else "check"
+        )
     finally:
         await reopened.close()

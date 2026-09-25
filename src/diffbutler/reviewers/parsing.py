@@ -70,6 +70,13 @@ class DraftReview(_Record):
 
     markdown: Text
 
+    @property
+    def no_findings(self) -> bool:
+        """Only an explicit, unambiguous leading outcome establishes a clean review."""
+        lines = self.markdown.strip().splitlines()
+        outcomes = [line for line in lines if line.strip().startswith("Review outcome:")]
+        return lines[0] == "Review outcome: no_findings" and len(outcomes) == 1
+
 
 type ResponseFormat = Literal["json", "markdown"]
 

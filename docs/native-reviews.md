@@ -97,7 +97,12 @@ explicit review resumes the saved conversation with a fresh prompt and pinned
 sources. Discovery, sync, pushes, and session return never request another AI run.
 `findings` prints retained Markdown review drafts locally without invoking a reviewer.
 Each issue has a location and a self-contained comment for the human to evaluate,
-post, or copy and paste. Older structured reviews retain their JSON representation.
+post, or copy and paste. Reviews are prompted to begin with `Review outcome: no_findings`,
+`Review outcome: findings`, or `Review outcome: inconclusive`. Only an unambiguous
+leading `no_findings` outcome routes a successful Markdown review to `approve`;
+all other successful Markdown results route to `check`. Older structured reviews
+retain their JSON representation; newly completed structured reviews route to
+`approve` only when their findings array is empty, regardless of display thresholds.
 `session` resumes the exact backend ID in the current terminal, retaining it on exit.
 Claude launches also pass `--name diffbutler-pr-<number>` on initial review,
 explicit retry, and foreground resume, including for existing DiffButler sessions.

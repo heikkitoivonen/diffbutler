@@ -50,10 +50,10 @@ columns = ["number", "title", "author", "state"]
 ```
 
 State labels are `pending` (awaiting AI review), `queued`, `running`, `approve`
-(awaiting human review), `post` (findings to triage), `author` (awaiting author
-changes), and `done` (completed cycle). The `approve` and `post` labels indicate
+(awaiting human review), `check` (review needs inspection), `author` (awaiting author
+changes), and `done` (completed cycle). The `approve` and `check` labels indicate
 the next human step; they do not trigger publication or approval.
-A trailing `-` marks a pending forge refresh (for example, `post -`).
+A trailing `-` marks a pending forge refresh (for example, `check -`).
 
 At widths of 80 terminal columns or more, the PR table fits the available width
 and hides its scrollbars; keyboard navigation still reaches every row. Smaller
@@ -92,9 +92,16 @@ forge. Following a result does not start AI. Return to the queue and press `r`.
 The CLI also supports repository/author/state search filters through `ls --view all`.
 
 The preview and full details show the saved Markdown review drafts. Each issue
-includes a copyable comment for human evaluation. New native reviews await human
-review and show “Read review drafts” instead of an inferred finding count. Severity
-and confidence thresholds apply only to legacy structured results, whose full details
+includes a copyable comment for human evaluation. Native reviews show “Read review
+drafts” instead of an inferred finding count.
+A successful review moves from `running` to `approve` only when its first nonblank
+line is exactly `Review outcome: no_findings`, with no other outcome lines.
+All other successful Markdown reviews move to `check`, including findings,
+inconclusive reviews, and missing or unrecognized outcomes. Failed reviews return
+to `pending`. Press `o` after checking the review to choose `approve` and open the PR,
+or `w` to wait for author changes. Existing saved review states are unchanged. Severity
+and confidence thresholds filter only legacy structured findings; any reported finding
+keeps a newly completed structured review in `check`. Full details
 retain all findings. Analyzed and current SHAs are shown separately. Table cell updates preserve
 selection; changed ordering preserves selection by task identity where possible.
 Forge and model text is displayed literally, with terminal control characters removed.

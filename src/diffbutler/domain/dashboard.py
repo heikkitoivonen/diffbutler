@@ -56,7 +56,7 @@ STATE_LABELS = {
     "QUEUED": "queued",
     "AI_RUNNING": "running",
     "PENDING_HUMAN_REVIEW": "approve",
-    "FINDINGS_TRIAGE": "post",
+    "FINDINGS_TRIAGE": "check",
     "PENDING_AUTHOR_CHANGES": "author",
     "DONE": "done",
 }

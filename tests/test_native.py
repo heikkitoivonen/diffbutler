@@ -256,7 +256,7 @@ async def test_review_restart_exact_resume_completion_cleanup_and_retained_histo
         assert "## Change behavior" in result.markdown
         assert "Draft comment:" in result.markdown
         assert result.document is None and result.selected_indices == ()
-        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_HUMAN_REVIEW"
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "FINDINGS_TRIAGE"
         if legacy:
             # Recreate the pre-upgrade private-home layout without native calls.
             resource = (await managed.store.session_resources(run.session_id))[0]
@@ -710,7 +710,7 @@ async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_hist
             assert not app.review_tasks
             await pilot.pause()
             current = (await queue.snapshot(ACCOUNT)).items[0]
-            assert current.state == "PENDING_HUMAN_REVIEW"
+            assert current.state == "FINDINGS_TRIAGE"
             task_id = current.task_id
             assert task_id is not None
             await pilot.press("v")
@@ -808,7 +808,7 @@ async def test_public_dashboard_native_handoff_restores_controlling_terminal(
 
         cycles = await SQLiteDashboardStore(database).cycles()
         assert len(cycles) == 1 and len(cycles[0].runs) == 1
-        assert cycles[0].state == "PENDING_HUMAN_REVIEW"
+        assert cycles[0].state == "FINDINGS_TRIAGE"
     finally:
         await database.close()
 
