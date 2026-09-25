@@ -31,7 +31,7 @@ typecheck: ## Run strict Pyright checks
 architecture: ## Verify import boundaries
 	$(RUN) lint-imports
 
-test: ## Run tests (pass ARGS="-k name" to filter)
+test: ## Run tests with CPU-based workers (ARGS="-k name" to filter, ARGS="-n 0" for serial)
 	$(RUN) pytest $(ARGS)
 
 coverage: ## Run tests with branch coverage and HTML/XML reports

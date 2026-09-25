@@ -19,6 +19,12 @@ Python 3.14 is the minimum supported version. Ruff handles lint and formatting;
 Pyright runs in strict mode. `make` lists individual checks, and
 `make test ARGS="-k name"` runs selected tests. No shell activation is required.
 
+Tests use pytest-xdist's CPU-based worker count (`-n auto`) by default, including
+`make check`, `make coverage`, and direct pytest runs. Override the count with
+`make test ARGS="-n 2"`, or run serially
+with `make test ARGS="-n 0"` (also use `-n 0` for `--pdb` or uncaptured `-s` output).
+Workers use work-stealing scheduling to balance tests with different durations.
+
 CI runs the same checks and installation smoke test on Linux and macOS. Dependency
 audits additionally run against public vulnerability data. Tests must run without
 forge credentials, real GitHub requests, or paid model calls.

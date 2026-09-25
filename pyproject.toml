@@ -44,6 +44,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.16.5",
 ]
 
@@ -70,7 +71,7 @@ venv = ".venv"
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
+addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib", "-n", "auto", "--dist=worksteal"]
 filterwarnings = ["error"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
