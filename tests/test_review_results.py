@@ -5,7 +5,7 @@ import json
 import sys
 from collections.abc import AsyncGenerator
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,7 +15,7 @@ from alembic import command
 from sqlalchemy import select
 from tests.test_review_claims import seed, service
 from tests.test_review_parsing import finding, payload
-from tests.test_sync import ACCOUNT, NOW, PR, REF
+from tests.test_sync import ACCOUNT, PR, REF
 
 from diffbutler.core.review import ReviewResult as ResultDTO
 from diffbutler.core.sync import DiffButler
@@ -156,7 +156,12 @@ async def test_late_results_do_not_replace_new_attention(database: Database, cha
             forge.prs[REF] = replace(PR, base_sha="new-base")
         elif change == "request":
             forge.activity = ReviewActivity(
-                ACCOUNT, requests=(RequestEvent("renewed", NOW + timedelta(seconds=1)),)
+                ACCOUNT,
+                requests=(
+                    RequestEvent(
+                        "renewed", run.requested_at.replace(tzinfo=UTC) + timedelta(seconds=1)
+                    ),
+                ),
             )
         else:
             forge.prs[REF] = replace(PR, state="closed")
@@ -299,7 +304,7 @@ async def test_upgrade_0004_preserves_worker_claim(database: Database) -> None:
     async with database.engine.begin() as connection:
         await connection.run_sync(lambda conn: command.downgrade(migration_config(conn), "0004"))
     status = await database.initialize()
-    assert status.revision == "0009" and status.backup is not None
+    assert status.revision == "0010" and status.backup is not None
     await reviews.finalize_review(claim.token, captured())
     async with database.sessions() as db:
         assert (await db.scalars(select(ReviewResult.run_id))).all() == [run.id]

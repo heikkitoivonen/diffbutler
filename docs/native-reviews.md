@@ -41,6 +41,18 @@ Authentication uses the installed agent’s normal configuration and environment
 If a review fails before creating a conversation, `v` explains that another review
 is needed. Failed attempts return to pending AI review; only pressing `r` (or the
 pending task's next action) retries. They do not imply readiness to approve.
+The preview and `Enter` detail retain the reason for a failed, cancelled, or stale
+attempt, including timeouts (15 minutes by default). `L` shows captured output,
+including partial output retained after interruption. Reasons survive restart and
+source cleanup; raw output is removed by cleanup as before.
+
+While a review is running, new PR commits or a review request newer than its explicit
+start invalidate it. Older requests first discovered after an incomplete activity
+fetch update the history without invalidating the review. A target-branch update
+triggers a local merge-base check, fetching the new target commit when necessary.
+If the merge base and PR head are unchanged, the review continues. A changed
+comparison returns the task to pending with a reason. These checks also run before
+saving results, and never start a replacement review automatically.
 
 ## Configure and review
 

@@ -26,7 +26,7 @@ Callers sharing the ledger must supply the same configured capacity and pause po
 there is no persistent global scheduler configuration yet.
 
 Migration `0004` stores a worker's opaque claim token separately from run status.
-Pushes and renewed requests mark queued/running attempts stale and return attention
+Pushes and requests newer than the latest explicit review start mark queued/running attempts stale and return attention
 to pending AI review. Completion cancels attempts and schedules cleanup in the same
 transaction. Neither event creates a replacement attempt. These changes preserve
 worker ownership until exit is acknowledged, preventing a retry from overlapping
@@ -101,8 +101,11 @@ user action. No outcome completes or approves
 a review cycle. Local routing advances the sync generation so an older refresh must
 retry. Cancelled/stale runs can retain late results but cannot change queue attention
 or their invalidation timestamps, including after completion and a new review cycle.
-A base mismatch detected at finalization marks a running attempt stale and restores
-pending AI attention without launching replacement work.
+A target mismatch is resolved by the configured core's merge-base check before
+finalization. Git/network I/O happens outside store transactions; the transaction
+rechecks the observed target and retries the comparison if it moved again.
+A changed comparison marks the attempt stale and restores pending AI attention
+without launching replacement work. Original run revisions remain pinned for history.
 
 The defaults are confidence `0.5` and severity `minor`; severity order is
 `question < nit < minor < important < blocking`. The managed native workflow supplies configured overrides. The full normalized document is retained, including every
@@ -135,8 +138,9 @@ existing capacity/pause-aware claim. It does not discover/enqueue/retry work and
 is connected to the native Codex factory; unit tests also inject in-memory executions.
 Context preparation is followed by identity/index checks and a transactional
 `claim_is_current` recheck of ownership, current base/head, session status and review
-policy. A moved base invalidates the attempt before launch, retaining its claim
-until exit acknowledgement; no replacement review is scheduled.
+policy. A moved target is checked against the original merge base; only a changed comparison
+invalidates the attempt, retaining its claim until exit acknowledgement. No replacement
+review is scheduled.
 
 During execution the worker checks validity periodically and enforces the context
 timeout. Backend identities can be checkpointed while the claim is held; a later
@@ -152,3 +156,9 @@ implementation. The [native factory](native-reviews.md) provides captured I/O,
 per-launch permission selection, durable launch intent, and pinned snapshots.
 It relies on the installed agent's sandbox and ordinary process-group lifecycle;
 deliberately detached descendants and same-boot orphan recovery remain limitations.
+
+Failure and invalidation reasons are retained on the attempt (`ai_run.status_reason`).
+Worker exceptions retain a safe phase/type diagnostic rather than arbitrary exception
+text. After verified exit, available partial stdout/stderr and a failed result are saved.
+Timeouts include the configured duration. These diagnostics are visible in the preview
+and detail view and do not authorize automatic retries.

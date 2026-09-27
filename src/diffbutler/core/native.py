@@ -184,6 +184,15 @@ class NativeExecution:
     async def stop_and_wait(self) -> None:
         await self.execution.stop_and_wait()
 
+    def partial_output(self) -> ReviewOutput:
+        process = self.execution.process
+        code = process.returncode if process is not None else None
+        return ReviewOutput(
+            bytes(self.execution.stdout),
+            bytes(self.execution.stderr),
+            code if code is not None else -1,
+        )
+
 
 class NativeSessionCleaner:
     """Remove owned workspaces and legacy homes, then release shared object pins."""

@@ -101,6 +101,16 @@ class AnalysisIdentity:
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
+@dataclass(frozen=True)
+class ComparisonCheck:
+    base_sha: str
+    matches: bool
+
+
+class ComparisonChanged(Exception):
+    """The target moved while its comparison was being checked; recheck it."""
+
+
 class ReviewConflict(ValueError):
     """The requested task or run no longer permits this action."""
 
@@ -121,6 +131,7 @@ class RunRecord:
     requested_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    status_reason: str | None = None
 
 
 @dataclass(frozen=True)

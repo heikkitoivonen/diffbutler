@@ -105,6 +105,7 @@ def detail_metadata(detail: CycleDetail) -> list[str]:
     age_hours = (datetime.now(UTC) - cycle.pull_request.created_at).total_seconds() / 3600
     return [
         f"AI Status: {run.status if run else 'Not started'}",
+        *([f"Reason: {run.status_reason}"] if run and run.status_reason else []),
         f"Findings: {findings}",
         f"Age: {age_hours:.0f}h",
     ]
@@ -126,6 +127,8 @@ def describe(detail: CycleDetail) -> str:
         lines.append(f"Session: {session.display_name} · {session.status}")
     for run in cycle.runs:
         lines.append(f"\nReviewed {run.head_sha} · {run.reviewer_id} · {run.status}")
+        if run.status_reason:
+            lines.append(f"Reason: {run.status_reason}")
         result = next((result for result in detail.results if result.run_id == run.id), None)
         if result is None:
             continue

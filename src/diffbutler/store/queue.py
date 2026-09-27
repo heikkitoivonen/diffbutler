@@ -1,9 +1,10 @@
 """SQLite queue repository. Network reads happen before short atomic commits."""
 
+from datetime import UTC
 from typing import cast
 
 from pydantic import TypeAdapter
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from diffbutler.domain.forge import Account as ForgeIdentity
@@ -60,7 +61,14 @@ class SQLiteQueueStore:
             if identity is None:
                 return QueueSnapshot(0, ())
             rows = await session.execute(
-                select(PRMonitor, ReviewTask)
+                select(
+                    PRMonitor,
+                    ReviewTask,
+                    select(func.max(AIRun.requested_at))
+                    .where(AIRun.review_task_id == ReviewTask.id)
+                    .correlate(ReviewTask)
+                    .scalar_subquery(),
+                )
                 .join(ReviewTask, PRMonitor.task_id == ReviewTask.id)
                 .where(PRMonitor.account_id == identity.account_id)
             )
@@ -86,8 +94,9 @@ class SQLiteQueueStore:
                         task.opened_at,
                         monitor.notice,
                         task.posted_at,
+                        requested_at.replace(tzinfo=UTC) if requested_at else None,
                     )
-                    for monitor, task in rows.tuples()
+                    for monitor, task, requested_at in rows.tuples()
                 ),
             )
 
@@ -198,7 +207,7 @@ class SQLiteQueueStore:
         if monitor is not None and (
             item.state == "DONE"
             or remote.head_sha != monitor.snapshot_json.get("head_sha")
-            or item.request_key > monitor.request_key
+            or (item.request_key > monitor.request_key and item.state == "PENDING_AI_REVIEW")
         ):
             # Invalidate analysis in the same commit as the observed change. A
             # worker's separate claim remains held until it acknowledges exit.
@@ -210,6 +219,13 @@ class SQLiteQueueStore:
             )
             for run in runs:
                 run.status = "cancelled" if item.state == "DONE" else "stale"
+                run.status_reason = (
+                    "Review task completed"
+                    if item.state == "DONE"
+                    else "PR commits changed during review"
+                    if remote.head_sha != run.head_sha
+                    else "Review requested again"
+                )
                 run.finished_at = utc_now()
         if task.completed_at is None:
             if task.state != item.state:

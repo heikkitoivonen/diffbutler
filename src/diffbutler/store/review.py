@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import (
     AnalysisIdentity,
+    ComparisonChanged,
+    ComparisonCheck,
     ReviewConflict,
     ReviewPolicy,
     ReviewResultRecord,
@@ -52,6 +54,7 @@ def record(run: AIRun) -> RunRecord:
         run.requested_at,
         run.started_at,
         run.finished_at,
+        run.status_reason,
     )
 
 
@@ -143,6 +146,7 @@ class SQLiteReviewStore:
             )
             for run in runs:
                 run.status = "cancelled"
+                run.status_reason = "Review cancelled"
                 run.finished_at = utc_now()
             db.add(CleanupJob(review_task_id=task_id))
             await db.commit()
@@ -355,7 +359,32 @@ class SQLiteReviewStore:
             await db.commit()
             return result
 
-    async def claim_is_current(self, token: UUID, policy: ReviewPolicy) -> bool:
+    async def comparison_snapshot(self, token: UUID) -> tuple[RunRecord, str]:
+        async with self.database.sessions() as db:
+            claim = await db.get(RunClaim, token)
+            if claim is None:
+                raise ReviewConflict("Worker claim does not exist")
+            run = await self._run(db, claim.run_id)
+            task = await db.get(ReviewTask, run.review_task_id)
+            assert task is not None
+            monitor = await db.get(PRMonitor, (task.account_id, task.pull_request_id))
+            base = str(monitor.snapshot_json["base_sha"]) if monitor else run.base_sha
+            return record(run), base
+
+    @staticmethod
+    def _comparison_matches(
+        run: AIRun, monitor: PRMonitor, comparison: ComparisonCheck | None
+    ) -> bool:
+        base = str(monitor.snapshot_json["base_sha"])
+        if comparison is None:
+            return base == run.base_sha
+        if comparison.base_sha != base:
+            raise ComparisonChanged()
+        return comparison.matches
+
+    async def claim_is_current(
+        self, token: UUID, policy: ReviewPolicy, comparison: ComparisonCheck | None = None
+    ) -> bool:
         """Recheck ownership, live revisions and policy before/during execution."""
         async with self.database.sessions() as db:
             await self._begin(db)
@@ -366,11 +395,11 @@ class SQLiteReviewStore:
             if run.status != "running":
                 return False
             task, monitor = await self._task(db, run.review_task_id)
-            if (monitor.snapshot_json["base_sha"], monitor.snapshot_json["head_sha"]) != (
-                run.base_sha,
-                run.head_sha,
+            if monitor.snapshot_json["head_sha"] != run.head_sha or not self._comparison_matches(
+                run, monitor, comparison
             ):
                 run.status = "stale"
+                run.status_reason = "PR comparison changed during review"
                 run.finished_at = utc_now()
                 await transition(db, task, "PENDING_AI_REVIEW")
                 await db.commit()
@@ -396,6 +425,7 @@ class SQLiteReviewStore:
             run = await self._run(db, run_id)
             if run.status in {"queued", "running"}:
                 run.status = "cancelled"
+                run.status_reason = "Review cancelled"
                 run.finished_at = utc_now()
                 task = await db.get(ReviewTask, run.review_task_id)
                 assert task is not None
@@ -405,7 +435,9 @@ class SQLiteReviewStore:
             await db.commit()
             return result
 
-    async def release_review(self, token: UUID) -> RunRecord:
+    async def release_review(
+        self, token: UUID, failure: ReviewResultRecord | None = None
+    ) -> RunRecord:
         async with self.database.sessions() as db:
             await self._begin(db)
             claim = await db.get(RunClaim, token)
@@ -414,11 +446,32 @@ class SQLiteReviewStore:
             run = await self._run(db, claim.run_id)
             if run.status == "running":
                 run.status = "failed"
+                run.status_reason = (
+                    failure.error if failure else "Review interrupted before completion"
+                )
                 run.finished_at = utc_now()
                 task = await db.get(ReviewTask, run.review_task_id)
                 assert task is not None
                 if task.completed_at is None and task.state == "AI_RUNNING":
                     await transition(db, task, "PENDING_AI_REVIEW")
+            if failure is not None and await db.get(ReviewResult, run.id) is None:
+                run.exit_code = failure.exit_code
+                run.stdout_blob = failure.stdout
+                run.stderr_blob = failure.stderr
+                run.parse_status = "failed"
+                db.add(
+                    ReviewResult(
+                        run_id=run.id,
+                        document_json=None,
+                        anchors_json=None,
+                        parse_tier=None,
+                        error=run.status_reason or failure.error,
+                        notes=[],
+                        selected_indices=[],
+                        min_confidence=failure.min_confidence,
+                        findings_threshold=failure.findings_threshold,
+                    )
+                )
             await db.delete(claim)
             result = record(run)
             await db.commit()
@@ -452,6 +505,7 @@ class SQLiteReviewStore:
         *,
         backend_session_id: str | None,
         no_findings: bool,
+        comparison: ComparisonCheck | None = None,
     ) -> RunRecord:
         """Caller has established process-tree exit; persist and release atomically."""
         async with self.database.sessions() as db:
@@ -500,17 +554,23 @@ class SQLiteReviewStore:
                     and monitor.task_id == task.id
                     and monitor.snapshot_json["state"] == "open"
                     and monitor.snapshot_json["head_sha"] == run.head_sha
-                    and monitor.snapshot_json["base_sha"] == run.base_sha
+                    and self._comparison_matches(run, monitor, comparison)
                     and session.cleanup_status == "not_requested"
                 )
                 if current:
                     run.status = "succeeded" if result.document_json is not None else "failed"
                     state = "PENDING_HUMAN_REVIEW" if no_findings else "FINDINGS_TRIAGE"
                     if run.status == "failed":
+                        run.status_reason = result.error or "Agent failed"
                         state = "PENDING_AI_REVIEW"
                     await transition(db, task, state)
                 else:
                     run.status = "cancelled" if task.completed_at is not None else "stale"
+                    run.status_reason = (
+                        "Review task completed"
+                        if task.completed_at
+                        else "PR comparison changed during review"
+                    )
                     # A changed base may not yet have invalidated queue attention.
                     if task.completed_at is None and task.state == "AI_RUNNING":
                         await transition(db, task, "PENDING_AI_REVIEW")

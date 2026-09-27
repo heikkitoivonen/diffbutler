@@ -9,6 +9,7 @@ from diffbutler.domain.process import ProcessLaunch
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import (
     AnalysisIdentity,
+    ComparisonCheck,
     ReviewPolicy,
     ReviewResultRecord,
     RunClaim,
@@ -53,9 +54,14 @@ class ReviewStore(Protocol):
     async def claim_review(
         self, run_id: UUID, *, capacity: int, policy: ReviewPolicy
     ) -> RunClaim | None: ...
-    async def claim_is_current(self, token: UUID, policy: ReviewPolicy) -> bool: ...
+    async def comparison_snapshot(self, token: UUID) -> tuple[RunRecord, str]: ...
+    async def claim_is_current(
+        self, token: UUID, policy: ReviewPolicy, comparison: ComparisonCheck | None = None
+    ) -> bool: ...
     async def cancel_review(self, run_id: UUID) -> RunRecord: ...
-    async def release_review(self, token: UUID) -> RunRecord: ...
+    async def release_review(
+        self, token: UUID, failure: ReviewResultRecord | None = None
+    ) -> RunRecord: ...
     async def get_result(self, run_id: UUID) -> ReviewResultRecord | None: ...
     async def finalize_review(
         self,
@@ -64,6 +70,7 @@ class ReviewStore(Protocol):
         *,
         backend_session_id: str | None,
         no_findings: bool,
+        comparison: ComparisonCheck | None = None,
     ) -> RunRecord: ...
 
 

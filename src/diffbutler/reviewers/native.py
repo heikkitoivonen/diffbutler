@@ -118,6 +118,8 @@ class CapturedProcess:
         self.spawn: asyncio.Task[asyncio.subprocess.Process] | None = None
         self.process: asyncio.subprocess.Process | None = None
         self.readers: list[asyncio.Task[bytes]] = []
+        self.stdout = bytearray()
+        self.stderr = bytearray()
 
     async def capture(
         self,
@@ -151,7 +153,7 @@ class CapturedProcess:
         )
 
         async def collect(stream: asyncio.StreamReader, *, events: bool) -> bytes:
-            result = bytearray()
+            result = self.stdout if events else self.stderr
             pending = bytearray()
             while chunk := await stream.read(65536):
                 result.extend(chunk)
@@ -208,10 +210,10 @@ class CapturedProcess:
             reader.cancel()
         await asyncio.gather(*self.readers, return_exceptions=True)
 
-        async def drain(stream: asyncio.StreamReader | None) -> None:
+        async def drain(stream: asyncio.StreamReader | None, target: bytearray) -> None:
             if stream is not None:
-                while await stream.read(65536):
-                    pass
+                while chunk := await stream.read(65536):
+                    target.extend(chunk)
 
-        await asyncio.gather(drain(process.stdout), drain(process.stderr))
+        await asyncio.gather(drain(process.stdout, self.stdout), drain(process.stderr, self.stderr))
         await process.wait()

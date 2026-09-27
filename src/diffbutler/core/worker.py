@@ -30,6 +30,10 @@ class ReviewExecution(Protocol):
         """
         ...
 
+    def partial_output(self) -> ReviewOutput:
+        """Read captured bytes after stop_and_wait has established exit."""
+        ...
+
     async def stop_and_wait(self) -> None:
         """Establish whole process-tree exit, including a spawn still in progress.
 
@@ -95,6 +99,10 @@ class ReviewWorker:
         if claim is None:
             return None
         exited = True  # No execution object/process exists during preparation.
+        execution: ReviewExecution | None = None
+        context: ReviewContext | None = None
+        phase = "preparation"
+
         try:
             if self.before_prepare is not None:
                 await self.before_prepare(claim)
@@ -118,6 +126,7 @@ class ReviewWorker:
             async def checkpoint(identity: str) -> None:
                 await self.reviews.bind_backend_session(claim.token, identity)
 
+            phase = "agent execution"
             execution = self.execution_factory(claim)
             exited = False
             running = asyncio.create_task(
@@ -146,7 +155,10 @@ class ReviewWorker:
                 if cancelled:
                     raise asyncio.CancelledError
             if output is None:
-                return await self.reviews.release_review(claim.token)
+                return await self.reviews.release_review(
+                    claim.token, reason="Review invalidated", output=execution.partial_output()
+                )
+            phase = "result processing"
             return await self.reviews.finalize_review(
                 claim.token,
                 output,
@@ -156,10 +168,29 @@ class ReviewWorker:
                 min_confidence=self.min_confidence,
                 findings_threshold=self.findings_threshold,
             )
-        except BaseException:
+        except BaseException as exc:
             if exited:
+                if isinstance(exc, asyncio.CancelledError):
+                    reason = "Review cancelled"
+                elif isinstance(exc, TimeoutError) and context is not None:
+                    seconds = context.budget.timeout_s
+                    duration = (
+                        f"{seconds // 60} minutes" if seconds % 60 == 0 else f"{seconds} seconds"
+                    )
+                    reason = f"Review timed out after {duration}"
+                else:
+                    # Exception messages may contain PR content, paths or credentials.
+                    reason = f"Review failed during {phase} ({type(exc).__name__})"
                 # An uncertain finalization commit may already have consumed this
                 # token. Never retry finalization or overwrite the retained result.
                 with suppress(ReviewConflict):
-                    await _settle(asyncio.create_task(self.reviews.release_review(claim.token)))
+                    await _settle(
+                        asyncio.create_task(
+                            self.reviews.release_review(
+                                claim.token,
+                                reason=reason,
+                                output=execution.partial_output() if execution else None,
+                            )
+                        )
+                    )
             raise

@@ -213,6 +213,7 @@ class AIRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     exit_code: Mapped[int | None]
+    status_reason: Mapped[str | None] = mapped_column(Text)
     stdout_blob: Mapped[bytes | None] = mapped_column(LargeBinary)
     stderr_blob: Mapped[bytes | None] = mapped_column(LargeBinary)
 

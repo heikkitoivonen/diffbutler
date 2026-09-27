@@ -236,6 +236,8 @@ Revision `0008` retains claim-protected launch intent and host/boot identities f
 Revision `0009` adds retained forge receipts, per-cycle PR snapshots, refresh-pending
 status and persistent UI preferences. See [dashboard operation](dashboard.md).
 
+Revision `0010` adds durable review failure and invalidation reasons on `ai_run`.
+
 `ui.include_own_prs` defaults to `false`, hiding PRs authored by the reviewing account
 from dashboard and CLI local queue views, regardless of direct/team requests or
 monitoring scope. Set it to `true` to include them (for example, agent-created PRs

@@ -71,6 +71,7 @@ class TrackedPR:
     opened_at: datetime | None = None
     notice: str = ""
     posted_at: datetime | None = None
+    review_requested_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,14 @@ def reconcile(
     request_key = max(current.request_key, request_key)
     review_key = max(current.review_key, review_key)
     head_changed = previous is not None and pr.head_sha != previous.pull_request.head_sha
-    requested_again = previous is not None and request_key > previous.request_key
+    requested_again = (
+        previous is not None
+        and request_key > previous.request_key
+        and request is not None
+        and (
+            current.review_requested_at is None or request.created_at > current.review_requested_at
+        )
+    )
     changed = head_changed or requested_again
     result = replace(
         current,

@@ -69,6 +69,9 @@ class Execution:
         await self.finished.wait()
         return captured()
 
+    def partial_output(self) -> ReviewOutput:
+        return ReviewOutput(b"partial agent output", b"diagnostic", -9)
+
     async def stop_and_wait(self) -> None:
         self.stop_started.set()
         await self.exit_allowed.wait()
@@ -141,7 +144,10 @@ async def test_stop_before_release_without_replacement_run(database: Database, c
     assert execution.stopped
     async with database.sessions() as db:
         assert await db.scalar(select(RunClaim)) is None
-    assert await reviews.get_result(run.id) is None
+    saved = await reviews.get_result(run.id)
+    assert saved is not None and saved.stdout == b"partial agent output"
+    assert saved.stderr == b"diagnostic"
+    assert saved.error == (await reviews.get_run(run.id)).status_reason
 
 
 async def test_failed_exit_keeps_durable_ownership(database: Database) -> None:

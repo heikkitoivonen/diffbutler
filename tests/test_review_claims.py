@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 from alembic import command
 from sqlalchemy import func, select
-from tests.test_sync import ACCOUNT, NOW, PR, REF, FakeForge
+from tests.test_sync import ACCOUNT, PR, REF, FakeForge
 
 from diffbutler.core.review import ReviewService
 from diffbutler.core.sync import DiffButler
@@ -101,7 +101,12 @@ async def test_sync_invalidates_without_replacement(
         forge.prs[REF] = replace(PR, head_sha="new")
     elif change == "request":
         forge.activity = ReviewActivity(
-            ACCOUNT, requests=(RequestEvent("renewed", NOW + timedelta(seconds=1)),)
+            ACCOUNT,
+            requests=(
+                RequestEvent(
+                    "renewed", run.requested_at.replace(tzinfo=UTC) + timedelta(seconds=1)
+                ),
+            ),
         )
     else:
         forge.prs[REF] = replace(PR, state="closed")
@@ -221,7 +226,7 @@ async def test_upgrade_0003_preserves_queued_attempt(database: Database) -> None
     async with database.engine.begin() as connection:
         await connection.run_sync(lambda conn: command.downgrade(migration_config(conn), "0003"))
     status = await database.initialize()
-    assert status.revision == "0009" and status.backup is not None
+    assert status.revision == "0010" and status.backup is not None
     assert (await service(database).request_review(identity)).id == run.id
     assert await service(database).claim_review(run.id) is not None
 

@@ -1,6 +1,8 @@
 """Immutable public review records. Explicit starts and worker claims never launch a process."""
 
+import asyncio
 import math
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -10,9 +12,12 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from diffbutler.domain.diff import AnchorValidation, DiffAnchor, DiffIndex
 from diffbutler.domain.review import (
     AnalysisIdentity,
+    ComparisonChanged,
+    ComparisonCheck,
     ReviewPolicy,
     ReviewResultRecord,
     RunClaim,
+    RunRecord,
     RunStatus,
     SessionStatus,
     Side,
@@ -59,6 +64,7 @@ class AIRun(BaseModel):
     requested_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    status_reason: str | None = None
 
 
 _ANCHORS = TypeAdapter(tuple[AnchorValidation, ...])
@@ -82,6 +88,28 @@ class ReviewResult(BaseModel):
     anchors: tuple[AnchorValidation, ...] | None = None
 
 
+async def _store_call[T](operation: Awaitable[T]) -> T:
+    """Settle short store operations before propagating cancellation.
+
+    Comparison fetches stay cancellable; only database operations are shielded.
+    """
+    task = asyncio.ensure_future(operation)
+    cancelled = False
+    try:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                cancelled = True
+        return task.result()
+    finally:
+        if cancelled:
+            # Retrieve an exception before cancellation wins, avoiding orphan tasks.
+            if task.done() and not task.cancelled():
+                task.exception()
+            raise asyncio.CancelledError
+
+
 class ReviewService:
     """Internal scheduling seam; callers map explicit UI actions to requests.
 
@@ -90,9 +118,22 @@ class ReviewService:
     established before releasing ownership or finalizing a captured result.
     """
 
-    def __init__(self, store: ReviewStore, policy: ReviewPolicy) -> None:
+    def __init__(
+        self,
+        store: ReviewStore,
+        policy: ReviewPolicy,
+        compare_base: Callable[[RunRecord, str], Awaitable[bool]] | None = None,
+    ) -> None:
         self.store = store
         self.policy = policy
+        self.compare_base = compare_base
+
+    async def _comparison(self, token: UUID) -> ComparisonCheck:
+        run, base = await _store_call(self.store.comparison_snapshot(token))
+        matches = base == run.base_sha
+        if not matches and run.status == RunStatus.RUNNING and self.compare_base is not None:
+            matches = await self.compare_base(run, base)
+        return ComparisonCheck(base, matches)
 
     async def get_run(self, run_id: UUID) -> AIRun:
         return AIRun.model_validate(await self.store.get_run(run_id), from_attributes=True)
@@ -130,14 +171,41 @@ class ReviewService:
         return await self.store.claim_review(run_id, capacity=capacity, policy=self.policy)
 
     async def claim_is_current(self, token: UUID) -> bool:
-        return await self.store.claim_is_current(token, self.policy)
+        while True:
+            comparison = await self._comparison(token)
+            try:
+                return await _store_call(
+                    self.store.claim_is_current(token, self.policy, comparison)
+                )
+            except ComparisonChanged:
+                continue
 
     async def cancel_review(self, run_id: UUID) -> AIRun:
         return AIRun.model_validate(await self.store.cancel_review(run_id), from_attributes=True)
 
-    async def release_review(self, token: UUID) -> AIRun:
-        """Acknowledge worker exit; unfinished analysis becomes a failed attempt."""
-        return AIRun.model_validate(await self.store.release_review(token), from_attributes=True)
+    async def release_review(
+        self, token: UUID, *, reason: str | None = None, output: ReviewOutput | None = None
+    ) -> AIRun:
+        """Acknowledge worker exit and retain safe diagnostics and available output."""
+        failure = (
+            None
+            if reason is None
+            else ReviewResultRecord(
+                output.exit_code if output else -1,
+                output.stdout if output else None,
+                output.stderr if output else None,
+                None,
+                None,
+                reason,
+                (),
+                (),
+                0.5,
+                "minor",
+            )
+        )
+        return AIRun.model_validate(
+            await self.store.release_review(token, failure), from_attributes=True
+        )
 
     async def get_result(self, run_id: UUID) -> ReviewResult | None:
         result = await self.store.get_result(run_id)
@@ -242,16 +310,22 @@ class ReviewService:
             diff_index.base_sha if diff_index is not None else None,
             diff_index.head_sha if diff_index is not None else None,
         )
-        return AIRun.model_validate(
-            await self.store.finalize_review(
-                token,
-                result,
-                backend_session_id=parsed.output.backend_session_id,
-                no_findings=(
-                    parsed.draft.no_findings
-                    if parsed.draft is not None
-                    else parsed.document is not None and not parsed.document.findings
-                ),
-            ),
-            from_attributes=True,
-        )
+        while True:
+            comparison = await self._comparison(token)
+            try:
+                return AIRun.model_validate(
+                    await self.store.finalize_review(
+                        token,
+                        result,
+                        backend_session_id=parsed.output.backend_session_id,
+                        no_findings=(
+                            parsed.draft.no_findings
+                            if parsed.draft is not None
+                            else parsed.document is not None and not parsed.document.findings
+                        ),
+                        comparison=comparison,
+                    ),
+                    from_attributes=True,
+                )
+            except ComparisonChanged:
+                continue

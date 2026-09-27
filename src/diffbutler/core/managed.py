@@ -5,9 +5,10 @@ import hashlib
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from diffbutler.config.settings import ConfigError, Repository, Settings, load_settings
 from diffbutler.config.transport import save_git_transport
@@ -227,7 +228,7 @@ class ManagedReviews:
             report("Preparing AI review…")
             return await assemble_context(
                 run=record,
-                pr=pr,
+                pr=replace(pr, base_sha=record.base_sha, head_sha=record.head_sha),
                 sources=sources,
                 instructions=instructions,
                 schema_json="{}",
@@ -244,14 +245,40 @@ class ManagedReviews:
                 command,
                 self.recovery,
                 self.processes,
-                lambda: self.reviews.claim_is_current(claim.token),
+                lambda: run_reviews.claim_is_current(claim.token),
                 self.reviewer_preset(reviewer_id),
                 self.workspaces,
                 progress=report,
             )
 
+        comparisons: dict[tuple[UUID, str], bool] = {}
+        comparison_lock = asyncio.Lock()
+
+        async def compare_base(record: RunRecord, base: str) -> bool:
+            # Fetch only when the observed target changes, outside store transactions.
+            # Separate pins preserve the original run's source for history and resume.
+            async with comparison_lock:
+                key = (record.id, base)
+                if key not in comparisons:
+                    assert sources is not None
+                    path, _ = await self.repositories.prepare(
+                        pr.ref,
+                        record.session_id,
+                        uuid5(record.id, base),
+                        base,
+                        record.head_sha,
+                        local_path=repository.path if repository else None,
+                        transport=repository.git_transport if repository else "auto",
+                    )
+                    updated = await GitSourceReader.open(
+                        path, base_sha=base, head_sha=record.head_sha
+                    )
+                    comparisons[key] = updated.comparison_base_sha == sources.comparison_base_sha
+                return comparisons[key]
+
+        run_reviews = ReviewService(self.store, self.reviews.policy, compare_base)
         worker = ReviewWorker(
-            self.reviews,
+            run_reviews,
             prepare,
             execution,
             before_prepare=before_prepare,
