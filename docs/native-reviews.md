@@ -1,7 +1,7 @@
 # Native CLI reviews
 
 The managed review presets support **Codex CLI and Claude Code on Linux and macOS**.
-DiffButler selects native read-only controls for background analysis; it does not create an additional OS sandbox. Host/boot verification supports both platforms; macOS validation and authentication limitations are described below.
+DiffButler selects native permission controls for background analysis; it does not create an additional OS sandbox. Host/boot verification supports both platforms; macOS validation and authentication limitations are described below.
 
 Automated acceptance covers public CLI review, explicit retry, exact-session resume
 in a controlling PTY, completion, cleanup, and retained findings across process restarts. It uses a synthetic executable, disposable Git repositories, and SQLite; it makes no
@@ -209,11 +209,12 @@ Existing snapshot-based sessions retain their original format when resumed.
 ## Native permissions and authentication
 
 The shipped Codex TOML preset selects `read-only` and `never` approval for background
-execution, and `danger-full-access` with `on-request` approval for foreground resume. Each
-launch passes these settings again. DiffButler assumes the installed CLI supports
+execution. Foreground resume selects `on-request` approval without overriding the
+sandbox mode, leaving it to Codex configuration and defaults. Each launch passes
+its explicit settings again. DiffButler assumes the installed CLI supports
 the preset arguments; unknown parameters or other CLI errors fail through normal
-review or session error handling. Foreground full access permits forge
-commands to post on the human's explicit instruction; background runs remain read-only.
+review or session error handling. Foreground Codex can request approval for forge
+commands to post on the human's explicit instruction.
 Command and session behavior is covered by synthetic tests. The presets were
 originally based on Codex CLI 0.155.1 and Claude Code 2.1.278; these are reference
 versions, not requirements.
@@ -227,11 +228,12 @@ are loaded by the installed CLI as usual. Shell aliases are not expanded; put ex
 CLI arguments in the reviewer's `command` array when needed. Project settings are
 resolved from the pinned review checkout, not your original working tree.
 
-Claude background launches retain `Read,Glob,Grep,Bash`, `dontAsk` permissions,
+Claude background launches retain `Read,Glob,Grep,Bash`, `auto` permissions,
 and `--permission-prompts none`. Only `Read,Glob,Grep` are explicitly allowed;
-Bash uses the native permission checks, including the user's configured rules.
+Bash uses native auto permission checks, including the user's configured rules.
+Requests that still need permission are denied without prompting in background runs.
 DiffButler no longer passes `--restricted`, `--safe-mode`, or empty MCP configuration.
-Foreground resume selects `manual` permissions and the default tool set so it can
+Foreground resume selects `auto` permissions and the default tool set so it can
 accept human instructions. See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
 
 Codex retains its native read-only sandbox and noninteractive approval policy for
@@ -245,7 +247,9 @@ This relies on the installed agent's sandbox and approval implementation. DiffBu
 does not independently restrict every host-file read, every tool, or network egress.
 Codex source-only review relies on instructions rather than a command-execution
 allowlist. Claude additionally limits background tools to Read, Glob, Grep, and Bash under
-its native read-only command checks. Foreground posting requires explicit instruction inside the agent;
+its native auto permission checks. Auto mode can approve Bash commands; source-only,
+read-only review remains a prompt instruction rather than an enforced Bash allowlist.
+Foreground posting requires explicit instruction inside the agent;
 opening a session grants no publication approval. Foreground resume sends no prompt;
 the human enters further instructions manually. On return, the
 core observes actual forge activity and retains a refresh-pending flag when reads fail. Credential redaction is heuristic,

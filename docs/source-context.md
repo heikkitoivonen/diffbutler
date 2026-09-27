@@ -41,7 +41,8 @@ This is an internal assembly function, not a dispatcher or authorization check.
 The caller must load the PR belonging to the task and recheck durable worker
 ownership, freshness, and policy before execution. No reviewer is launched and no
 source leaves the machine in this function. The explicit native review workflow
-serializes it and launches the configured agent with native read-only permissions.
+serializes it and launches the configured agent with native permission controls
+and read-only review instructions.
 
 Git runs asynchronously with argv execution, no terminal input, captured output,
 a timeout, and process-group termination on cancellation or
@@ -54,7 +55,7 @@ uses the documented [Git environment controls](https://git-scm.com/docs/git) and
 
 The local Git executable and repository administration (including `.git` configuration
 and object storage) are trusted. This is source preparation, not an OS sandbox. The [native reviewer](native-reviews.md)
-uses the installed agent CLI’s read-only profile. Codex and Claude receive owned Git
+uses the installed agent CLI’s permission controls. Codex and Claude receive owned Git
 checkouts of original committed files.
 DiffButler does not provision an additional sandbox. Managed remote retrieval,
 pinned source workspaces, manifests, leases, and cleanup are implemented.

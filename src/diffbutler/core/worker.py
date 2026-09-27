@@ -21,7 +21,7 @@ class ReviewExecution(Protocol):
         backend_session_id: str | None,
         checkpoint: Callable[[str], Awaitable[None]],
     ) -> ReviewOutput:
-        """Capture output under the configured native read-only profile, never a terminal.
+        """Capture output under the configured native permission profile, never a terminal.
 
         Implementations must await checkpoint when a backend identity is learned.
         Creating the execution object must not start a process; only run may start

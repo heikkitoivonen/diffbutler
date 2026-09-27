@@ -131,7 +131,7 @@ may remain pending while a foreground or background owner is still alive.
 Entering a native session records a durable refresh-pending flag and resumes the saved
 conversation without sending a prompt. The human enters questions or explicit posting
 instructions inside that session. Foreground Codex uses
-full access with on-request approvals; Claude uses default tools with manual approvals.
+its configured sandbox with on-request approvals; Claude uses default tools with auto permissions.
 DiffButler does not execute or retry any posting operation.
 
 On verified foreground exit, the core refreshes that PR using its configured account

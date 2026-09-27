@@ -82,8 +82,8 @@ Select a PR with the arrow keys, then work through the review:
 
 `Space` performs the selected PR's next action: start a review, discuss findings,
 or open the browser. An AI review never counts as your approval. Background analysis
-uses the agent's native read-only controls; source sent to the agent may go to its
-model provider.
+uses the agent's [native permission controls](docs/native-reviews.md#native-permissions-and-authentication)
+and read-only review instructions; source sent to the agent may go to its model provider.
 
 - `/`: Filter the queue.
 - `a`: Toggle monitoring all open PRs in configured repositories.

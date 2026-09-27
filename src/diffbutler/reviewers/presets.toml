@@ -2,11 +2,11 @@
 [codex]
 background = ["-a", "never", "-s", "read-only", "exec", "--json", "--skip-git-repo-check", "-"]
 background_resume = ["-a", "never", "-s", "read-only", "exec", "resume", "--json", "--skip-git-repo-check", "{session_id}", "-"]
-foreground = ["-a", "on-request", "-s", "danger-full-access", "resume", "{session_id}"]
+foreground = ["-a", "on-request", "resume", "{session_id}"]
 
-# Bash relies on native read-only command checks under dontAsk; do not blanket-allow it.
-# Keep normal user configuration; override only background tools and permissions.
+# Bash uses native auto permission checks; do not blanket-allow it.
+# Keep normal user configuration; override tools and permissions per launch mode.
 [claude]
-background = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none"]
-background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--resume", "{session_id}"]
-foreground = ["--tools", "default", "--permission-mode", "manual", "--resume", "{session_id}"]
+background = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "auto", "--permission-prompts", "none"]
+background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "auto", "--permission-prompts", "none", "--resume", "{session_id}"]
+foreground = ["--tools", "default", "--permission-mode", "auto", "--resume", "{session_id}"]

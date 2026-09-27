@@ -15,8 +15,9 @@ saved = root / "conversation.json"
 identity = "01234567-89ab-cdef-0123-456789abcdef"
 if "exec" not in sys.argv:
     assert "resume" in sys.argv and identity in sys.argv
-    assert "danger-full-access" in sys.argv and "on-request" in sys.argv
-    assert "read-only" not in sys.argv
+    assert "on-request" in sys.argv
+    assert "-s" not in sys.argv and "--sandbox" not in sys.argv
+    assert "danger-full-access" not in sys.argv
     assert json.loads(saved.read_text())["marker"] == "remembered orientation"
     print("remembered orientation")
     raise SystemExit

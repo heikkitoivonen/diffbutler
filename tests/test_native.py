@@ -666,8 +666,9 @@ async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_hist
         # Real synthetic native process, headless terminal attachment is the only fake.
         seen.append(tuple(argv))
         assert argv[-1] == "01234567-89ab-cdef-0123-456789abcdef"
-        assert "on-request" in argv and "danger-full-access" in argv
-        assert "read-only" not in argv
+        assert "on-request" in argv
+        assert "-s" not in argv and "--sandbox" not in argv
+        assert "danger-full-access" not in argv
         process = await asyncio.create_subprocess_exec(
             *argv,
             cwd=cwd,
@@ -912,7 +913,10 @@ async def test_claude_environment_and_resume_permissions(
     assert resumed[:-2] == preset.argv(("claude",), None)
     assert resumed[-2:] == ("--resume", identity)
     foreground = preset.argv(("claude",), identity, foreground=True)
-    assert "manual" in foreground and "dontAsk" not in foreground
+    assert foreground[foreground.index("--permission-mode") + 1] == "auto"
+    assert "--permission-prompts" not in foreground
+    assert resumed[resumed.index("--permission-mode") + 1] == "auto"
+    assert resumed[resumed.index("--permission-prompts") + 1] == "none"
     assert foreground[foreground.index("--tools") + 1] == "default"
     assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"}.intersection(
         foreground

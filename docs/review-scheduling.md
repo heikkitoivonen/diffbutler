@@ -43,7 +43,7 @@ proof of process exit.
 
 Claims survive restart and do not expire automatically. There is no orphan-worker
 recovery, process termination, foreground workspace lease, or cleanup worker yet.
-The native executor selects agent read-only permissions, observes cancellation,
+The native executor selects native agent permissions, observes cancellation,
 terminates its owned process group, and waits before releasing ownership. The cleanup
 worker honors outstanding ownership. See [native execution limits](native-reviews.md).
 These database foundations do not themselves enforce process isolation or delete

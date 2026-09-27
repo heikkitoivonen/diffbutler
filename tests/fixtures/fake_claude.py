@@ -15,7 +15,9 @@ saved = root / "conversation.json"
 identity = "01234567-89ab-cdef-0123-456789abcdef"
 if "--print" not in sys.argv:
     assert "--resume" in sys.argv and identity in sys.argv
-    assert "manual" in sys.argv and "--safe-mode" not in sys.argv
+    assert sys.argv[sys.argv.index("--permission-mode") + 1] == "auto"
+    assert "--safe-mode" not in sys.argv
+    assert "--permission-prompts" not in sys.argv
     assert "--restricted" not in sys.argv and "--strict-mcp-config" not in sys.argv
     assert sys.argv[sys.argv.index("--tools") + 1] == "default"
     assert json.loads(saved.read_text())["marker"] == "remembered orientation"
@@ -28,7 +30,7 @@ assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"
 )
 assert sys.argv[sys.argv.index("--tools") + 1] == "Read,Glob,Grep,Bash"
 assert sys.argv[sys.argv.index("--allowedTools") + 1] == "Read,Glob,Grep"
-assert sys.argv[sys.argv.index("--permission-mode") + 1] == "dontAsk"
+assert sys.argv[sys.argv.index("--permission-mode") + 1] == "auto"
 assert sys.argv[sys.argv.index("--permission-prompts") + 1] == "none"
 payload = sys.stdin.read()
 assert "source-only review of PR" in payload
