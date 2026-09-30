@@ -31,11 +31,11 @@ typecheck: ## Run strict Pyright checks
 architecture: ## Verify import boundaries
 	$(RUN) lint-imports
 
-test: ## Run tests with CPU-based workers (ARGS="-k name" to filter, ARGS="-n 0" for serial)
-	$(RUN) pytest $(ARGS)
+test: ## Run parallel tests, then serial integrations (ARGS="-k name" to filter)
+	$(RUN) python scripts/run_tests.py $(ARGS)
 
 coverage: ## Run tests with branch coverage and HTML/XML reports
-	$(RUN) pytest --cov --cov-report=term-missing --cov-report=html --cov-report=xml $(ARGS)
+	$(RUN) python scripts/run_tests.py --coverage $(ARGS)
 
 check: lint typecheck architecture test ## Run all local quality checks
 

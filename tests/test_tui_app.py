@@ -58,6 +58,7 @@ def test_dashboard_uses_account_polling_default(
     assert app.poller.interval == expected
 
 
+@pytest.mark.serial
 @pytest.mark.parametrize("interface", ["dashboard", "handoff"])
 @pytest.mark.asyncio
 async def test_screenshots_are_disabled(
@@ -88,6 +89,7 @@ async def test_screenshots_are_disabled(
         await pilot.pause()
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_escape_closes_keys_panel_opened_from_palette(tmp_path: Path) -> None:
     config = tmp_path / "config.toml"

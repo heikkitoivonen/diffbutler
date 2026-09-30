@@ -43,6 +43,7 @@ def synthetic_reviewer_check(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("diffbutler.core.setup.check_reviewer", checked)
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("review_requested", [False, True])
 async def test_public_queue_switch_uses_review_requests_not_assignments(

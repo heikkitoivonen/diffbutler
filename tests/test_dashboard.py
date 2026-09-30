@@ -127,6 +127,7 @@ async def test_assignment_refresh_and_independent_visibility_overrides(
         assert bool(await dashboard_rows(path)) is (own and assigned)
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("initial_failure", [False, True])
 async def test_routine_refresh_notices_display_once_per_launch(
@@ -177,6 +178,7 @@ async def test_routine_refresh_notices_display_once_per_launch(
                 assert "Synthetic refresh failure" in str(app.query_one("#status", Static).content)
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_sync_logs_core_quota_and_resets_between_refreshes(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
@@ -219,6 +221,7 @@ async def test_sync_logs_core_quota_and_resets_between_refreshes(
     assert all(record.levelno == logging.DEBUG for record in starts)
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("quit_action", [False, True])
 async def test_shutdown_waits_for_nonreview_worker_cleanup(
@@ -515,6 +518,7 @@ def test_all_columns_sort_stably_and_missing_findings_stay_last() -> None:
     )
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.skipif(
     sys.platform not in {"linux", "darwin"}, reason="Native cleanup requires host/boot identity"
@@ -613,6 +617,7 @@ async def test_poller_retries_without_review_capability_and_can_be_cancelled() -
             await task
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_browse_screen_and_detail_survive_background_refresh(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
@@ -663,6 +668,7 @@ def test_sort_mixed_empty_and_nonempty_status_strings() -> None:
     assert sort_rows((pending, succeeded), SortSpec(column="ai_status")) == (succeeded, pending)
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_queue_fits_and_truncates_across_terminal_resizes(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
@@ -740,6 +746,7 @@ async def test_inflight_future_dated_feedback_cannot_undo_newer_manual_action(
     assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_HUMAN_REVIEW"
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_empty_filter_restores_preview_and_rebound_waiting_key(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
@@ -766,6 +773,7 @@ async def test_empty_filter_restores_preview_and_rebound_waiting_key(
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AUTHOR_CHANGES"
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_monitoring_switch_persists_and_drives_sync(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
@@ -812,6 +820,7 @@ async def test_monitoring_switch_persists_and_drives_sync(
         assert restarted.query_one(DataTable).row_count == 1
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("completion", ["local", "merged", "closed", "approval"])
 async def test_posted_review_stays_visible_after_request_removal_until_completion(
@@ -867,6 +876,7 @@ async def test_posted_review_stays_visible_after_request_removal_until_completio
         assert (await queue.snapshot(ACCOUNT)).items[0].state == "DONE"
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sources", [(), ("assignee:reader",), ("user:someone-else",)])
 async def test_default_personal_view_retains_followed_prs_without_review_requests(
@@ -908,6 +918,7 @@ async def test_monitoring_requires_configured_repositories(
     assert "monitor_all_prs" not in await preferences_configured(path)
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["config", "host", "session"])
 async def test_review_configuration_failure_is_visible_and_logged(
@@ -999,6 +1010,7 @@ def test_renewed_request_takes_precedence_over_every_open_pr_state(
     assert result.completion_reason is None
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("preview_pane", [True, False])
 async def test_cycle_reviewer_is_per_pr_and_only_explicit_review_starts_it(
@@ -1079,6 +1091,7 @@ default_reviewer = "claude"
     assert path.read_text() == original
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("count", [0, 1])
 async def test_cycle_reviewer_with_zero_or_one_native_reviewer(

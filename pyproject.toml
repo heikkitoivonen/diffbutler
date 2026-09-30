@@ -71,7 +71,8 @@ venv = ".venv"
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib", "-n", "auto", "--dist=worksteal"]
+addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib", "--dist=worksteal"]
+markers = ["serial: timing-sensitive UI, terminal, or native-agent integration; run without xdist"]
 filterwarnings = ["error"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"

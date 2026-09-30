@@ -19,11 +19,19 @@ Python 3.14 is the minimum supported version. Ruff handles lint and formatting;
 Pyright runs in strict mode. `make` lists individual checks, and
 `make test ARGS="-k name"` runs selected tests. No shell activation is required.
 
-Tests use pytest-xdist's CPU-based worker count (`-n auto`) by default, including
-`make check`, `make coverage`, and direct pytest runs. Override the count with
-`make test ARGS="-n 2"`, or run serially
-with `make test ARGS="-n 0"` (also use `-n 0` for `--pdb` or uncaptured `-s` output).
-Workers use work-stealing scheduling to balance tests with different durations.
+`make test`, `make check`, and `make coverage` run two tracks in sequence:
+ordinary tests use pytest-xdist with CPU-based workers, then tests marked `serial`
+run alone without workers. Textual UI, terminal handoff, and native-agent pipeline
+tests use the serial track because their timing and shutdown checks are sensitive
+to concurrent load. Database tests with isolated temporary files remain parallel.
+Mark new tests `@pytest.mark.serial` when they need this isolation.
+
+Use `make test ARGS="-k name"` to filter both tracks, `ARGS="-n 2"` to limit
+parallel workers, or `ARGS="-n 0"` to run both tracks serially. Marker filters are
+also supported, for example `ARGS="-m serial"`. An empty track is allowed when
+filtering; a selection matching no tests still fails. Direct `uv run pytest` runs
+serially by default; use `uv run pytest -n auto -m 'not serial'` for the parallel
+track only. Coverage combines both tracks before generating its reports.
 
 CI runs the same checks and installation smoke test on Linux and macOS. Dependency
 audits additionally run against public vulnerability data. Tests must run without

@@ -29,6 +29,7 @@ from diffbutler.store.database import Database
 from diffbutler.store.queue import SQLiteQueueStore
 
 pytestmark = [
+    pytest.mark.serial,
     pytest.mark.asyncio,
     pytest.mark.skipif(
         sys.platform not in {"linux", "darwin"}, reason="Native reviews require host/boot identity"
