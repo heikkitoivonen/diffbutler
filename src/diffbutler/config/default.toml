@@ -83,7 +83,7 @@ open_in_browser = ["o", "ctrl+o"]
 # stdin = "prompt"
 
 # Claude Code can be configured alongside Codex; select with --reviewer claude
-# or set review.default_reviewer = "claude" above.
+# or press n in the dashboard, or set review.default_reviewer = "claude" above.
 # [[reviewers]]
 # id = "claude"
 # kind = "cli"

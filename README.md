@@ -65,7 +65,8 @@ it reappears as `done+` at the end of the queue without starting another AI revi
 
 Select a PR with the arrow keys, then work through the review:
 
-1. Press `r` to start a background AI review. Reviews start only when you request them.
+1. Optionally press `n` to choose the next configured AI reviewer for this PR.
+   Press `r` to start a background AI review. Reviews start only when you request them.
    The agent is instructed to read the PR description, discussion, and earlier review
    threads and replies before reviewing the local code, reporting any unavailable context.
    DiffButler caches full Git history and reviews changes from the PR merge base

@@ -75,6 +75,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 |---|---|
 | `space` | Start review, discuss findings, or open the PR according to its state |
 | `r` | Request a background native review of the selected active PR |
+| `n` | Cycle the selected PR’s reviewer for its next AI run |
 | `c` | Resume the exact saved conversation in the same terminal |
 | `o` / `ctrl+o` | Choose pending human review and open the browser |
 | `w` | Choose pending author changes |
@@ -95,6 +96,15 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `ctrl+c` | Cancel the selected active review; live ownership lasts until exit |
 | `y` | Copy the PR URL using terminal clipboard support |
 | `?` / `q` | Help / quit and settle reviews launched by this dashboard |
+
+The reviewer shown above the action button is used for the selected PR's next AI
+run. Press `n` to cycle configured Codex/Claude reviewers in configuration order,
+starting from the effective repository or global default. Choices are separate for
+each PR’s active review cycle and last until the dashboard closes; configuration
+defaults are unchanged. Cycling does not start a review or change a running review. Press `r` (or `space` for a pending PR)
+to start the selected reviewer. `c` still resumes the saved session that produced
+the existing findings. Configure multiple `[[reviewers]]` entries to choose between
+agents; with one entry, cycling keeps that reviewer selected.
 
 Accessible-PR search is paginated (`n`); `f` in that screen chooses the next configured
 forge. Following a result does not start AI. Return to the queue and press `r`.

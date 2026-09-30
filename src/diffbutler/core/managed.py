@@ -330,6 +330,17 @@ class ManagedReviews:
         )
 
 
+async def reviewer_choices_configured(
+    path: Path | None, repository: str
+) -> tuple[tuple[str, ...], str | None]:
+    """Return native reviewers in config order and the effective repository default."""
+    settings = await asyncio.to_thread(load_settings, path, repo=repository)
+    return (
+        tuple(item.id for item in settings.reviewers if item.preset in {"codex", "claude"}),
+        settings.review.default_reviewer,
+    )
+
+
 async def review_configured(
     path: Path | None,
     value: str,

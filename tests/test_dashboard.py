@@ -997,3 +997,111 @@ def test_renewed_request_takes_precedence_over_every_open_pr_state(
     assert result.notice == "Review requested again"
     assert result.cycle == (2 if state == "DONE" else 1)
     assert result.completion_reason is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preview_pane", [True, False])
+async def test_cycle_reviewer_is_per_pr_and_only_explicit_review_starts_it(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    preview_pane: bool,
+) -> None:
+    _, queue, forge, path = ledger
+    second = replace(PR, ref=replace(REF, number=2), url=PR.url.replace("/1", "/2"))
+    forge.prs[second.ref] = second
+    forge.discovery = Discovery(
+        tuple(RequestedPR(pr, ("user:reader",)) for pr in (PR, second)), True
+    )
+    await DiffButler(queue, forge).sync()
+    path.write_text(
+        path.read_text()
+        + "\n"
+        + """
+[[reviewers]]
+id = "codex"
+command = ["codex"]
+preset = "codex"
+[[reviewers]]
+id = "legacy"
+command = ["legacy"]
+[[reviewers]]
+id = "claude"
+command = ["claude"]
+preset = "claude"
+[review]
+default_reviewer = "codex"
+[repos."acme/api"]
+default_reviewer = "claude"
+"""
+    )
+    original = path.read_text()
+    launched: list[tuple[str, str | None]] = []
+
+    async def review(
+        path: Path | None,
+        value: str,
+        login: str | None,
+        reviewer: str | None,
+        progress: object,
+    ) -> None:
+        launched.append((value, reviewer))
+        raise ReviewConflict("Synthetic review stopped")
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.review_configured", review)
+    settings = load_settings(path)
+    settings.ui.preview_pane = preview_pane
+    app = Dashboard(path, settings, offline=True)
+    async with app.run_test() as pilot:
+
+        def reviewer_label() -> str:
+            return str(app.query_one("#reviewer", Static).content)
+
+        assert "Next AI reviewer: claude" in reviewer_label()
+        first = app.selected()
+        assert first is not None
+        await pilot.press("n")
+        assert "Next AI reviewer: codex" in reviewer_label()
+        await pilot.press("down")
+        await pilot.pause()
+        assert "Next AI reviewer: claude" in reviewer_label()
+        await pilot.press("up")
+        await pilot.pause()
+        assert "Next AI reviewer: codex" in reviewer_label()
+        await pilot.press("n", "n")
+        assert "Next AI reviewer: codex" in reviewer_label()
+        assert not launched and not app.review_tasks
+        await pilot.press("space")
+        await pilot.pause()
+        assert launched == [(first.row.tracked.pull_request.url, "codex")]
+        await pilot.press("h", "n")
+        assert len(app.reviewer_overrides) == 1
+        assert len(launched) == 1
+    assert path.read_text() == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [0, 1])
+async def test_cycle_reviewer_with_zero_or_one_native_reviewer(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], count: int
+) -> None:
+    path = ledger[3]
+    if count:
+        path.write_text(
+            path.read_text()
+            + "\n"
+            + """
+[[reviewers]]
+id = "codex"
+command = ["codex"]
+preset = "codex"
+"""
+        )
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test() as pilot:
+        await pilot.press("n", "n")
+        assert not app.review_tasks
+        if count:
+            assert "Next AI reviewer: codex" in str(app.query_one("#reviewer", Static).content)
+        else:
+            assert "No native reviewers configured" in str(app.query_one("#status", Static).content)
+            assert not app.reviewer_overrides

@@ -45,6 +45,7 @@ from diffbutler.core.managed import (
     cleanup_configured,
     handoff_configured,
     review_configured,
+    reviewer_choices_configured,
 )
 from diffbutler.core.native import foreground_environment
 from diffbutler.domain.dashboard import CycleRecord
@@ -224,6 +225,7 @@ class Dashboard(TerminalApp):
         ("o", "open_in_browser", "Open PR"),
         ("w", "mark_waiting_for_author", "Wait for author"),
         ("r", "run_review", "Review"),
+        ("n", "next_reviewer", "Next reviewer"),
         ("c", "resume_session", "Check findings"),
         ("m", "mark_approved", "Mark approved"),
         ("h", "view_history", "History"),
@@ -250,6 +252,7 @@ class Dashboard(TerminalApp):
     #status { height: 2; }
     #preview-scroll { height: 4; overflow-x: hidden; }
     #preview { width: 100%; height: auto; padding: 0 2; }
+    #reviewer { height: 1; }
     #primary { dock: bottom; width: 100%; }
     """
 
@@ -271,6 +274,7 @@ class Dashboard(TerminalApp):
         self.sync_lock = asyncio.Lock()
         self.refresh_notices: set[str] = set()
         self.review_tasks: dict[str, asyncio.Task[None]] = {}
+        self.reviewer_overrides: dict[str, str] = {}
         self.poller = Poller(self.sync, settings.effective_poll_interval_s)
         self.ready = False
         self.closing = False
@@ -285,6 +289,7 @@ class Dashboard(TerminalApp):
         yield DataTable[Text](cursor_type="row", id="queue")
         with VerticalScroll(id="preview-scroll"):
             yield Static("Select a PR", id="preview", markup=False)
+        yield Static("", id="reviewer", markup=False)
         yield Button("Select a PR", id="primary")
         yield Footer()
 
@@ -465,6 +470,7 @@ class Dashboard(TerminalApp):
         key = self.selected_key()
         if key is None:
             self.preview_content = ""
+            self.query_one("#reviewer", Static).update("")
             self.query_one("#preview", Static).update("No PRs in this view.")
             self.query_one(Button).label = "Select a PR"
             return
@@ -480,6 +486,17 @@ class Dashboard(TerminalApp):
             }.get(row.row.tracked.state if row else "", "Open PR for human review")
         )
         self.query_one(Button).label = label
+        reviewer_label = ""
+        if row:
+            ref = row.row.tracked.pull_request.ref
+            _, default = await reviewer_choices_configured(
+                self.path, f"{ref.namespace}/{ref.repository}"
+            )
+            reviewer = self.reviewer_overrides.get(key, default)
+            reviewer_label = f"Next AI reviewer: {reviewer or 'not configured'} · n to change"
+        if self.selected_key() != key or self.attached:
+            return
+        self.query_one("#reviewer", Static).update(safe(reviewer_label))
         if not self.settings.ui.preview_pane:
             return
         detail = await detail_configured(self.path, UUID(key))
@@ -619,11 +636,37 @@ class Dashboard(TerminalApp):
     def action_mark_approved(self) -> None:
         self.start(self.state_action(approve=True))
 
+    async def action_next_reviewer(self) -> None:
+        await self.guarded(self.next_reviewer())
+
+    async def next_reviewer(self) -> None:
+        row = self.selected()
+        key = self.selected_key()
+        if row is None or key is None or self.view == "history":
+            return
+        ref = row.row.tracked.pull_request.ref
+        choices, default = await reviewer_choices_configured(
+            self.path, f"{ref.namespace}/{ref.repository}"
+        )
+        if not choices:
+            self.status("No native reviewers configured; add a Codex or Claude reviewer in config.")
+            return
+        current = self.reviewer_overrides.get(key, default)
+        index = choices.index(current) + 1 if current in choices else 0
+        reviewer = choices[index % len(choices)]
+        self.reviewer_overrides[key] = reviewer
+        self.status(
+            f"Next review for {ref.namespace}/{ref.repository}#{ref.number}: {reviewer}. "
+            "Press r to start."
+        )
+
     def action_run_review(self) -> None:
         row = self.selected()
         key = self.selected_key()
         if row is None or key is None or self.view == "history" or key in self.review_tasks:
             return
+
+        reviewer = self.reviewer_overrides.get(key)
 
         async def review() -> None:
             logging.getLogger(__name__).info("Review requested task=%s", key)
@@ -632,7 +675,7 @@ class Dashboard(TerminalApp):
                     self.path,
                     row.row.tracked.pull_request.url,
                     row.row.account.login,
-                    None,
+                    reviewer,
                     self.status,
                 )
                 logging.getLogger(__name__).info(
@@ -810,6 +853,7 @@ class Dashboard(TerminalApp):
         self.push_screen(
             DetailScreen(
                 "r starts an AI run only on your explicit action. c resumes its native session.\n"
+                "n chooses the next configured reviewer for this PR; r starts that reviewer.\n"
                 "Tell the agent explicitly which feedback to post.\n"
                 "Opening the session grants no posting permission.\n"
                 "o chooses manual review and opens the browser. w chooses waiting for author.\n"
