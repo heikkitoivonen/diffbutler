@@ -16,7 +16,7 @@ make handoff ARGS="-- codex --no-alt-screen"
 make handoff ARGS="-- claude"
 ```
 
-Press `v` to open the agent, exit the agent to return, then press `v` again.
+Press `c` to open the agent, exit the agent to return, then press `c` again.
 Press `q` in the dashboard to quit. These commands open fresh interactive sessions;
 they do not validate resuming a saved managed review. Switching back currently
 requires exiting the foreground agent.
@@ -38,7 +38,7 @@ resume, and cleanup.
 
 Authentication uses the installed agent’s normal configuration and environment.
 
-If a review fails before creating a conversation, `v` explains that another review
+If a review fails before creating a conversation, `c` explains that another review
 is needed. Failed attempts return to pending AI review; only pressing `r` (or the
 pending task's next action) retries. They do not imply readiness to approve.
 The preview and `Enter` detail retain the reason for a failed, cancelled, or stale

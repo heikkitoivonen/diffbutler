@@ -10,7 +10,7 @@ from diffbutler.domain.forge import RateLimit
 
 @dataclass
 class RateLimitObservations:
-    minimum: RateLimit | None = None
+    minimum_core: RateLimit | None = None
 
 
 _observations: ContextVar[RateLimitObservations | None] = ContextVar(
@@ -30,7 +30,12 @@ def collect_rate_limits() -> Generator[RateLimitObservations]:
 
 def observe_rate_limit(limit: RateLimit) -> None:
     observations = _observations.get()
-    if observations is not None and (
-        observations.minimum is None or limit.remaining < observations.minimum.remaining
+    if (
+        observations is not None
+        and limit.resource == "core"
+        and (
+            observations.minimum_core is None
+            or limit.remaining < observations.minimum_core.remaining
+        )
     ):
-        observations.minimum = limit
+        observations.minimum_core = limit

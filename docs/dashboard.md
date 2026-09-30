@@ -75,7 +75,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 |---|---|
 | `space` | Start review, discuss findings, or open the PR according to its state |
 | `r` | Request a background native review of the selected active PR |
-| `v` | Resume the exact saved conversation in the same terminal |
+| `c` | Resume the exact saved conversation in the same terminal |
 | `o` / `ctrl+o` | Choose pending human review and open the browser |
 | `w` | Choose pending author changes |
 | `m` | Record your completed approval locally and dispatch cleanup |

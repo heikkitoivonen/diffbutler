@@ -27,7 +27,7 @@ class HandoffProbe(TerminalApp):
 
     TITLE = "DiffButler — terminal handoff experiment"
     BINDINGS: ClassVar[list[BindingType]] = [
-        ("v", "handoff", "Resume agent"),
+        ("c", "handoff", "Resume agent"),
         ("f", "fail", "Bad command"),
         ("q", "quit", "Quit"),
     ]
@@ -136,7 +136,7 @@ class HandoffProbe(TerminalApp):
                 raise error
             status = f"Launch failed: {error}" if error else f"Agent exited: {result}"
             self.query_one("#result", Static).update(
-                f"{status}. Background advanced {self.ticks - before} ticks. Press v to resume."
+                f"{status}. Background advanced {self.ticks - before} ticks. Press c to resume."
             )
             self.record(
                 "returned",

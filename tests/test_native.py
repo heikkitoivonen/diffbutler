@@ -714,7 +714,7 @@ async def test_dashboard_native_review_return_reconciles_feedback_and_keeps_hist
             assert current.state == "FINDINGS_TRIAGE"
             task_id = current.task_id
             assert task_id is not None
-            await pilot.press("v")
+            await pilot.press("c")
             for _ in range(100):
                 await asyncio.sleep(0.05)
                 current = (await queue.snapshot(ACCOUNT)).items[0]
@@ -782,14 +782,14 @@ async def test_public_dashboard_native_handoff_restores_controlling_terminal(
         await asyncio.to_thread(terminal.wait, lambda: b"pending" in terminal.output)
         terminal.send(b"r")
         await asyncio.to_thread(terminal.wait, lambda: b"AI Status: succeeded" in terminal.output)
-        terminal.send(b"v")
+        terminal.send(b"c")
         await asyncio.to_thread(terminal.wait, lambda: b"remembered orientation" in terminal.output)
         await asyncio.to_thread(
             terminal.wait, lambda: "Foreground agent exited code=0" in diagnostics.read_text()
         )
         assert os.tcgetpgrp(terminal.master) == terminal.process.pid
         # Returning leaves a resumable conversation, no approval and no extra AI run.
-        terminal.send(b"v")
+        terminal.send(b"c")
         await asyncio.to_thread(
             terminal.wait, lambda: terminal.output.count(b"remembered orientation") == 2
         )

@@ -71,7 +71,7 @@ Select a PR with the arrow keys, then work through the review:
    DiffButler caches full Git history and reviews changes from the PR merge base
    to its head, excluding unrelated changes made later on the target branch.
 2. A successful review shows `approve` only when the AI explicitly reports no findings;
-   otherwise it shows `check`. Press `Enter` to read the results, or `v` to resume
+   otherwise it shows `check`. Press `Enter` to read the results, or `c` to resume
    the saved agent conversation.
    Ask questions and explicitly tell the agent which comments to post, if any.
 3. Exit the agent to return to the dashboard, which refreshes activity from GitHub.

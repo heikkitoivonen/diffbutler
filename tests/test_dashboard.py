@@ -178,7 +178,7 @@ async def test_routine_refresh_notices_display_once_per_launch(
 
 
 @pytest.mark.asyncio
-async def test_sync_logs_minimum_quota_and_resets_between_refreshes(
+async def test_sync_logs_core_quota_and_resets_between_refreshes(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -190,6 +190,7 @@ async def test_sync_logs_minimum_quota_and_resets_between_refreshes(
         RateLimit("core", 4900, 5000, NOW),
         RateLimit("search", 12, 30, NOW),
         RateLimit("search", 30, 30, NOW),
+        RateLimit("core", 4800, 5000, NOW),
     ]
 
     async def poll(_: Path | None) -> None:
@@ -199,7 +200,7 @@ async def test_sync_logs_minimum_quota_and_resets_between_refreshes(
     monkeypatch.setattr("diffbutler.ui.tui.dashboard.poll_configured", poll)
     path = ledger[3]
     app = Dashboard(path, load_settings(path), offline=True)
-    with caplog.at_level(logging.INFO, logger="diffbutler.ui.tui.dashboard"):
+    with caplog.at_level(logging.DEBUG, logger="diffbutler.ui.tui.dashboard"):
         async with app.run_test():
             await app.sync()
             quotas.clear()
@@ -209,9 +210,13 @@ async def test_sync_logs_minimum_quota_and_resets_between_refreshes(
         for record in caplog.records
         if record.message.startswith("Forge sync completed")
     ] == [
-        "Forge sync completed limit=30 remaining=12",
+        "Forge sync completed limit=5000 remaining=4800",
         "Forge sync completed limit=None remaining=None",
     ]
+
+    starts = [record for record in caplog.records if record.message == "Forge sync started"]
+    assert len(starts) == 2
+    assert all(record.levelno == logging.DEBUG for record in starts)
 
 
 @pytest.mark.asyncio

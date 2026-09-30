@@ -174,14 +174,14 @@ def preview_summary(detail: CycleDetail) -> str:
     ]
     result = detail.results[-1] if detail.results else None
     if result and result.markdown is not None:
-        lines.append("Review ready · Enter to read drafts · v to discuss")
+        lines.append("Review ready · Enter to read drafts · c to check findings")
         lines.append(result.markdown)
     elif result and result.document:
         doc = result.document
         lines.append(
             "No issues found — your turn."
             if not doc.findings
-            else f"{len(doc.findings)} findings · v to discuss"
+            else f"{len(doc.findings)} findings · c to check findings"
         )
         lines.append("Intent: " + doc.orientation.intent)
         lines.extend(
@@ -224,7 +224,7 @@ class Dashboard(TerminalApp):
         ("o", "open_in_browser", "Open PR"),
         ("w", "mark_waiting_for_author", "Wait for author"),
         ("r", "run_review", "Review"),
-        ("v", "resume_session", "Discuss"),
+        ("c", "resume_session", "Check findings"),
         ("m", "mark_approved", "Mark approved"),
         ("h", "view_history", "History"),
         ("b", "browse_prs", "Browse all PRs"),
@@ -540,10 +540,10 @@ class Dashboard(TerminalApp):
                 self.refresh_status_once(
                     "Refreshing GitHub; requests are paced to respect rate limits."
                 )
-                logging.getLogger(__name__).info("Forge sync started")
+                logging.getLogger(__name__).debug("Forge sync started")
                 with collect_rate_limits() as observations:
                     await poll_configured(self.path)
-                quota = observations.minimum
+                quota = observations.minimum_core
                 logging.getLogger(__name__).info(
                     "Forge sync completed limit=%s remaining=%s",
                     quota.limit if quota else None,
@@ -809,7 +809,7 @@ class Dashboard(TerminalApp):
     def action_help(self) -> None:
         self.push_screen(
             DetailScreen(
-                "r starts an AI run only on your explicit action. v resumes its native session.\n"
+                "r starts an AI run only on your explicit action. c resumes its native session.\n"
                 "Tell the agent explicitly which feedback to post.\n"
                 "Opening the session grants no posting permission.\n"
                 "o chooses manual review and opens the browser. w chooses waiting for author.\n"

@@ -175,7 +175,7 @@ def test_wait_still_rejects_unmet_condition_when_process_exits(
 
 
 def attach(terminal: Terminal, resume: int = 1) -> None:
-    terminal.send(b"v")
+    terminal.send(b"c")
     terminal.wait(lambda: f"resumes={resume}".encode() in terminal.output)
     assert os.tcgetpgrp(terminal.master) != terminal.process.pid
     before = terminal.records("handoff")[-1]["ticks"]
@@ -243,7 +243,7 @@ def test_exception_inside_suspend_restores_dashboard(tmp_path: Path, failure: st
     terminal = Terminal(tmp_path, failure=failure)
     try:
         terminal.wait(lambda: bool(terminal.records("ready")))
-        terminal.send(b"v")
+        terminal.send(b"c")
         terminal.wait(lambda: bool(terminal.records("released")))
         if failure.startswith("OSError"):
             assert "synthetic launch failure" in terminal.records("returned")[0]["error"]
@@ -307,7 +307,7 @@ def test_full_screen_child_resizes_and_returns(tmp_path: Path) -> None:
 
     try:
         terminal.wait(lambda: bool(terminal.records("ready")))
-        terminal.send(b"v")
+        terminal.send(b"c")
         terminal.wait(lambda: any(r["event"] == "ready" for r in child_records()))
         terminal.resize(92, 26)
         terminal.wait(

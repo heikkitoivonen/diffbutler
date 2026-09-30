@@ -14,7 +14,7 @@ setup: ## Install Python 3.14 and the locked development environment
 run: ## Run the CLI (pass ARGS="--version" or ARGS="--help")
 	$(RUN) diffbutler $(ARGS)
 
-handoff: ## Run the offline terminal handoff prototype (v attach, q quit)
+handoff: ## Run the offline terminal handoff prototype (c attach, q quit)
 	$(RUN) python -m diffbutler.ui.tui.handoff_probe $(ARGS)
 
 format: ## Apply safe Ruff fixes and format Python code

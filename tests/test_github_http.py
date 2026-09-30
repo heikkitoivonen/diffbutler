@@ -31,7 +31,7 @@ async def test_response_log_level(status: int, caplog: pytest.LogCaptureFixture)
 
 
 @pytest.mark.asyncio
-async def test_sync_quota_observations_keep_minimum_and_isolate_concurrent_scopes() -> None:
+async def test_sync_quota_observations_keep_core_minimum_and_isolate_concurrent_scopes() -> None:
     def handle(request: httpx.Request) -> httpx.Response:
         remaining = request.url.params["remaining"]
         search = request.url.path == "/search/issues"
@@ -59,17 +59,20 @@ async def test_sync_quota_observations_keep_minimum_and_isolate_concurrent_scope
                 await http.get("user", {"remaining": 4999})
                 await asyncio.sleep(0)
                 await http.get("search/issues", {"remaining": remaining})
+                await http.get("user", {"remaining": 4900 - remaining})
+                await http.get("user", {"remaining": 5000})
                 await http.get("search/issues", {"remaining": 30})
                 # Missing/invalid headers must not reuse the last known quota.
                 http.record_limit(httpx.Headers())
                 http.record_limit(httpx.Headers({"x-ratelimit-resource": "search"}))
-            assert observations.minimum is not None
-            assert observations.minimum.remaining == remaining
-            assert observations.minimum.limit == 30
+            assert observations.minimum_core is not None
+            assert observations.minimum_core.remaining == 4900 - remaining
+            assert observations.minimum_core.limit == 5000
             with collect_rate_limits() as fresh:
-                assert fresh.minimum is None
+                await http.get("search/issues", {"remaining": 30})
+                assert fresh.minimum_core is None
             await http.get("search/issues", {"remaining": 0})
-            assert observations.minimum.remaining == remaining
+            assert observations.minimum_core.remaining == 4900 - remaining
         finally:
             await http.close()
 
