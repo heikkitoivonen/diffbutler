@@ -1013,7 +1013,7 @@ def test_renewed_request_takes_precedence_over_every_open_pr_state(
 @pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.parametrize("preview_pane", [True, False])
-async def test_cycle_reviewer_is_per_pr_and_only_explicit_review_starts_it(
+async def test_cycle_reviewer_is_global_and_only_explicit_review_starts_it(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
     monkeypatch: pytest.MonkeyPatch,
     preview_pane: bool,
@@ -1048,6 +1048,10 @@ default_reviewer = "claude"
     )
     original = path.read_text()
     launched: list[tuple[str, str | None]] = []
+    resumed: list[DashboardRow] = []
+
+    async def attach(self: Dashboard, row: DashboardRow) -> None:
+        resumed.append(row)
 
     async def review(
         path: Path | None,
@@ -1060,6 +1064,7 @@ default_reviewer = "claude"
         raise ReviewConflict("Synthetic review stopped")
 
     monkeypatch.setattr("diffbutler.ui.tui.dashboard.review_configured", review)
+    monkeypatch.setattr(Dashboard, "attach", attach)
     settings = load_settings(path)
     settings.ui.preview_pane = preview_pane
     app = Dashboard(path, settings, offline=True)
@@ -1068,26 +1073,40 @@ default_reviewer = "claude"
         def reviewer_label() -> str:
             return str(app.query_one("#reviewer", Static).content)
 
-        assert "Next AI reviewer: claude" in reviewer_label()
+        assert "Current AI reviewer: codex - n to change" in reviewer_label()
+        assert app.query_one("#reviewer").region.y < app.query_one("#queue").region.y
         first = app.selected()
         assert first is not None
         await pilot.press("n")
-        assert "Next AI reviewer: codex" in reviewer_label()
+        assert "Current AI reviewer: claude" in reviewer_label()
+        await pilot.press("c")
+        await pilot.pause()
+        assert [row.row.tracked.task_id for row in resumed] == [first.row.tracked.task_id]
+        assert not launched and not app.review_tasks
         await pilot.press("down")
         await pilot.pause()
-        assert "Next AI reviewer: claude" in reviewer_label()
+        assert "Current AI reviewer: claude" in reviewer_label()
+        second_row = app.selected()
+        assert second_row is not None
+        assert second_row.row.tracked.task_id != first.row.tracked.task_id
+        await pilot.press("r")
+        await pilot.pause()
+        assert launched == [(second_row.row.tracked.pull_request.url, "claude")]
         await pilot.press("up")
         await pilot.pause()
-        assert "Next AI reviewer: codex" in reviewer_label()
+        assert "Current AI reviewer: claude" in reviewer_label()
         await pilot.press("n", "n")
-        assert "Next AI reviewer: codex" in reviewer_label()
-        assert not launched and not app.review_tasks
+        assert "Current AI reviewer: claude" in reviewer_label()
+        assert len(launched) == 1 and not app.review_tasks
         await pilot.press("space")
         await pilot.pause()
-        assert launched == [(first.row.tracked.pull_request.url, "codex")]
+        assert launched[-1] == (first.row.tracked.pull_request.url, "claude")
         await pilot.press("h", "n")
-        assert len(app.reviewer_overrides) == 1
-        assert len(launched) == 1
+        assert app.selected_key() is None
+        assert "Current AI reviewer: codex" in reviewer_label()
+        await pilot.press("h")
+        assert "Current AI reviewer: codex" in reviewer_label()
+        assert len(launched) == 2
     assert path.read_text() == original
 
 
@@ -1114,7 +1133,8 @@ preset = "codex"
         await pilot.press("n", "n")
         assert not app.review_tasks
         if count:
-            assert "Next AI reviewer: codex" in str(app.query_one("#reviewer", Static).content)
+            assert "Current AI reviewer: codex" in str(app.query_one("#reviewer", Static).content)
+            assert "Only codex is configured" in str(app.query_one("#status", Static).content)
         else:
             assert "No native reviewers configured" in str(app.query_one("#status", Static).content)
-            assert not app.reviewer_overrides
+            assert app.current_reviewer is None

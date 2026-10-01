@@ -6,15 +6,18 @@ import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from tests.test_sources import git
 from tests.test_sync import ACCOUNT, PR, REF, FakeForge
 
 from diffbutler.config.settings import Settings
+from diffbutler.core.dashboard import DashboardService
 from diffbutler.core.managed import ManagedReviews, owned_directories, resolve_local
 from diffbutler.core.native import background_environment, foreground_environment
 from diffbutler.core.sync import DiffButler
+from diffbutler.domain.review import AnalysisIdentity
 from diffbutler.reviewers.base import ReviewOutput
 from diffbutler.reviewers.extraction import extract_output
 from diffbutler.reviewers.native import (
@@ -25,8 +28,10 @@ from diffbutler.reviewers.native import (
     NativePreset,
     native_preset,
 )
+from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.database import Database
 from diffbutler.store.queue import SQLiteQueueStore
+from diffbutler.ui.tui.dashboard import preview_summary
 
 pytestmark = [
     pytest.mark.serial,
@@ -217,6 +222,67 @@ async def prepared(tmp_path: Path, preset: str = "codex") -> tuple[Settings, Fak
 
     forge.discovery = Discovery((RequestedPR(forge.prs[REF], ("user:reader",)),), True)
     return settings, forge
+
+
+async def test_switching_reviewers_replaces_current_results_and_resume_session(
+    tmp_path: Path,
+) -> None:
+    settings, forge = await prepared(tmp_path)
+    settings.reviewers.append(
+        settings.reviewers[0].model_copy(
+            update={
+                "id": "claude",
+                "preset": "claude",
+                "command": [sys.executable, str(FAKE.with_name("fake_claude.py"))],
+            }
+        )
+    )
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        dashboard = DashboardService(SQLiteDashboardStore(database), managed.store)
+        row = await resolve_local(queue, "acme/api#1", None)
+        sessions: dict[str, UUID] = {}
+        # Switching back must select the reused Codex session, not the newest
+        # session by creation time (Claude).
+        for reviewer in ("codex", "claude", "codex"):
+            run = await managed.review(row, reviewer)
+            assert run.status == "succeeded" and run.reviewer_id == reviewer
+            if reviewer in sessions:
+                assert run.session_id == sessions[reviewer]
+            sessions[reviewer] = run.session_id
+            result = await managed.findings(row)
+            assert result is not None and result.run_id == run.id
+            detail = await dashboard.detail(run.task_id)
+            session = await managed.reviews.get_session(run.session_id)
+            assert f"Session: {session.display_name}" in preview_summary(detail)
+
+            # Changing the configured default alone cannot redirect conversation resume.
+            settings.review.default_reviewer = "claude" if reviewer == "codex" else "codex"
+            launch = await managed.prepare_handoff(row)
+            try:
+                assert str(FAKE.with_name(f"fake_{reviewer}.py")) in launch.argv
+                assert session.backend_session_id in launch.argv
+            finally:
+                await managed.lifecycle.release_foreground(launch.token)
+            latest = await managed.store.latest_run(run.task_id)
+            assert latest is not None and latest.id == run.id
+
+        assert len(detail.results) == 3
+        # While the next review has no result, old findings must not look current.
+        pending = await managed.reviews.request_review(
+            AnalysisIdentity(run.task_id, run.head_sha, "claude", run.prompt_version, "next-config")
+        )
+        assert await managed.findings(row) is None
+        preview = preview_summary(await dashboard.detail(run.task_id))
+        assert "queued" in preview
+        assert "Review ready" not in preview and "Draft comment:" not in preview
+        await managed.reviews.cancel_review(pending.id)
+    finally:
+        await database.close()
 
 
 @pytest.mark.parametrize("preset", ["codex", "claude"])

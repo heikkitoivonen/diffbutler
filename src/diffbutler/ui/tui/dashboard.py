@@ -173,7 +173,8 @@ def preview_summary(detail: CycleDetail) -> str:
         f"Repository: {pr.ref.namespace}/{pr.ref.repository}",
         *detail_metadata(detail),
     ]
-    result = detail.results[-1] if detail.results else None
+    run = cycle.runs[-1] if cycle.runs else None
+    result = next((result for result in detail.results if run and result.run_id == run.id), None)
     if result and result.markdown is not None:
         lines.append("Review ready · Enter to read drafts · c to check findings")
         lines.append(result.markdown)
@@ -194,11 +195,13 @@ def preview_summary(detail: CycleDetail) -> str:
         )
     elif result and result.error:
         lines.append(result.error)
-    if cycle.runs:
-        run = cycle.runs[-1]
+    if run:
         lines.append(f"Analyzed {run.head_sha[:12]} · current {pr.head_sha[:12]} · {run.status}")
-    if cycle.sessions:
-        lines.append("Session: " + cycle.sessions[-1].display_name)
+        session = next(
+            (session for session in cycle.sessions if session.id == run.session_id), None
+        )
+        if session:
+            lines.append("Session: " + session.display_name)
     if cycle.opened_at:
         lines.append("Opened for manual review · " + cycle.opened_at.isoformat())
     lines.append("Enter for full orientation, findings, receipts and cleanup status.")
@@ -274,7 +277,7 @@ class Dashboard(TerminalApp):
         self.sync_lock = asyncio.Lock()
         self.refresh_notices: set[str] = set()
         self.review_tasks: dict[str, asyncio.Task[None]] = {}
-        self.reviewer_overrides: dict[str, str] = {}
+        self.current_reviewer: str | None = None
         self.poller = Poller(self.sync, settings.effective_poll_interval_s)
         self.ready = False
         self.closing = False
@@ -282,6 +285,7 @@ class Dashboard(TerminalApp):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        yield Static("", id="reviewer", markup=False)
         yield Static("Local queue", id="status", markup=False)
         yield Input(
             placeholder="Filter by repository, number, title or author", id="filter", compact=True
@@ -289,7 +293,6 @@ class Dashboard(TerminalApp):
         yield DataTable[Text](cursor_type="row", id="queue")
         with VerticalScroll(id="preview-scroll"):
             yield Static("Select a PR", id="preview", markup=False)
-        yield Static("", id="reviewer", markup=False)
         yield Button("Select a PR", id="primary")
         yield Footer()
 
@@ -303,6 +306,8 @@ class Dashboard(TerminalApp):
                         binding for binding in bindings if binding.action != action
                     ]
                 self._bindings.bind(",".join(keys), action, action.replace("_", " "))
+        choices, default = await reviewer_choices_configured(self.path)
+        self.current_reviewer = default if default in choices else next(iter(choices), None)
         preferences = await preferences_configured(self.path)
         self.ai_paused = preferences.get("reviews_paused") == "true"
         self.monitor_all_prs = preferences.get("monitor_all_prs") == "true"
@@ -467,10 +472,12 @@ class Dashboard(TerminalApp):
         return safe(value) if value is not None else "—"
 
     async def preview(self) -> None:
+        self.query_one("#reviewer", Static).update(
+            safe(f"Current AI reviewer: {self.current_reviewer or 'not configured'} - n to change")
+        )
         key = self.selected_key()
         if key is None:
             self.preview_content = ""
-            self.query_one("#reviewer", Static).update("")
             self.query_one("#preview", Static).update("No PRs in this view.")
             self.query_one(Button).label = "Select a PR"
             return
@@ -486,17 +493,8 @@ class Dashboard(TerminalApp):
             }.get(row.row.tracked.state if row else "", "Open PR for human review")
         )
         self.query_one(Button).label = label
-        reviewer_label = ""
-        if row:
-            ref = row.row.tracked.pull_request.ref
-            _, default = await reviewer_choices_configured(
-                self.path, f"{ref.namespace}/{ref.repository}"
-            )
-            reviewer = self.reviewer_overrides.get(key, default)
-            reviewer_label = f"Next AI reviewer: {reviewer or 'not configured'} · n to change"
         if self.selected_key() != key or self.attached:
             return
-        self.query_one("#reviewer", Static).update(safe(reviewer_label))
         if not self.settings.ui.preview_pane:
             return
         detail = await detail_configured(self.path, UUID(key))
@@ -640,25 +638,20 @@ class Dashboard(TerminalApp):
         await self.guarded(self.next_reviewer())
 
     async def next_reviewer(self) -> None:
-        row = self.selected()
-        key = self.selected_key()
-        if row is None or key is None or self.view == "history":
-            return
-        ref = row.row.tracked.pull_request.ref
-        choices, default = await reviewer_choices_configured(
-            self.path, f"{ref.namespace}/{ref.repository}"
-        )
+        choices, _ = await reviewer_choices_configured(self.path)
         if not choices:
             self.status("No native reviewers configured; add a Codex or Claude reviewer in config.")
             return
-        current = self.reviewer_overrides.get(key, default)
+        current = self.current_reviewer
         index = choices.index(current) + 1 if current in choices else 0
         reviewer = choices[index % len(choices)]
-        self.reviewer_overrides[key] = reviewer
-        self.status(
-            f"Next review for {ref.namespace}/{ref.repository}#{ref.number}: {reviewer}. "
-            "Press r to start."
-        )
+        self.current_reviewer = reviewer
+        if len(choices) == 1:
+            self.status(
+                f"Only {reviewer} is configured; add another native reviewer in config to switch."
+            )
+        else:
+            self.status(f"Current AI reviewer: {reviewer}. Press r to start a review.")
 
     def action_run_review(self) -> None:
         row = self.selected()
@@ -666,7 +659,7 @@ class Dashboard(TerminalApp):
         if row is None or key is None or self.view == "history" or key in self.review_tasks:
             return
 
-        reviewer = self.reviewer_overrides.get(key)
+        reviewer = self.current_reviewer
 
         async def review() -> None:
             logging.getLogger(__name__).info("Review requested task=%s", key)
