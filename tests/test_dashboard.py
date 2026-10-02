@@ -1070,22 +1070,29 @@ default_reviewer = "claude"
     app = Dashboard(path, settings, offline=True)
     async with app.run_test() as pilot:
 
-        def reviewer_label() -> str:
-            return str(app.query_one("#reviewer", Static).content)
+        def status_message() -> str:
+            return str(app.query_one("#status", Static).content)
 
-        assert "Current AI reviewer: codex - n to change" in reviewer_label()
-        assert app.query_one("#reviewer").region.y < app.query_one("#queue").region.y
+        assert "Current AI reviewer: codex - n to change" in status_message()
+        assert not app.query("#reviewer")
+        app.status("Review ready")
+        await app.local_tick()
+        assert status_message() == "Review ready"
         first = app.selected()
         assert first is not None
         await pilot.press("n")
-        assert "Current AI reviewer: claude" in reviewer_label()
+        assert "Current AI reviewer: claude" in status_message()
+        app.status("Another message")
+        await app.local_tick()
+        assert status_message() == "Another message"
         await pilot.press("c")
         await pilot.pause()
         assert [row.row.tracked.task_id for row in resumed] == [first.row.tracked.task_id]
         assert not launched and not app.review_tasks
         await pilot.press("down")
         await pilot.pause()
-        assert "Current AI reviewer: claude" in reviewer_label()
+        assert app.current_reviewer == "claude"
+        assert status_message() == "Another message"
         second_row = app.selected()
         assert second_row is not None
         assert second_row.row.tracked.task_id != first.row.tracked.task_id
@@ -1094,18 +1101,19 @@ default_reviewer = "claude"
         assert launched == [(second_row.row.tracked.pull_request.url, "claude")]
         await pilot.press("up")
         await pilot.pause()
-        assert "Current AI reviewer: claude" in reviewer_label()
+        assert app.current_reviewer == "claude"
+        assert "Synthetic review stopped" in status_message()
         await pilot.press("n", "n")
-        assert "Current AI reviewer: claude" in reviewer_label()
+        assert "Current AI reviewer: claude" in status_message()
         assert len(launched) == 1 and not app.review_tasks
         await pilot.press("space")
         await pilot.pause()
         assert launched[-1] == (first.row.tracked.pull_request.url, "claude")
         await pilot.press("h", "n")
         assert app.selected_key() is None
-        assert "Current AI reviewer: codex" in reviewer_label()
+        assert "Current AI reviewer: codex" in status_message()
         await pilot.press("h")
-        assert "Current AI reviewer: codex" in reviewer_label()
+        assert "Current AI reviewer: codex" in status_message()
         assert len(launched) == 2
     assert path.read_text() == original
 
@@ -1130,10 +1138,12 @@ preset = "codex"
         )
     app = Dashboard(path, load_settings(path), offline=True)
     async with app.run_test() as pilot:
+        reviewer = "codex" if count else "not configured"
+        assert f"Current AI reviewer: {reviewer}" in str(app.query_one("#status", Static).content)
         await pilot.press("n", "n")
         assert not app.review_tasks
         if count:
-            assert "Current AI reviewer: codex" in str(app.query_one("#reviewer", Static).content)
+            assert app.current_reviewer == "codex"
             assert "Only codex is configured" in str(app.query_one("#status", Static).content)
         else:
             assert "No native reviewers configured" in str(app.query_one("#status", Static).content)

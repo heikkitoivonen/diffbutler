@@ -97,7 +97,8 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `y` | Copy the PR URL using terminal clipboard support |
 | `?` / `q` | Help / quit and settle reviews launched by this dashboard |
 
-The top message area shows `Current AI reviewer: <name> - n to change`.
+At startup, the top message area shows `Current AI reviewer: <name> - n to change`.
+The next status message replaces it; queue refreshes do not restore it.
 Press `n` to cycle configured Codex/Claude reviewers in configuration order, starting
 from the global default (or the first native reviewer if no native default is set).
 The selection applies to every PR, overriding repository reviewer defaults, and lasts

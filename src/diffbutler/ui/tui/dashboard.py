@@ -255,7 +255,6 @@ class Dashboard(TerminalApp):
     #status { height: 2; }
     #preview-scroll { height: 4; overflow-x: hidden; }
     #preview { width: 100%; height: auto; padding: 0 2; }
-    #reviewer { height: 1; }
     #primary { dock: bottom; width: 100%; }
     """
 
@@ -285,7 +284,6 @@ class Dashboard(TerminalApp):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("", id="reviewer", markup=False)
         yield Static("Local queue", id="status", markup=False)
         yield Input(
             placeholder="Filter by repository, number, title or author", id="filter", compact=True
@@ -308,6 +306,9 @@ class Dashboard(TerminalApp):
                 self._bindings.bind(",".join(keys), action, action.replace("_", " "))
         choices, default = await reviewer_choices_configured(self.path)
         self.current_reviewer = default if default in choices else next(iter(choices), None)
+        self.status(
+            f"Current AI reviewer: {self.current_reviewer or 'not configured'} - n to change"
+        )
         preferences = await preferences_configured(self.path)
         self.ai_paused = preferences.get("reviews_paused") == "true"
         self.monitor_all_prs = preferences.get("monitor_all_prs") == "true"
@@ -472,9 +473,6 @@ class Dashboard(TerminalApp):
         return safe(value) if value is not None else "—"
 
     async def preview(self) -> None:
-        self.query_one("#reviewer", Static).update(
-            safe(f"Current AI reviewer: {self.current_reviewer or 'not configured'} - n to change")
-        )
         key = self.selected_key()
         if key is None:
             self.preview_content = ""
