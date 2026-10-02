@@ -1,6 +1,7 @@
 """Public access and token validation use only a synthetic HTTP transport."""
 
 import asyncio
+import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -37,6 +38,13 @@ def install_transport(
 
 @pytest.fixture(autouse=True)
 def synthetic_reviewer_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    which = shutil.which
+
+    def without_agents(command: str) -> str | None:
+        return None if command in {"codex", "claude"} else which(command)
+
+    monkeypatch.setattr("diffbutler.core.setup.shutil.which", without_agents)
+
     async def checked(*args: object) -> None:
         pass
 

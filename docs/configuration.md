@@ -112,6 +112,13 @@ help/version, and other CLI commands do not run setup. Without an interactive te
 incomplete detection reports an error rather than prompting. Cancelled prompts do not
 save partial setup.
 
+When creating a new config, setup detects Codex and Claude in `PATH` and silently
+configures every detected agent. It asks only for the default reviewer, even when
+just one is found. Agents that are absent get commented-out `[[reviewers]]` entries
+that you can enable after installation. If neither is found, setup asks for an agent
+and its executable name or full path. Detection never launches either agent. Existing
+configurations keep their reviewer entries and commands.
+
 For GitHub configuration and doctor authentication checks, see the
 [GitHub adapter guide](github.md). `doctor --offline` skips forge checks and credential
 resolution while retaining local configuration, database, and path checks.

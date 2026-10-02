@@ -2,21 +2,21 @@
 
 import os
 import tempfile
-from collections.abc import MutableMapping
+from collections.abc import MutableMapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
 
-from diffbutler.config.settings import ConfigError, Forge, Reviewer, config_path
+from diffbutler.config.settings import NATIVE_PRESETS, ConfigError, Forge, Reviewer, config_path
 
 
 def save_setup(
     path: Path | None,
     forge: Forge | None,
     repository_path: Path | None,
-    reviewer: Reviewer | None = None,
+    reviewers: Sequence[Reviewer] = (),
     default_reviewer: str | None = None,
 ) -> Path:
     selected = (path or config_path()).expanduser().resolve()
@@ -27,11 +27,14 @@ def save_setup(
             if document.get("forges"):
                 raise ConfigError("Forge configuration changed during setup; restart DiffButler")
             document["forges"] = [forge.model_dump(exclude_none=True)]
-        if reviewer is not None:
+        if reviewers:
             entries = document.get("reviewers", [])
-            if any(entry["id"] == reviewer.id for entry in entries):
-                raise ConfigError("Reviewer configuration changed during setup; restart DiffButler")
-            entries.append(reviewer.model_dump(exclude_none=True))
+            for reviewer in reviewers:
+                if any(entry["id"] == reviewer.id for entry in entries):
+                    raise ConfigError(
+                        "Reviewer configuration changed during setup; restart DiffButler"
+                    )
+                entries.append(reviewer.model_dump(exclude_none=True))
             document["reviewers"] = entries
         if default_reviewer is not None:
             if "review" not in document:
@@ -52,6 +55,19 @@ def save_setup(
                 entry = cast(MutableMapping[str, Any], repos[repository])
                 if "path" not in entry:
                     entry["path"] = str(repository_path)
+        content = tomlkit.dumps(document)
+        if original is None:
+            for preset in NATIVE_PRESETS:
+                if any(entry.get("preset") == preset for entry in document.get("reviewers", [])):
+                    continue
+                example = tomlkit.dumps(
+                    {"reviewers": [{"id": preset, "preset": preset, "command": [preset]}]}
+                )
+                content += (
+                    f"\n# {preset} was not found in PATH; install it and uncomment to enable.\n"
+                    + "\n".join(f"# {line}" for line in example.splitlines())
+                    + "\n"
+                )
         selected.parent.mkdir(parents=True, exist_ok=True)
         temporary: Path | None = None
         try:
@@ -59,7 +75,7 @@ def save_setup(
                 mode="w", encoding="utf-8", dir=selected.parent, delete=False
             ) as stream:
                 temporary = Path(stream.name)
-                stream.write(tomlkit.dumps(document))
+                stream.write(content)
             if original is not None:
                 if selected.read_text(encoding="utf-8") != original:
                     raise ConfigError("Configuration changed during setup; restart DiffButler")

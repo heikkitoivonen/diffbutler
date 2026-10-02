@@ -57,7 +57,10 @@ saving results, and never start a replacement review automatically.
 ## Configure and review
 
 Live dashboard startup asks for a default Codex or Claude reviewer when none is
-configured, including existing forge-only configurations. It checks Git, resolves the
+configured, including existing forge-only configurations. For a new config, all known
+agents found in `PATH` are silently enabled, with a single prompt for the default;
+missing agents get commented-out entries. If none are found, setup asks for an agent
+and its executable path. It checks Git, resolves the
 selected executable, and saves without launching the reviewer or checking its version.
 No AI review or model authentication request is made during setup. Sign in
 with the chosen agent CLI before reviewing. Complete configurations skip these prompts;

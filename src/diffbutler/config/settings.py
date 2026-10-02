@@ -20,6 +20,8 @@ from pydantic_settings.sources import InitSettingsSource
 
 from diffbutler.domain.forge import PRQuery
 
+NATIVE_PRESETS: tuple[Literal["codex", "claude"], ...] = ("codex", "claude")
+
 
 class ConfigError(ValueError):
     """A user-facing configuration error with no input values or secrets."""

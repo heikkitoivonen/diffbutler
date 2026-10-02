@@ -9,7 +9,15 @@ import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from diffbutler.config.settings import ConfigError, Forge, Reviewer, Settings, load_settings
+from diffbutler.config.settings import (
+    NATIVE_PRESETS,
+    ConfigError,
+    Forge,
+    Reviewer,
+    Settings,
+    config_path,
+    load_settings,
+)
 from diffbutler.config.setup import save_setup
 from diffbutler.domain.forge import PRQuery, identity_part
 from diffbutler.forges.base import ForgeError
@@ -27,6 +35,7 @@ async def startup_settings(
     progress: Callable[[str], None] | None = None,
 ) -> Settings:
     settings = await asyncio.to_thread(load_settings, path, missing_ok=True)
+    new_config = not (path or config_path()).expanduser().exists()
 
     async def check[T](label: str, operation: Awaitable[T]) -> T:
         logging.getLogger(__name__).info("Startup check: %s", label)
@@ -61,9 +70,11 @@ async def startup_settings(
         return (await ask(label, default)).strip()
 
     if settings.forges:
-        reviewer, default = await setup_reviewer(settings, directory, question, progress)
+        reviewers, default = await setup_reviewer(
+            settings, directory, question, progress, discover=new_config
+        )
         if default is not None:
-            await asyncio.to_thread(save_setup, path, None, None, reviewer, default)
+            await asyncio.to_thread(save_setup, path, None, None, reviewers, default)
             return await asyncio.to_thread(load_settings, path)
         return settings
     detected = await check("Checking local repository", discover_repository(directory))
@@ -143,13 +154,15 @@ async def startup_settings(
         include_team_requests=not public,
         repositories=[repository],
     )
-    reviewer, default = await setup_reviewer(settings, directory, question, progress)
+    reviewers, default = await setup_reviewer(
+        settings, directory, question, progress, discover=new_config
+    )
     await asyncio.to_thread(
         save_setup,
         path,
         forge,
         detected.path if detected and matched else None,
-        reviewer,
+        reviewers,
         default,
     )
     return await asyncio.to_thread(load_settings, path)
@@ -169,13 +182,23 @@ async def setup_reviewer(
     directory: Path,
     question: Callable[[str, str], Awaitable[str]],
     progress: Callable[[str], None] | None = None,
-) -> tuple[Reviewer | None, str | None]:
+    *,
+    discover: bool = False,
+) -> tuple[tuple[Reviewer, ...], str | None]:
     current = next(
         (r for r in settings.reviewers if r.id == settings.review.default_reviewer), None
     )
     if current is not None and current.preset is not None:
-        return None, None
+        return (), None
     native = [r for r in settings.reviewers if r.preset is not None]
+    detected: list[Reviewer] = []
+    if discover and not settings.reviewers:
+        for preset in NATIVE_PRESETS:
+            if resolved := shutil.which(preset):
+                detected.append(
+                    Reviewer(id=preset, preset=preset, command=[str(Path(resolved).absolute())])
+                )
+        native = detected
     if native:
         choices = ", ".join(r.id for r in native)
         name = await question(f"Default AI reviewer ({choices})", native[0].id)
@@ -185,7 +208,7 @@ async def setup_reviewer(
         if progress is not None:
             progress("Checking Git and reviewer executable… (Ctrl+C to cancel)")
         await check_reviewer(chosen, directory)
-        return None, chosen.id
+        return tuple(detected), chosen.id
     name = (await question("AI reviewer (codex or claude)", "codex")).lower()
     if name not in {"codex", "claude"}:
         raise ConfigError("Choose codex or claude as the AI reviewer")
@@ -204,4 +227,4 @@ async def setup_reviewer(
     if progress is not None:
         progress("Checking Git and reviewer executable… (Ctrl+C to cancel)")
     await check_reviewer(reviewer, directory)
-    return reviewer, reviewer.id
+    return (reviewer,), reviewer.id

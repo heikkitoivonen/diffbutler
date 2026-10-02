@@ -1,6 +1,7 @@
 """First-run setup with fake visibility checks; no real network or reviewer calls."""
 
 import asyncio
+import shutil
 import sys
 from pathlib import Path
 
@@ -16,6 +17,13 @@ from diffbutler.ui.tui.dashboard import Dashboard
 
 @pytest.fixture(autouse=True)
 def public_repository_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    which = shutil.which
+
+    def without_agents(command: str) -> str | None:
+        return None if command in {"codex", "claude"} else which(command)
+
+    monkeypatch.setattr("diffbutler.core.setup.shutil.which", without_agents)
+
     async def public(base_url: str, repository: str) -> bool:
         return True
 

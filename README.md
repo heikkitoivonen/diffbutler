@@ -56,6 +56,9 @@ the selected token, asks for your preferred agent, and saves your choices. If us
 is unavailable, setup asks for it. Choose the recommended token access for public repositories;
 private repositories require it. Setup asks for the token's environment variable name
 and validates access. It never saves the token.
+New configs silently enable both Codex and Claude when found in `PATH`; setup asks
+only which detected agent should be the default. Missing agents get commented-out
+entries you can enable after installation.
 Later launches reuse your configuration.
 
 The dashboard shows active reviews, including followed PRs whose GitHub review
