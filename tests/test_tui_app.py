@@ -14,6 +14,28 @@ from diffbutler.ui.tui.dashboard import Dashboard
 from diffbutler.ui.tui.handoff_probe import HandoffProbe
 
 
+@pytest.mark.asyncio
+async def test_failed_review_status_includes_reason_and_output_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text("")
+    app = Dashboard(config, load_settings(config), offline=True)
+    monkeypatch.setattr(app, "selected", Mock(return_value=Mock(spec=DashboardRow, row=Mock())))
+    monkeypatch.setattr(app, "selected_key", Mock(return_value="task"))
+    monkeypatch.setattr(app, "reload", AsyncMock())
+    reason = "Codex conversation is busy (thread already has an active writer)."
+    review = AsyncMock(return_value=Mock(status="failed", status_reason=reason))
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.review_configured", review)
+    status = Mock()
+    monkeypatch.setattr(app, "status", status)
+    app.action_run_review()
+    await app.review_tasks["task"]
+    status.assert_called_once_with(f"AI review failed: {reason} Press L for output.")
+    review.assert_awaited_once()
+    assert not app.review_tasks
+
+
 @pytest.mark.parametrize("code", [0, 1, 127, -15])
 @pytest.mark.asyncio
 async def test_agent_exit_status_only_reports_failure(

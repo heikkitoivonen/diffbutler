@@ -50,7 +50,11 @@ def test_drafts_require_complete_backend_output_and_ignore_tool_text(complete: b
     [
         (b" \n", 0, "empty review response"),
         (b"\xff", 0, "output is not UTF-8"),
-        (b"No issues found", 1, "reviewer exited unsuccessfully"),
+        (
+            b"No issues found",
+            1,
+            "reviewer exited unsuccessfully (exit code 1); inspect captured output",
+        ),
     ],
 )
 def test_invalid_drafts_are_not_successful_reviews(text: bytes, exit_code: int, error: str) -> None:

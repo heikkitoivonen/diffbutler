@@ -74,6 +74,28 @@ class StreamFormat:
 type OutputFormat = EnvelopeFormat | StreamFormat
 
 
+def backend_failure_reason(output: ReviewOutput, format: OutputFormat | None) -> str | None:
+    """Recognize known failures without copying private backend text into diagnostics."""
+    messages = [output.stderr.decode("utf-8", errors="replace")]
+    if isinstance(format, StreamFormat):
+        for line in output.stdout.decode("utf-8", errors="replace").splitlines():
+            try:
+                event = _load(line)
+            except ValueError, RecursionError:
+                continue
+            if _at(event, format.type_path) in format.failure_types:
+                for path in (("message",), ("error", "message")):
+                    message = _at(event, path)
+                    if isinstance(message, str):
+                        messages.append(message)
+    if any("thread already has an active writer" in " ".join(m.split()) for m in messages):
+        return (
+            "Codex conversation is busy (thread already has an active writer). "
+            "Exit any other session using this conversation, wait briefly, then retry explicitly."
+        )
+    return None
+
+
 @dataclass(frozen=True)
 class ExtractedOutput:
     """Raw output is never replaced by extracted assistant text."""
@@ -171,4 +193,6 @@ def extract_output(output: ReviewOutput, format: OutputFormat) -> ExtractedOutpu
             return ExtractedOutput(output, None, session_id, "reviewer exited unsuccessfully")
         return ExtractedOutput(output, answer.encode("utf-8"), session_id)
     except ValueError, RecursionError:
-        return ExtractedOutput(output, None, None, "invalid backend output")
+        return ExtractedOutput(
+            output, None, None, backend_failure_reason(output, format) or "invalid backend output"
+        )

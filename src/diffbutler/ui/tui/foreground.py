@@ -6,10 +6,10 @@ import signal
 import sys
 import termios
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import suppress
 from pathlib import Path
 
 from diffbutler.domain.lifecycle import ForegroundExitUncertain as ForegroundExitUncertain
+from diffbutler.reviewers.native import stop_process_group
 
 
 def _give_terminal(fd: int, process_group: int) -> None:
@@ -74,8 +74,7 @@ async def run_foreground(
                         process = await spawn
                     except OSError:
                         return
-                    with suppress(ProcessLookupError):
-                        os.killpg(process.pid, signal.SIGKILL)
+                    await stop_process_group(process.pid)
                     await process.wait()
             finally:
                 os.close(read_gate)

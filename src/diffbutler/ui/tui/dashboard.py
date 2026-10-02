@@ -677,7 +677,12 @@ class Dashboard(TerminalApp):
                 logging.getLogger(__name__).info(
                     "Review finished task=%s pr=%s status=%s", key, pr_number, result.status
                 )
-                self.status(f"AI review {result.status}; no publication or approval implied.")
+                if result.status_reason:
+                    self.status(
+                        f"AI review {result.status}: {result.status_reason} Press L for output."
+                    )
+                else:
+                    self.status(f"AI review {result.status}; no publication or approval implied.")
             finally:
                 self.review_tasks.pop(key, None)
 

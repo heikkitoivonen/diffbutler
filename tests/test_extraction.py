@@ -7,6 +7,7 @@ from tests.test_review_parsing import payload
 
 from diffbutler.reviewers.base import ReviewOutput
 from diffbutler.reviewers.extraction import EnvelopeFormat, StreamFormat, extract_output
+from diffbutler.reviewers.native import CODEX_OUTPUT
 from diffbutler.reviewers.parsing import parse_review
 
 
@@ -111,3 +112,38 @@ def test_nonzero_and_identity_conflict() -> None:
     assert extract_output(conflict, EnvelopeFormat()).error == "invalid backend output"
     with pytest.raises(ValueError):
         StreamFormat(complete_type="assistant")
+
+
+@pytest.mark.parametrize("source", ["stderr", "error", "turn.failed"])
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_active_writer_failure_has_safe_actionable_reason(source: str, exit_code: int) -> None:
+    message = (
+        "Error: thread/resume failed: thread\nalready has an active writer\n(code -32600) private"
+    )
+    event = (
+        {"type": source, "message": message}
+        if source == "error"
+        else {"type": source, "error": {"message": message}}
+    )
+    output = ReviewOutput(
+        b"" if source == "stderr" else json.dumps(event).encode(),
+        message.encode() if source == "stderr" else b"",
+        exit_code,
+    )
+    parsed = parse_review(output, output_format=CODEX_OUTPUT, response_format="markdown")
+    assert parsed.document is None and parsed.draft is None
+    assert parsed.error is not None and "conversation is busy" in parsed.error
+    assert "retry explicitly" in parsed.error and "private" not in parsed.error
+    assert parsed.output.stdout == output.stdout and parsed.output.stderr == output.stderr
+
+
+def test_tool_output_cannot_be_mistaken_for_active_writer_failure() -> None:
+    output = capture(
+        {
+            "type": "item.completed",
+            "item": {"type": "command_execution", "text": "thread already has an active writer"},
+        },
+        {"type": "turn.failed", "error": {"message": "private unknown failure"}},
+    )
+    parsed = parse_review(output, output_format=CODEX_OUTPUT)
+    assert parsed.error == "invalid backend output"

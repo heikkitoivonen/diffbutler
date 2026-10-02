@@ -46,6 +46,19 @@ attempt, including timeouts (15 minutes by default). `L` shows captured output,
 including partial output retained after interruption. Reasons survive restart and
 source cleanup; raw output is removed by cleanup as before.
 
+Failed reviews also show their reason in the dashboard status message and diagnostic
+log. A Codex `thread already has an active writer` error is reported as a busy
+conversation. Exit any other session using that conversation, wait briefly, then
+press `r` or `Space` to retry. DiffButler retains the saved conversation and does not
+retry automatically or remove native locks. Other nonzero exits report the exit
+code; `L` shows captured output for further diagnosis.
+
+On background cancellation and foreground return, owned agent processes receive
+`SIGTERM` and up to two seconds to release native resources before any remaining
+processes in the owned group receive `SIGKILL`. This also applies to descendants
+left behind after the launcher exits. It cannot release a conversation held by a
+separate agent process outside that group.
+
 While a review is running, new PR commits or a review request newer than its explicit
 start invalidate it. Older requests first discovered after an incomplete activity
 fetch update the history without invalidating the review. A target-branch update

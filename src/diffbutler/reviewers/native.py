@@ -107,6 +107,27 @@ def native_preset(name: str) -> NativePreset:
     )
 
 
+async def stop_process_group(pid: int, *, grace_s: float = 2.0) -> None:
+    """Let owned agents release native resources before forcing remaining members out."""
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        async with asyncio.timeout(grace_s):
+            while True:
+                await asyncio.sleep(0.05)
+                try:
+                    os.killpg(pid, 0)
+                except ProcessLookupError:
+                    return
+    except TimeoutError:
+        pass
+    finally:
+        with suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGKILL)
+
+
 class CapturedProcess:
     """Own a trusted CLI's process group and captured pipes, including spawn races.
 
@@ -203,8 +224,7 @@ class CapturedProcess:
             return  # Spawn failed; no process exists.
         process = self.process
         assert process is not None
-        with suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
+        await stop_process_group(process.pid)
         for reader in self.readers:
             reader.cancel()
         await asyncio.gather(*self.readers, return_exceptions=True)

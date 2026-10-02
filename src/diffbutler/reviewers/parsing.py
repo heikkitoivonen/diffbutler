@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from diffbutler.domain.review import Side, SourceFile
 from diffbutler.reviewers.base import ReviewOutput
-from diffbutler.reviewers.extraction import OutputFormat, extract_output
+from diffbutler.reviewers.extraction import OutputFormat, backend_failure_reason, extract_output
 
 Text = Annotated[str, Field(min_length=1, pattern=r"\S")]
 Line = Annotated[int, Field(gt=0)]
@@ -201,7 +201,16 @@ def parse_review(
     Diagnostics contain no backend text; raw stdout/stderr stay in the result.
     """
     if output.exit_code != 0:
-        return ParsedReview(output, None, None, error="reviewer exited unsuccessfully")
+        return ParsedReview(
+            output,
+            None,
+            None,
+            error=backend_failure_reason(output, output_format)
+            or (
+                f"reviewer exited unsuccessfully (exit code {output.exit_code}); "
+                "inspect captured output"
+            ),
+        )
     payload = output.stdout
     if output_format is not None:
         extracted = extract_output(output, output_format)

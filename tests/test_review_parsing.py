@@ -143,7 +143,9 @@ def test_duplicate_keys_and_nonfinite_numbers_fail_without_recovery() -> None:
 
 def test_exit_encoding_and_large_output() -> None:
     captured = output(json.dumps(payload()), exit_code=1)
-    assert parse_review(captured).error == "reviewer exited unsuccessfully"
+    assert parse_review(captured).error == (
+        "reviewer exited unsuccessfully (exit code 1); inspect captured output"
+    )
     assert parse_review(ReviewOutput(b"\xff", b"", 0)).error == "output is not UTF-8"
     captured = output(json.dumps(payload()))
     assert parse_review(ReviewOutput(captured.stdout, b"x" * 4_000_001, 0)).document is not None

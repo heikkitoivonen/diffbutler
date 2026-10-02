@@ -1,6 +1,7 @@
 """Worker orchestration for explicit requests, including native CLI execution."""
 
 import asyncio
+import logging
 import math
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -159,7 +160,7 @@ class ReviewWorker:
                     claim.token, reason="Review invalidated", output=execution.partial_output()
                 )
             phase = "result processing"
-            return await self.reviews.finalize_review(
+            result = await self.reviews.finalize_review(
                 claim.token,
                 output,
                 diff_index=context.diff_index,
@@ -168,6 +169,14 @@ class ReviewWorker:
                 min_confidence=self.min_confidence,
                 findings_threshold=self.findings_threshold,
             )
+            if result.status_reason:
+                logging.getLogger(__name__).warning(
+                    "Review ended run=%s status=%s reason=%s",
+                    result.id,
+                    result.status,
+                    result.status_reason,
+                )
+            return result
         except BaseException as exc:
             if exited:
                 if isinstance(exc, asyncio.CancelledError):

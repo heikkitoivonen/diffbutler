@@ -27,6 +27,64 @@ from diffbutler.store.queue import SQLiteQueueStore
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.mark.serial
+async def test_busy_conversation_retains_identity_and_allows_explicit_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import sys
+
+    settings, forge = await prepared(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "agent-home"))
+    reviewer = settings.reviewers[0]
+    original_command = reviewer.command
+    agent = tmp_path / "busy.py"
+    agent.write_text(
+        "import sys\n"
+        "assert 'resume' in sys.argv\n"
+        "print('Error: thread/resume failed: thread\\nalready has an active writer '"
+        "'(code -32600) private', file=sys.stderr)\n"
+        "raise SystemExit(1)\n"
+    )
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        first = await managed.review(row)
+        session = await managed.reviews.get_session(first.session_id)
+        reviewer.command = [sys.executable, str(agent)]
+        failed = await managed.review(row)
+        assert failed.status == RunStatus.FAILED
+        assert failed.status_reason and "conversation is busy" in failed.status_reason
+        assert failed.status_reason in caplog.text and "private" not in caplog.text
+        assert failed.session_id == first.session_id
+        assert not await managed.leases.held_operations()
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AI_REVIEW"
+        assert (await managed.reviews.get_session(first.session_id)) == session
+    finally:
+        await database.close()
+    database = Database(settings.db.url)
+    try:
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        saved = await managed.reviews.get_run(failed.id)
+        assert saved.status_reason == failed.status_reason
+        result = await managed.reviews.get_result(failed.id)
+        assert result is not None and result.stderr and b"active writer" in result.stderr
+        latest = await managed.store.latest_run(first.task_id)
+        assert latest is not None and latest.id == failed.id
+        reviewer.command = original_command
+        retry = await managed.review(row)
+        assert retry.status == RunStatus.SUCCEEDED and retry.attempt == failed.attempt + 1
+        assert retry.session_id == first.session_id
+        assert (await managed.reviews.get_session(first.session_id)).backend_session_id == (
+            session.backend_session_id
+        )
+    finally:
+        await database.close()
+
+
 @pytest.mark.parametrize("completed", [False, True])
 @pytest.mark.parametrize("new_request", [False, True])
 async def test_request_history_after_partial_fetch(
