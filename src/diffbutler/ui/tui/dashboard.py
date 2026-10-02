@@ -658,9 +658,10 @@ class Dashboard(TerminalApp):
             return
 
         reviewer = self.current_reviewer
+        pr_number = row.row.tracked.pull_request.ref.number
 
         async def review() -> None:
-            logging.getLogger(__name__).info("Review requested task=%s", key)
+            logging.getLogger(__name__).info("Review requested task=%s pr=%s", key, pr_number)
             try:
                 result = await review_configured(
                     self.path,
@@ -670,7 +671,7 @@ class Dashboard(TerminalApp):
                     self.status,
                 )
                 logging.getLogger(__name__).info(
-                    "Review finished task=%s status=%s", key, result.status
+                    "Review finished task=%s pr=%s status=%s", key, pr_number, result.status
                 )
                 self.status(f"AI review {result.status}; no publication or approval implied.")
             finally:
@@ -691,7 +692,9 @@ class Dashboard(TerminalApp):
     async def attach(self, row: DashboardRow) -> None:
         if self.attached:
             return
-        logging.getLogger(__name__).info("Foreground agent requested")
+        logging.getLogger(__name__).info(
+            "Foreground agent requested pr=%s", row.row.tracked.pull_request.ref.number
+        )
         self.attached = True
         error: BaseException | None = None
         code: int | None = None

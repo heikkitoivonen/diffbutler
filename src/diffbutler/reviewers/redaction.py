@@ -11,7 +11,11 @@ _LOGGER = logging.getLogger(__name__)
 
 def redact_and_report(content: bytes) -> bytes:
     result = redact_source(content)
-    _LOGGER.info("Source redaction: %d credential occurrences masked", result.count)
+    _LOGGER.log(
+        logging.INFO if result.count else logging.DEBUG,
+        "Source redaction: %d credential occurrences masked",
+        result.count,
+    )
     return result.content
 
 

@@ -265,6 +265,11 @@ uses debug level. Its `Forge sync completed` info record includes `limit` and
 accounts, and its corresponding limit. Search quotas are excluded. Both are `None`
 if no valid core rate-limit headers were observed.
 
+Review request/completion and agent-start records include the PR number. Managed
+repository preparation and source-fetch attempts include the owner/repository name.
+Source-redaction records with no masked credentials use debug level; nonzero counts
+remain at info level.
+
 Debug records include the application version, managed repository and local checkout
 paths, PR identity, recorded base/head SHAs, transport preference, actual Git executable
 and argv, and the explicitly constructed Git environment. Relevant omitted Git/proxy

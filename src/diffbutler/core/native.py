@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
@@ -155,6 +156,7 @@ class NativeExecution:
                 raise NativeError("Invalid native conversation identity") from None
             await checkpoint(identity)
 
+        logging.getLogger(__name__).info("Background agent starting pr=%s", context.pr.ref.number)
         capture = asyncio.create_task(
             self.execution.capture(
                 preset.argv(

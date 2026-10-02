@@ -133,7 +133,6 @@ class CapturedProcess:
     ) -> ReviewOutput:
         if self.spawn is not None:
             raise NativeError("A process execution cannot be reused")
-        logging.getLogger(__name__).info("Background agent starting")
         self.spawn = asyncio.create_task(
             asyncio.create_subprocess_exec(
                 *argv,

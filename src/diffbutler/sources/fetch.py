@@ -243,12 +243,19 @@ async def fetch_repository(
         ("ssh", "https") if transport == "ssh" else ("https", "ssh")
     )
     remotes = tuple(repository_url(ref, transport=item) for item in transports)
-    logging.getLogger(__name__).info("Preparing managed Git repository")
+    logging.getLogger(__name__).info(
+        "Preparing managed Git repository repo=%s/%s", ref.namespace, ref.repository
+    )
     await git_fetch_command(repository, "init", "--bare", "--template=")
     logging.getLogger(__name__).info("Fetching pinned PR commits")
     failures: list[str] = []
     for index, remote in enumerate(remotes):
-        logging.getLogger(__name__).info("Attempting %s source fetch", transports[index])
+        logging.getLogger(__name__).info(
+            "Attempting %s source fetch repo=%s/%s",
+            transports[index],
+            ref.namespace,
+            ref.repository,
+        )
         try:
             await git_fetch_command(
                 repository,
