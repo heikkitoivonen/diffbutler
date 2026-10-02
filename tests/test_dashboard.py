@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 import pytest
@@ -20,6 +21,7 @@ from textual.widgets import DataTable, Static
 from diffbutler.config.settings import load_settings
 from diffbutler.core.application import local_queue
 from diffbutler.core.dashboard import (
+    CycleDetail,
     DashboardRow,
     DashboardService,
     HistoryFilter,
@@ -27,6 +29,7 @@ from diffbutler.core.dashboard import (
     SortSpec,
     column_value,
     dashboard_rows,
+    detail_configured,
     sort_rows,
 )
 from diffbutler.core.sync import DiffButler, PullRequestRow
@@ -1008,6 +1011,82 @@ def test_renewed_request_takes_precedence_over_every_open_pr_state(
     assert result.notice == "Review requested again"
     assert result.cycle == (2 if state == "DONE" else 1)
     assert result.completion_reason is None
+
+
+@pytest.mark.serial
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["space", "r"])
+@pytest.mark.parametrize("slow_read", ["preview", "refresh"])
+async def test_start_second_review_while_dashboard_read_is_pending(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    slow_read: str,
+) -> None:
+    _, queue, forge, path = ledger
+    second = replace(PR, ref=replace(REF, number=2), url=PR.url.replace("/1", "/2"))
+    forge.prs[second.ref] = second
+    forge.discovery = Discovery(
+        tuple(RequestedPR(pr, ("user:reader",)) for pr in (PR, second)), True
+    )
+    await DiffButler(queue, forge).sync()
+    reading = asyncio.Event()
+    release_read = asyncio.Event()
+    release_reviews = asyncio.Event()
+    both_started = asyncio.Event()
+    launched: list[str] = []
+
+    async def review(
+        path: Path | None,
+        value: str,
+        login: str | None,
+        reviewer: str | None,
+        progress: object,
+    ) -> None:
+        launched.append(value)
+        if len(launched) == 2:
+            both_started.set()
+        await release_reviews.wait()
+        raise ReviewConflict("Synthetic review stopped")
+
+    async def detail(path: Path | None, task_id: UUID) -> CycleDetail:
+        reading.set()
+        await release_read.wait()
+        return await detail_configured(path, task_id)
+
+    async def rows(
+        path: Path | None, view: str = "active", text: str = ""
+    ) -> tuple[DashboardRow, ...]:
+        reading.set()
+        await release_read.wait()
+        return await dashboard_rows(path, view, text)
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.review_configured", review)
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test() as pilot:
+        await pilot.press(key)
+        assert len(launched) == 1
+        if slow_read == "preview":
+            monkeypatch.setattr("diffbutler.ui.tui.dashboard.detail_configured", detail)
+        else:
+            monkeypatch.setattr("diffbutler.ui.tui.dashboard.dashboard_rows", rows)
+            # Run through Textual's message pump, just like the periodic timer.
+            app.call_later(app.local_tick)
+        keys = asyncio.create_task(pilot.press("down", key))
+        try:
+            await asyncio.wait_for(reading.wait(), timeout=2)
+            await asyncio.wait_for(both_started.wait(), timeout=2)
+            assert set(launched) == {PR.url, second.url}
+            assert not release_read.is_set()
+            await keys
+            # Repeated starts of this same PR must still be ignored.
+            await pilot.press(key)
+            assert len(launched) == 2
+        finally:
+            release_read.set()
+            release_reviews.set()
+            await keys
+            await asyncio.gather(*app.review_tasks.values())
 
 
 @pytest.mark.serial

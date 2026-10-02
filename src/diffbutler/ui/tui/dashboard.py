@@ -354,11 +354,13 @@ class Dashboard(TerminalApp):
 
     async def local_tick(self) -> None:
         if self.ready and not self.closing and not self.attached and not self.reload_lock.locked():
-            await self.reload()
+            # Timer callbacks share the keyboard message pump. Database reads
+            # must not hold it while reviews are starting or changing state.
+            self.run_worker(self.reload(), group="queue-refresh", exit_on_error=False)
 
     def on_resize(self, _: Resize) -> None:
         if self.ready:
-            self.call_after_refresh(self.reload)
+            self.call_after_refresh(self.local_tick)
 
     async def reload(self) -> None:
         if self.attached or self.closing or len(self.screen_stack) > 1:
@@ -514,7 +516,9 @@ class Dashboard(TerminalApp):
 
     async def on_data_table_row_highlighted(self, _: DataTable.RowHighlighted) -> None:
         if not self.reload_lock.locked() and not self.attached and len(self.screen_stack) == 1:
-            await self.preview()
+            self.run_worker(
+                self.preview(), group="selection-preview", exclusive=True, exit_on_error=False
+            )
 
     async def on_input_changed(self, _: Input.Changed) -> None:
         if self.ready and len(self.screen_stack) == 1:

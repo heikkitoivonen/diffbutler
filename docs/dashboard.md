@@ -258,6 +258,8 @@ and preserve saved rows. No AI review starts as a result of this switch.
 Pressing `r` prepares missing repository sources automatically. The status area shows
 queueing, repository preparation, and fetching progress. Fetch failures explain how
 to retry; no agent starts until the pinned base/head source context is ready.
+You can move to another pending PR and press `r` or `space` while the first review
+starts; preview and queue refresh reads run without blocking keyboard actions.
 
 Failed, cancelled, and stale review attempts retain their reason in the preview and
 `Enter` detail, even after refresh or restart. `L` shows available partial agent output
