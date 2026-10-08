@@ -88,6 +88,7 @@ class GitHubForge:
             identity_part(user.login)
         except ValueError:
             raise ForgeError("GitHub returned an invalid account identity") from None
+        self.http.observation_source.login = user.login
         return Account(self.id, user.login, user.name or user.login)
 
     async def team_membership(self) -> TeamMembership:

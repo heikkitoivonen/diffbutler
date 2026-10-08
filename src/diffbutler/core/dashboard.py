@@ -1,7 +1,5 @@
 """Shared dashboard projections, ordering, history, and explicit state actions."""
 
-import asyncio
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -11,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from diffbutler.core.application import local_store, remote_service, sync_configured
 from diffbutler.core.managed import resolve_local
+from diffbutler.core.polling import Poller as Poller
 from diffbutler.core.review import ReviewResult, ReviewService
 from diffbutler.core.sync import PullRequestRow, list_queue
 from diffbutler.domain.dashboard import COLUMN_IDS, STATE_LABELS, CycleRecord
@@ -284,26 +283,6 @@ async def refresh_configured(path: Path | None, value: str, login: str | None) -
                 service.expected_login = row.account.login
                 return await service.follow_pr(row.tracked.pull_request.ref)
         raise ForgeError("Refresh pending: no matching configured forge account")
-
-
-class Poller:
-    """Serial refresh with backoff; it has no reviewer capability."""
-
-    def __init__(self, refresh: Callable[[], Awaitable[None]], interval: float) -> None:
-        self.refresh = refresh
-        self.interval = interval
-        self.paused = False
-
-    async def run(self) -> None:
-        failures = 0
-        while True:
-            if not self.paused:
-                try:
-                    await self.refresh()
-                    failures = 0
-                except Exception:
-                    failures = min(failures + 1, 5)
-            await asyncio.sleep(self.interval * 2**failures)
 
 
 async def poll_configured(path: Path | None) -> None:

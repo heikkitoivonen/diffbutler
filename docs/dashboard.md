@@ -192,13 +192,36 @@ the account's sync generation and saves an event/time watermark. In-flight refre
 must retry; older feedback cannot repeatedly undo that choice. Nothing attempts to map
 similar comment text onto finding agreement or rejection.
 
-Polling runs serially, by default every 60 seconds when all configured accounts use
-authentication (`token_env`, resolved from the environment or `gh` login). Anonymous
-accounts retain the 600-second / 10-minute default. A configuration containing both
-uses 600 seconds because each poll refreshes every account. An explicit
-`general.poll_interval_s` overrides either default; remove an existing override to
-use the automatic interval. Polling backs off on errors and uses the adapter's
-rate-limit handling. The app remains
+Polling runs serially, starting with a minimum interval of 60 seconds when all
+configured accounts use authentication (`token_env`, resolved from the environment or
+`gh` login). Anonymous accounts retain the 600-second / 10-minute default. A configuration
+containing both uses a 600-second minimum because each poll refreshes every account.
+An explicit `general.poll_interval_s` sets the minimum instead. Intervals are measured
+between refresh starts; time spent refreshing counts toward the interval.
+
+Authenticated polling adapts to response headers for each account, host, and rate-limit
+resource (including core and search). Refresh cost uses a moving average of request
+attempts, including pagination and retries, with a 25% safety margin; a larger observed
+refresh raises the estimate immediately. Ten percent of quota is reserved for interactive
+actions and unexpected work. The remaining quota, time until reset, and estimated
+consumption outside polling determine a sustainable interval. The longest required
+interval governs the next refresh.
+
+Crossing below 20% remaining increases the interval by 50%; staying below does not
+repeatedly multiply it. Above 80%, two successful refreshes shorten the interval by 20%,
+down to the configured minimum. Between those thresholds the interval holds steady.
+The quota budget can require a longer interval at any level. If the available budget
+cannot cover a refresh, polling waits until reset. Reset clears the old quota slowdown
+and consumption estimate while retaining the refresh-cost estimate. Missing headers
+do not authorize acceleration; expired quota observations stop delaying polling.
+
+Manual `R` refreshes can bypass the adaptive interval and update the next automatic
+deadline, but still respect recorded server cooldowns and request pacing. Quota and
+cooldowns observed during incomplete refreshes also affect scheduling. Errors retain
+exponential retry backoff. Interval changes are logged with account, resource, remaining
+quota, time until reset, and estimated refresh cost. These estimates cannot guarantee
+quota availability when other applications consume it unexpectedly; the adapter's
+request-level rate-limit handling remains in force. The app remains
 responsive while reads and native reviews
 run. Polling never replays writes or requests AI. Pausing AI dispatch also applies to
 configured CLI reviews; an already explicitly requested run may wait queued until resume.

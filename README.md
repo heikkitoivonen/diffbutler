@@ -65,6 +65,8 @@ The dashboard shows active reviews, including followed PRs whose GitHub review
 requests have disappeared after you posted feedback. Waiting-for-author reviews
 stay visible across refreshes and restarts. If an approved PR receives new commits,
 it reappears as `done+` at the end of the queue without starting another AI review.
+Authenticated polling slows when API quota is scarce and speeds back up when it
+recovers, accounting for refresh cost and time until the quota resets.
 
 Select a PR with the arrow keys, then work through the review:
 

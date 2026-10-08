@@ -16,7 +16,12 @@ import httpx
 
 from diffbutler.domain.forge import RateLimit
 from diffbutler.forges.base import ForgeError
-from diffbutler.forges.diagnostics import observe_rate_limit
+from diffbutler.forges.diagnostics import (
+    RateLimitSource,
+    observe_cooldown,
+    observe_rate_limit,
+    observe_request,
+)
 
 
 def api_url(value: str) -> httpx.URL:
@@ -66,6 +71,9 @@ class GitHubHTTP:
         ):
             raise ForgeError("GitHub token is empty or contains whitespace")
         self.authenticated = token is not None
+        self.observation_source = RateLimitSource(
+            str(self.base_url).rstrip("/"), self.authenticated
+        )
         self.max_pacing_wait = max_pacing_wait
         if max_pacing_wait is not None and (
             not math.isfinite(max_pacing_wait) or max_pacing_wait < 0
@@ -147,6 +155,7 @@ class GitHubHTTP:
         self.last_request = started
         self.last_resource_request[resource] = started
         began = time.monotonic()
+        observe_request(self.observation_source, resource)
         try:
             response = await self.client.get(url, headers=headers)
         except httpx.RequestError:
@@ -186,15 +195,20 @@ class GitHubHTTP:
     def record_limit(self, headers: httpx.Headers) -> None:
         try:
             resource = headers["x-ratelimit-resource"]
-            self.limits[resource] = RateLimit(
+            limit = RateLimit(
                 resource,
                 int(headers["x-ratelimit-remaining"]),
                 int(headers["x-ratelimit-limit"]),
                 datetime.fromtimestamp(int(headers["x-ratelimit-reset"]), UTC),
             )
+            if limit.limit <= 0 or not 0 <= limit.remaining <= limit.limit:
+                return
+            self.limits[resource] = limit
         except KeyError, ValueError, OverflowError, OSError:
             return
-        observe_rate_limit(self.limits[resource])
+        observe_rate_limit(limit, self.observation_source, observed_at=self.now())
+        if limit.remaining == 0:
+            observe_cooldown(limit.reset_at.timestamp() + 1)
 
     def retry_delay(self, response: httpx.Response) -> float | None:
         headers = response.headers
@@ -260,6 +274,7 @@ class GitHubHTTP:
             if delay is not None:
                 delay = max(delay, 1)
                 self.blocked_until = self.now() + delay
+                observe_cooldown(self.blocked_until)
                 # Return long waits to the caller instead of holding doctor open.
                 if delay > 5 or attempt == 2:
                     raise ForgeError(

@@ -269,6 +269,39 @@ async def test_sync_logs_core_quota_and_resets_between_refreshes(
 
 @pytest.mark.serial
 @pytest.mark.asyncio
+async def test_dashboard_sync_adapts_polling_to_authenticated_quota(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from diffbutler.config.settings import Forge
+    from diffbutler.domain.forge import RateLimit
+    from diffbutler.forges.diagnostics import RateLimitSource, observe_rate_limit, observe_request
+
+    async def poll(_: Path | None) -> None:
+        source = RateLimitSource("https://api.github.com", True, "reader")
+        for _request in range(80):
+            observe_request(source, "core")
+        now = datetime.now(UTC)
+        observe_rate_limit(
+            RateLimit("core", 900, 5000, now + timedelta(seconds=3000)),
+            source,
+            observed_at=now.timestamp(),
+        )
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.poll_configured", poll)
+    path = ledger[3]
+    settings = load_settings(path)
+    settings.forges = [Forge(kind="github", base_url="https://api.github.com", token_env="UNUSED")]
+    app = Dashboard(path, settings, offline=True)
+    async with app.run_test():
+        assert app.poller.interval == 60
+        await app.sync()
+        assert 740 < app.poller.interval <= 750
+        assert 730 < app.poller.delay() <= 750
+
+
+@pytest.mark.serial
+@pytest.mark.asyncio
 @pytest.mark.parametrize("quit_action", [False, True])
 async def test_shutdown_waits_for_nonreview_worker_cleanup(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path], quit_action: bool

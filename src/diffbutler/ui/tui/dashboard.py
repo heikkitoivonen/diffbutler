@@ -52,7 +52,6 @@ from diffbutler.core.native import foreground_environment
 from diffbutler.domain.dashboard import CycleRecord
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
-from diffbutler.forges.diagnostics import collect_rate_limits
 from diffbutler.reviewers.process import HostBootError
 from diffbutler.sources.git import SourceError
 from diffbutler.ui.tui.app import TerminalApp
@@ -561,8 +560,9 @@ class Dashboard(TerminalApp):
                     "Refreshing GitHub; requests are paced to respect rate limits."
                 )
                 logging.getLogger(__name__).debug("Forge sync started")
-                with collect_rate_limits() as observations:
-                    await poll_configured(self.path)
+                observations = await self.poller.refresh_observed(
+                    lambda: poll_configured(self.path)
+                )
                 quota = observations.minimum_core
                 logging.getLogger(__name__).info(
                     "Forge sync completed limit=%s remaining=%s",

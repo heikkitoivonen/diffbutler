@@ -125,8 +125,8 @@ resolution while retaining local configuration, database, and path checks.
 
 ```toml
 [general]
-# Omit for 60 seconds with authenticated accounts, 600 with any public account.
-# poll_interval_s = 600 # Explicit override for all accounts.
+# Minimum: 60 seconds with authenticated accounts, 600 with any public account.
+# poll_interval_s = 600 # Override the minimum; low authenticated quota slows polling.
 max_concurrent_reviews = 2
 # Shared Git objects persist across reviews; active session commits remain pinned.
 # repository_root = "~/.local/share/diffbutler/repos"
