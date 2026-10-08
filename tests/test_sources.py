@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from diffbutler.domain.diff import DiffAnchor, DiffIndex
 from diffbutler.domain.review import Side, SourceFile
 from diffbutler.reviewers.base import SourceReader
 from diffbutler.sources.git import GitSourceReader, SourceError, SourceLimits
@@ -372,16 +373,41 @@ async def test_diff_is_pinned_and_disables_drivers(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content", [b"\x00binary", b"invalid\xff"])
-async def test_unsupported_diff_content_fails_closed(tmp_path: Path, content: bytes) -> None:
+@pytest.mark.parametrize("content", [b"\x00binary", b"invalid\xff", b"\x89PNG\r\n\x1a\n\x00image"])
+@pytest.mark.parametrize("change", ["add", "modify", "delete", "to_text", "from_text"])
+async def test_binary_diff_summaries_preserve_text_and_original_bytes(
+    tmp_path: Path, content: bytes, change: str
+) -> None:
     repo, base, _ = await repository_at_two_commits(tmp_path)
-    (repo / "odd\tname\n.py").write_bytes(content)
+    path = "odd\tname\n.py"
+    if change != "add":
+        (repo / path).write_bytes(b"old text\n" if change == "from_text" else content)
+        await git(repo, "add", ".")
+        await git(repo, "commit", "-m", "binary base")
+        base = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    if change == "delete":
+        (repo / path).unlink()
+    else:
+        (repo / path).write_bytes(b"new text\n" if change == "to_text" else content + b"new")
+    (repo / "changed.py").write_text("updated text\n")
+    # Attributes must not suppress real text changes or force binary bytes into hunks.
+    (repo / ".gitattributes").write_text("*.py -diff\n")
     await git(repo, "add", ".")
-    await git(repo, "commit", "-m", "unsupported diff")
+    await git(repo, "commit", "-m", "mixed text and binary changes")
     head = (await git(repo, "rev-parse", "HEAD")).decode().strip()
     reader = await GitSourceReader.open(repo, base_sha=base, head_sha=head)
-    with pytest.raises(SourceError, match="unsupported"):
-        await reader.read_diff()
+    diff = await reader.read_diff()
+    assert "Binary files " in diff
+    assert "\x00" not in diff and "\ufffd" not in diff
+    assert "+updated text\n" in diff
+    assert path in {file.path for file in reader.changed_files}
+    index = DiffIndex.parse(diff, base_sha=base, head_sha=head)
+    assert index.is_commentable(DiffAnchor("changed.py", 1, Side.HEAD))
+    for side in Side:
+        assert not index.is_commentable(DiffAnchor(path, 1, side))
+    assert await reader.read_file(SourceFile(path, Side.HEAD)) == (
+        None if change == "delete" else b"new text\n" if change == "to_text" else content + b"new"
+    )
 
 
 @pytest.mark.asyncio

@@ -36,7 +36,7 @@ payload = sys.stdin.read()
 assert "source-only review of PR" in payload
 assert "readable Markdown, not JSON" in payload
 assert "output_schema" not in payload
-assert Path("changed.py").read_text() == "after\n"
+assert Path("changed.py").read_text() == ("before\n" if "--image-only" in sys.argv else "after\n")
 assert subprocess.check_output(["git", "show", "diffbutler-base:changed.py"]) == b"before\n"
 if "--resume" in sys.argv:
     assert identity in sys.argv and saved.exists()

@@ -81,6 +81,26 @@ def test_rename_paths_quoted_utf8_no_newline_and_mode_only() -> None:
 
 
 @pytest.mark.parametrize(
+    "paths",
+    [
+        "a/image.png and b/image.png",
+        "/dev/null and b/image.png",
+        "a/image.png and /dev/null",
+        "a/black and white.png and b/black and white.png",
+        '"a/black and white\\t.png" and "b/black and white\\t.png"',
+    ],
+)
+def test_binary_summaries_have_no_anchors_and_preserve_adjacent_text(paths: str) -> None:
+    summary = f"diff --git a/image.png b/image.png\nBinary files {paths} differ\n"
+    assert not DiffIndex.parse(summary).hunks
+    for diff in (summary + DIFF, DIFF + summary):
+        index = DiffIndex.parse(diff)
+        assert index.is_commentable(anchor(10))
+        for side in Side:
+            assert index.validate(DiffAnchor("image.png", 1, side)).status == "demoted"
+
+
+@pytest.mark.parametrize(
     "diff",
     [
         "junk",
@@ -94,7 +114,12 @@ def test_rename_paths_quoted_utf8_no_newline_and_mode_only() -> None:
         DIFF.replace("@@ -30 +31 @@", "@@ -11 +11 @@"),
         DIFF + DIFF,
         "diff --cc file.py\n",
-        "diff --git a/a b/a\nBinary files a/a and b/a differ\n",
+        "diff --git a/a b/a\nGIT binary patch\nliteral 1\nabc\n",
+        "Binary files a/a and b/a differ\n",
+        "diff --git a/a b/a\nBinary files a/../a and b/a differ\n",
+        "diff --git a/a b/a\nBinary files /dev/null and /dev/null differ\n",
+        "diff --git a/a b/a\nBinary files a/a and b/a differ\n"
+        "--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
         DIFF.replace(" context", "\x00context"),
         DIFF.replace("+++ b/file.py", '+++ "b/\\q"'),
     ],

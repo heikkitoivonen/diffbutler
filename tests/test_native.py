@@ -224,6 +224,46 @@ async def prepared(tmp_path: Path, preset: str = "codex") -> tuple[Settings, Fak
     return settings, forge
 
 
+@pytest.mark.parametrize("preset", ["codex", "claude"])
+@pytest.mark.parametrize("image_only", [False, True])
+async def test_native_review_with_image_preserves_checkout(
+    tmp_path: Path, preset: str, image_only: bool
+) -> None:
+    from diffbutler.domain.forge import Discovery, RequestedPR
+
+    settings, forge = await prepared(tmp_path, preset=preset)
+    repo = tmp_path / "repository"
+    if image_only:
+        settings.reviewers[0].command.append("--image-only")
+    image = b"\x89PNG\r\n\x1a\n\x00synthetic image\xff"
+    (repo / "image.png").write_bytes(image)
+    (repo / "changed.py").write_text("before\n" if image_only else "after\n")
+    await git(repo, "add", ".")
+    await git(repo, "commit", "-m", "image change")
+    head = (await git(repo, "rev-parse", "HEAD")).decode().strip()
+    forge.prs[REF] = replace(forge.prs[REF], head_sha=head)
+    forge.discovery = Discovery((RequestedPR(forge.prs[REF], ("user:reader",)),), True)
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        run = await managed.review(row)
+        assert run.status == "succeeded"
+        launch = await managed.prepare_handoff(row)
+        try:
+            assert (launch.cwd / "image.png").read_bytes() == image
+            assert (launch.cwd / "changed.py").read_text() == (
+                "before\n" if image_only else "after\n"
+            )
+        finally:
+            await managed.lifecycle.release_foreground(launch.token)
+    finally:
+        await database.close()
+
+
 async def test_switching_reviewers_replaces_current_results_and_resume_session(
     tmp_path: Path,
 ) -> None:

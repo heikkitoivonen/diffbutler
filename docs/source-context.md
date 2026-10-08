@@ -24,9 +24,12 @@ history, unrelated histories, and multiple best merge bases fail preparation;
 there is no endpoint-diff fallback.
 Renames remain deletion/addition pairs. Diff generation forces text and disables
 external drivers and textconv, so working-tree attributes cannot hide changes as
-binary. Diffs containing NUL bytes or invalid UTF-8 fail preparation; they are not
-silently omitted, decoded lossily, or truncated. Binary-aware diff context is not
-implemented.
+binary. File diffs containing NUL bytes or invalid UTF-8 are replaced with explicit
+`Binary files … differ` summaries, preserving file metadata and the changed-file
+inventory. These files have no inline comment anchors; text changes in other files
+remain complete. Original binary bytes remain available through file reads and in
+native checkouts. Image and other binary changes therefore do not block review
+preparation. The text diff does not provide a visual review of images.
 
 `core.context.assemble_context` consumes the `ReviewSources` protocol and builds an
 immutable `ReviewContext` for a running attempt and an open PR. Both source and PR

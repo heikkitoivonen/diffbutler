@@ -168,10 +168,12 @@ class GitSourceReader:
         return (
             f"PR diff and base-side source use merge base {self.comparison_base_sha}.",
             "Renames are represented as deletion and addition; submodule contents are unavailable.",
+            "Binary and non-UTF-8 diff content is summarized without line anchors; "
+            "original file bytes remain available.",
         )
 
     async def read_diff(self) -> str:
-        """Merge-base-to-head diff; reject binary/non-UTF-8 content, never truncate.
+        """Merge-base-to-head diff with summaries for binary/non-UTF-8 changes.
 
         Force text so working-tree attributes cannot hide changes as binary or
         invoke custom drivers. No textconv, external diff, or project execution.
@@ -200,13 +202,35 @@ class GitSourceReader:
             self.head_sha,
             "--",
         )
-        try:
-            result = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise SourceError("Source diff contains unsupported non-UTF-8 content") from None
-        if "\x00" in result:
-            raise SourceError("Source diff contains unsupported binary content")
-        return result
+        sections: list[str] = []
+        # Hunk lines always have a prefix, and Git quotes newlines in paths,
+        # so only file boundaries can begin with this unprefixed header.
+        for section in re.split(rb"(?=^diff --git )", raw, flags=re.MULTILINE):
+            try:
+                text = section.decode("utf-8")
+            except UnicodeDecodeError:
+                text = None
+            if text is not None and "\x00" not in text:
+                sections.append(text)
+                continue
+            headers = re.search(rb"^--- (.+)\n\+\+\+ (.+)\n", section, re.MULTILINE)
+            if headers is None:
+                raise SourceError("Source diff contains unsupported file headers")
+            # Preserve modes and object IDs, but omit the entire file's hunks:
+            # partially decoded binary data must never create line anchors.
+            summary = (
+                section[: headers.start()]
+                + b"Binary files "
+                + headers[1].removesuffix(b"\t")
+                + b" and "
+                + headers[2].removesuffix(b"\t")
+                + b" differ\n"
+            )
+            try:
+                sections.append(summary.decode("utf-8"))
+            except UnicodeDecodeError:
+                raise SourceError("Source diff contains unsupported file headers") from None
+        return "".join(sections)
 
     def paths(self, side: Side) -> tuple[str, ...]:
         """All tracked paths, including unchanged surrounding sources."""

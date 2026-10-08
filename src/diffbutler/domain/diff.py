@@ -33,6 +33,10 @@ class AnchorValidation:
 
 
 _HUNK = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?")
+_BINARY = re.compile(
+    r'Binary files ("(?:[^"\\]|\\.)*"|a/.+?|/dev/null)'
+    r' and ("(?:[^"\\]|\\.)*"|b/.+|/dev/null) differ'
+)
 
 
 class InvalidDiff(ValueError):
@@ -154,6 +158,15 @@ class DiffIndex:
                 and not headers
             ):
                 continue
+            elif (binary := _BINARY.fullmatch(line)) is not None and in_file and not headers:
+                old = _path(binary[1], "a/")
+                new = _path(binary[2], "b/")
+                path = new or old
+                if path is None or path in seen:
+                    raise InvalidDiff()
+                seen.add(path)
+                # A summary has no commentable lines and ends this file.
+                in_file = False
             elif line.startswith("--- ") and in_file and not headers:
                 if offset >= len(lines) or not lines[offset].startswith("+++ "):
                     raise InvalidDiff()
