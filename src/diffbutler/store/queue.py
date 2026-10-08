@@ -197,8 +197,16 @@ class SQLiteQueueStore:
         monitor = await session.get(PRMonitor, (identity.account_id, pr.id))
         task = await session.get(ReviewTask, item.task_id) if item.task_id else None
         if task is None:
+            last_cycle = await session.scalar(
+                select(func.max(ReviewTask.cycle_number)).where(
+                    ReviewTask.pull_request_id == pr.id,
+                    ReviewTask.account_id == identity.account_id,
+                )
+            )
             task = ReviewTask(
-                pull_request_id=pr.id, account_id=identity.account_id, cycle_number=item.cycle
+                pull_request_id=pr.id,
+                account_id=identity.account_id,
+                cycle_number=max(item.cycle, (last_cycle or 0) + 1),
             )
             session.add(task)
             await session.flush()

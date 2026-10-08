@@ -914,6 +914,68 @@ async def test_paused_dispatch_and_cancelling_queued_review(tmp_path: Path) -> N
         await database.close()
 
 
+@pytest.mark.parametrize("paused", [False, True])
+async def test_pr_reset_stops_native_review_before_deleting_resources(
+    tmp_path: Path, paused: bool
+) -> None:
+    settings, forge = await prepared(tmp_path)
+    marker = tmp_path / "agent-pid"
+    settings.reviewers[0].command = [
+        sys.executable,
+        "-c",
+        "import os,sys,time; from pathlib import Path; sys.stdin.read(); "
+        f"Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)",
+    ]
+    database = Database(settings.db.url)
+    await database.initialize()
+    task: asyncio.Task[object] | None = None
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        assert row.tracked.task_id is not None
+        if paused:
+            await SQLiteDashboardStore(database).set_preference("reviews_paused", "true")
+        task = asyncio.create_task(managed.review(row))
+        async with asyncio.timeout(15):
+            while True:
+                run = await managed.store.latest_run(row.tracked.task_id)
+                if run is not None and (paused or marker.exists()):
+                    break
+                await asyncio.sleep(0.01)
+        resources = await managed.store.session_resources(run.session_id)
+        homes = [managed.directories.path / resource.name for resource in resources]
+        if not paused:
+            assert homes and all(home.exists() for home in homes)
+
+        async def stop() -> None:
+            assert task is not None
+            assert not (await queue.snapshot(ACCOUNT)).items
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            if not paused:
+                with pytest.raises(ProcessLookupError):
+                    os.kill(int(marker.read_text()), 0)
+
+        result = await managed.reset_task(row.tracked.task_id, stop)
+        assert result.succeeded == 1 and result.pending == result.failed == 0
+        assert not await managed.leases.held_operations()
+        assert all(not home.exists() for home in homes)
+        assert (await managed.store.get_run(run.id)).status == "cancelled"
+        assert (tmp_path / "repository" / "changed.py").read_text() == "dirty unrelated work\n"
+        await DiffButler(queue, forge).sync()
+        fresh = await resolve_local(queue, "acme/api#1", None)
+        assert fresh.tracked.task_id != row.tracked.task_id
+        assert fresh.tracked.state == "PENDING_AI_REVIEW"
+        assert await managed.findings(fresh) is None
+    finally:
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await database.close()
+
+
 @pytest.mark.parametrize("change", ["error", "subtype", "missing", "conflict", "truncated"])
 async def test_claude_rejects_failed_or_incomplete_results(change: str) -> None:
     import json

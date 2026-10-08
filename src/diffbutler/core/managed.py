@@ -125,6 +125,14 @@ class ManagedReviews:
         await self.repositories.prune()
         return await self.leases.cleanup_status()
 
+    async def reset_task(
+        self, task_id: UUID, stop_review: Callable[[], Awaitable[None]]
+    ) -> CleanupStatus:
+        """Invalidate before stopping the local supervisor, then clean up after exit."""
+        await SQLiteDashboardStore(self.store.database).reset_task(task_id)
+        await stop_review()
+        return await self.cleanup()
+
     def reviewer_command(self, reviewer_id: str | None) -> tuple[str, ...]:
         selected = next((item for item in self.settings.reviewers if item.id == reviewer_id), None)
         if selected is None or selected.preset not in {"codex", "claude"}:
@@ -388,6 +396,14 @@ async def approved_configured(path: Path | None, value: str, login: str | None) 
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
         await managed.store.mark_approved(row.tracked.task_id)
         return await managed.cleanup()
+
+
+async def reset_task_configured(
+    path: Path | None, task_id: UUID, stop_review: Callable[[], Awaitable[None]]
+) -> CleanupStatus:
+    async with local_store(path) as (queue, settings):
+        managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
+        return await managed.reset_task(task_id, stop_review)
 
 
 @asynccontextmanager

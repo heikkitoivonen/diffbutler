@@ -26,6 +26,15 @@ job with background or foreground ownership. A busy first job does not block lat
 jobs. No additional human cleanup action is required after completion. Cleanup
 failures do not resurrect completed tasks or change followed-PR monitoring.
 
+The dashboard's explicit `k` reset also completes a cycle and schedules cleanup, with
+reason `local_reset` and no approval. In the same transaction it cancels active runs,
+removes the PR monitor, and advances the account generation to reject stale refresh
+writes. It then stops and waits for the dashboard's review supervisor before cleanup.
+Worker and foreground claims remain held until verified exit. Retained history remains
+readable without a monitor; rediscovery allocates a new cycle and requires a new explicit
+review action. User-owned agent history and shared repository caches remain subject to
+their normal preservation and retention rules.
+
 A caller supplies a trusted `SessionCleaner` implementing idempotent deletion of
 only manifest-owned resources and supported backend session data. It receives a
 frozen record including the opaque backend ID, transcript reference, and manifest.

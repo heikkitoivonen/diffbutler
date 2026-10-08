@@ -80,6 +80,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `o` / `ctrl+o` | Choose pending human review and open the browser |
 | `w` | Choose pending author changes |
 | `m` | Record your completed approval locally and dispatch cleanup |
+| `k` | Stop the selected PR's review, reset its local tracking, and dispatch cleanup |
 | `enter` | Full orientation, findings, run/session identities, receipts, and cleanup |
 | `D` | Inspect the last run's pinned diff from the configured local repository |
 | `L` | Inspect captured run output, or its deleted/unavailable indication |
@@ -143,6 +144,21 @@ shell interpolation. History browser actions only open URLs and never change tas
 `m` is a local completion record, not a forge approval submission. Approval on GitHub
 remains the human's browser action. Completed rows disappear immediately; cleanup
 may remain pending while a foreground or background owner is still alive.
+
+Use `k` to recover a PR from a failed or stuck review. It cancels queued work, stops
+the selected PR's review launched by this dashboard, and removes its request membership
+and followed-PR tracking. Owned workspaces, snapshots, captured output, and repository
+pins are cleaned up after the review exits. Other PRs and user-owned repositories and
+agent history are preserved. The old cycle remains in History with reason `local_reset`;
+this does not record an approval or write to the forge.
+
+The PR disappears from the queue. The next forge refresh brings it back as a fresh
+cycle if it is still awaiting your review (or included in all-PR monitoring). A PR
+that was only followed stays absent until you follow it again. No AI review starts
+automatically. `k` does nothing in History. Cleanup failures remain available for
+retry with `C`; ownership left by an earlier crashed instance still defers deletion
+until process exit can be established, as described in the
+[session lifecycle guide](session-lifecycle.md).
 
 ## Return reconciliation
 

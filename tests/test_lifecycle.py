@@ -15,8 +15,11 @@ from tests.test_sync import ACCOUNT, PR, REF
 
 from diffbutler.core.lifecycle import LifecycleService
 from diffbutler.core.sync import DiffButler
+from diffbutler.domain.forge import Discovery
 from diffbutler.domain.lifecycle import CleanupSession
 from diffbutler.domain.review import ReviewConflict
+from diffbutler.store.base import SyncConflict
+from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.database import Database
 from diffbutler.store.lifecycle import SQLiteLifecycleStore
 from diffbutler.store.models import (
@@ -24,6 +27,7 @@ from diffbutler.store.models import (
     CleanupJob,
     ForegroundLease,
     ReviewSession,
+    ReviewTask,
     utc_now,
 )
 from diffbutler.store.queue import SQLiteQueueStore
@@ -246,3 +250,79 @@ async def test_ownership_recovery_listing_survives_restart(database: Database) -
         assert not await restored.held_operations()
     finally:
         await reopened.close()
+
+
+@pytest.mark.parametrize("state", ["idle", "queued", "running", "finished", "foreground"])
+async def test_pr_reset_retains_history_and_ownership_until_exit(
+    database: Database, state: str
+) -> None:
+    forge, identity = await seed(database)
+    reviews = service(database)
+    dashboard = SQLiteDashboardStore(database)
+    queue = SQLiteQueueStore(database)
+    lifecycle = LifecycleService(SQLiteLifecycleStore(database), Cleaner())
+    run = await reviews.request_review(identity) if state != "idle" else None
+    claim = await reviews.claim_review(run.id) if run and state != "queued" else None
+    if claim and state in {"finished", "foreground"}:
+        await reviews.finalize_review(claim.token, captured())
+    lease = (
+        await lifecycle.acquire_foreground(run.session_id)
+        if run and state == "foreground"
+        else None
+    )
+    before = await queue.snapshot(ACCOUNT)
+    # Simulate a pre-snapshot migration cycle before removing its monitor.
+    async with database.sessions() as db:
+        task = await db.get(ReviewTask, identity.task_id)
+        assert task is not None
+        task.snapshot_json = None
+        await db.commit()
+    await dashboard.reset_task(identity.task_id)
+    assert not (await queue.snapshot(ACCOUNT)).items
+    with pytest.raises(SyncConflict):
+        await queue.apply(ACCOUNT, before.version, before.items)
+    with pytest.raises(ReviewConflict):
+        await reviews.request_review(identity)
+    with pytest.raises(ReviewConflict):
+        await dashboard.reset_task(identity.task_id)
+    cycles = await dashboard.cycles()
+    assert len(cycles) == 1
+    assert cycles[0].completion_reason == "local_reset"
+    assert cycles[0].pull_request == PR
+    assert cycles[0].cleanup_status == "pending"
+    if run:
+        assert (await reviews.get_run(run.id)).status == (
+            "succeeded" if state in {"finished", "foreground"} else "cancelled"
+        )
+    if state == "running":
+        assert claim is not None
+        assert not await lifecycle.cleanup_once()
+        assert not await reviews.claim_is_current(claim.token)
+        await reviews.release_review(claim.token)
+    if lease:
+        assert not await lifecycle.cleanup_once()
+        await lifecycle.release_foreground(lease.token)
+    assert await lifecycle.cleanup_once()
+    assert (await dashboard.cycles())[0].cleanup_status == "succeeded"
+    if run:
+        assert (await reviews.get_session(run.session_id)).status == "cleaned"
+    if state in {"finished", "foreground"}:
+        assert run is not None
+        result = await reviews.get_result(run.id)
+        assert result is not None and result.document is not None and result.stdout is None
+
+    # Following is forgotten; absent requests cannot bring the PR back.
+    discovery = forge.discovery
+    forge.discovery = Discovery((), True)
+    await DiffButler(queue, forge).sync()
+    assert not (await queue.snapshot(ACCOUNT)).items
+    assert not forge.lookups
+    forge.discovery = discovery
+    for cycle_number in (2, 3):
+        await DiffButler(queue, forge).sync()
+        fresh = (await queue.snapshot(ACCOUNT)).items[0]
+        assert fresh.task_id is not None and fresh.task_id != identity.task_id
+        assert fresh.cycle == cycle_number and fresh.state == "PENDING_AI_REVIEW"
+        assert await reviews.store.latest_run(fresh.task_id) is None
+        await dashboard.reset_task(fresh.task_id)
+    assert len(await dashboard.cycles()) == 3

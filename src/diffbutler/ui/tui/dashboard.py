@@ -44,6 +44,7 @@ from diffbutler.core.managed import (
     approved_configured,
     cleanup_configured,
     handoff_configured,
+    reset_task_configured,
     review_configured,
     reviewer_choices_configured,
 )
@@ -231,6 +232,7 @@ class Dashboard(TerminalApp):
         ("n", "next_reviewer", "Next reviewer"),
         ("c", "resume_session", "Check findings"),
         ("m", "mark_approved", "Mark approved"),
+        ("k", "reset_pr", "Reset PR"),
         ("h", "view_history", "History"),
         ("b", "browse_prs", "Browse all PRs"),
         ("a", "toggle_monitoring", "Monitor all PRs"),
@@ -276,6 +278,7 @@ class Dashboard(TerminalApp):
         self.sync_lock = asyncio.Lock()
         self.refresh_notices: set[str] = set()
         self.review_tasks: dict[str, asyncio.Task[None]] = {}
+        self.resetting_tasks: set[str] = set()
         self.current_reviewer: str | None = None
         self.poller = Poller(self.sync, settings.effective_poll_interval_s)
         self.ready = False
@@ -658,7 +661,13 @@ class Dashboard(TerminalApp):
     def action_run_review(self) -> None:
         row = self.selected()
         key = self.selected_key()
-        if row is None or key is None or self.view == "history" or key in self.review_tasks:
+        if (
+            row is None
+            or key is None
+            or self.view == "history"
+            or key in self.review_tasks
+            or key in self.resetting_tasks
+        ):
             return
 
         reviewer = self.current_reviewer
@@ -697,6 +706,32 @@ class Dashboard(TerminalApp):
         if task:
             task.cancel()
         await self.reload()
+
+    def action_reset_pr(self) -> None:
+        key = self.selected_key()
+        if key is None or self.view == "history" or self.attached or key in self.resetting_tasks:
+            return
+        self.resetting_tasks.add(key)
+
+        async def stop_review() -> None:
+            task = self.review_tasks.get(key)
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        async def reset() -> None:
+            try:
+                # Finish any in-flight refresh before removing its saved tracking.
+                async with self.sync_lock:
+                    self.status("Resetting PR and stopping its review…")
+                    result = await reset_task_configured(self.path, UUID(key), stop_review)
+                    self.status(
+                        f"PR reset; next forge refresh may rediscover it. Cleanup: {result}"
+                    )
+            finally:
+                self.resetting_tasks.discard(key)
+
+        self.start(reset())
 
     async def attach(self, row: DashboardRow) -> None:
         if self.attached:

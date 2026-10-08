@@ -97,6 +97,8 @@ and read-only review instructions; source sent to the agent may go to its model 
 - `a`: Toggle monitoring all open PRs in configured repositories.
 - `b`: Browse accessible PRs and follow one.
 - `R`: Refresh from GitHub.
+- `k`: Stop the selected PR's review and reset its local tracking and owned resources.
+  It disappears until a forge refresh rediscovers it; review history is retained.
 - `h`: View completed review history.
 - `?`: Show all keyboard shortcuts.
 - `q`: Quit.

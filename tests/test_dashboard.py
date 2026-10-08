@@ -70,6 +70,49 @@ async def ledger(
         await database.close()
 
 
+@pytest.mark.serial
+@pytest.mark.asyncio
+async def test_k_resets_only_selected_pr_and_refresh_rediscovers_it(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+) -> None:
+    database, queue, forge, path = ledger
+    other = replace(PR, ref=replace(REF, number=2), url=PR.url[:-1] + "2")
+    forge.prs[other.ref] = other
+    forge.discovery = Discovery(
+        (RequestedPR(PR, ("user:reader",)), RequestedPR(other, ("user:reader",))), True
+    )
+    await DiffButler(queue, forge).sync()
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test() as pilot:
+        row = app.selected()
+        assert row is not None
+        selected_id = row.row.tracked.task_id
+        selected_ref = row.row.tracked.pull_request.ref
+        await pilot.press("k")
+        async with asyncio.timeout(10):
+            while app.resetting_tasks:
+                await pilot.pause()
+        await pilot.pause()
+        assert len(app.rows) == 1 and str(selected_id) not in app.rows
+        assert len((await queue.snapshot(ACCOUNT)).items) == 1
+        cycles = await SQLiteDashboardStore(database).cycles()
+        reset = next(cycle for cycle in cycles if cycle.task_id == selected_id)
+        assert reset.completion_reason == "local_reset" and reset.cleanup_status == "succeeded"
+        await pilot.press("h")
+        assert str(selected_id) in app.history
+        await pilot.press("k")  # History is read-only.
+        assert await SQLiteDashboardStore(database).cycles() == cycles
+        await pilot.press("h")
+        await DiffButler(queue, forge).sync()
+        await app.reload()
+        assert len(app.rows) == 2
+        fresh = next(
+            row for row in app.rows.values() if row.row.tracked.pull_request.ref == selected_ref
+        )
+        assert fresh.row.tracked.task_id != selected_id
+        assert fresh.row.tracked.state == "PENDING_AI_REVIEW" and fresh.run_status == ""
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sources", [("user:reader",), ("team:acme/reviewers",), ()])
 @pytest.mark.parametrize("assigned", [False, True])

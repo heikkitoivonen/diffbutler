@@ -28,6 +28,47 @@ class SQLiteDashboardStore:
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    async def reset_task(self, task_id: UUID) -> None:
+        """Forget active monitoring and invalidate work, retaining history and cleanup ownership."""
+        async with self.database.sessions() as db:
+            await db.execute(text("BEGIN IMMEDIATE"))
+            task = await db.get(ReviewTask, task_id)
+            if task is None or task.completed_at is not None:
+                raise ReviewConflict("Review task is missing or completed")
+            monitor = await db.get(PRMonitor, (task.account_id, task.pull_request_id))
+            if monitor is None or monitor.task_id != task.id:
+                raise ReviewConflict("Review task is no longer current")
+            # Older migrated cycles may still rely on the monitor for their snapshot.
+            cycles = await db.scalars(
+                select(ReviewTask).where(
+                    ReviewTask.account_id == task.account_id,
+                    ReviewTask.pull_request_id == task.pull_request_id,
+                )
+            )
+            for cycle in cycles:
+                if not cycle.snapshot_json:
+                    cycle.snapshot_json = monitor.snapshot_json
+            await transition(db, task, "DONE")
+            task.completed_at = utc_now()
+            task.completion_reason = "local_reset"
+            task.completion_source = "local"
+            task.completed_head_sha = str(monitor.snapshot_json["head_sha"])
+            task.following = False
+            task.request_sources_json = []
+            runs = await db.scalars(
+                select(AIRun).where(
+                    AIRun.review_task_id == task_id, AIRun.status.in_(("queued", "running"))
+                )
+            )
+            for run in runs:
+                run.status = "cancelled"
+                run.status_reason = "PR reset locally"
+                run.finished_at = utc_now()
+            # Claims remain held until their supervisors establish process exit.
+            db.add(CleanupJob(review_task_id=task_id))
+            await db.delete(monitor)
+            await db.commit()
+
     async def choose_state(self, task_id: UUID, *, waiting: bool) -> None:
         async with self.database.sessions() as db:
             await db.execute(text("BEGIN IMMEDIATE"))
@@ -99,7 +140,7 @@ class SQLiteDashboardStore:
             rows = await db.execute(
                 select(ReviewTask, ForgeAccount, PRMonitor)
                 .join(ForgeAccount, ReviewTask.account_id == ForgeAccount.account_id)
-                .join(
+                .outerjoin(
                     PRMonitor,
                     (PRMonitor.account_id == ReviewTask.account_id)
                     & (PRMonitor.pull_request_id == ReviewTask.pull_request_id),
@@ -141,7 +182,9 @@ class SQLiteDashboardStore:
                     CycleRecord(
                         task.id,
                         Account(identity.forge, identity.login, identity.login),
-                        PR_ADAPTER.validate_python(task.snapshot_json or monitor.snapshot_json),
+                        PR_ADAPTER.validate_python(
+                            task.snapshot_json or (monitor.snapshot_json if monitor else {})
+                        ),
                         task.cycle_number,
                         task.state,
                         task.completed_at.replace(tzinfo=UTC) if task.completed_at else None,
