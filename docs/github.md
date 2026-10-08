@@ -96,6 +96,7 @@ First-run setup recommends token access for public repositories and requires it 
 private repositories. It asks for an environment variable name and validates that
 variable directly; export the token before starting setup. It never asks for a token value. Tokens and raw HTTP/auth error bodies never enter
 diagnostics or persistence.
+Successful username detection is recorded at INFO level in the application log.
 
 For the anonymous public fallback, omit `token_env` (`None` internally):
 

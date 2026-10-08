@@ -138,6 +138,8 @@ async def startup_settings(
     )
     if login is None:
         login = await question("GitHub username for review requests", repository.split("/")[0])
+    else:
+        logging.getLogger(__name__).info("Detected GitHub username: %s", login)
     try:
         identity_part(login)
     except ValueError:

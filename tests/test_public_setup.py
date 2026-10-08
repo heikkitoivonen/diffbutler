@@ -1,6 +1,7 @@
 """Public access and token validation use only a synthetic HTTP transport."""
 
 import asyncio
+import logging
 import shutil
 import sys
 from collections.abc import Callable
@@ -232,8 +233,14 @@ async def test_public_setup_and_discovery_never_resolve_or_send_a_token(
     "failure", [None, "lookup-unavailable", "invalid", "wrong-user", "no-access", "no-pr-access"]
 )
 async def test_token_setup_validates_access_before_saving(
-    failure: str | None, public: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    failure: str | None,
+    public: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO, logger="diffbutler.core.setup")
+    monkeypatch.setattr(logging.getLogger("diffbutler"), "propagate", True)
     token = "synthetic-private-token"
     identity_calls = 0
 
@@ -290,6 +297,19 @@ async def test_token_setup_validates_access_before_saving(
         assert settings.forges[0].token_env == "TEST_PRIVATE_TOKEN"
         assert settings.forges[0].login == "reader"
         assert token not in config_path().read_text()
+
+    detected = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "diffbutler.core.setup"
+        and record.getMessage().startswith("Detected GitHub username:")
+    ]
+    assert detected == (
+        []
+        if failure in {"lookup-unavailable", "invalid", "wrong-user"}
+        else ["Detected GitHub username: reader"]
+    )
+    assert token not in caplog.text
 
 
 @pytest.mark.asyncio
