@@ -94,10 +94,12 @@ waits for exit, then finalizes its result.
 
 The transaction rechecks the held token, task, account-specific open PR snapshot,
 base/head revisions, and session cleanup state. Current successful runs route to
-`FINDINGS_TRIAGE` when any finding meets both thresholds, otherwise to
-`PENDING_HUMAN_REVIEW`. Malformed output or a nonzero exit records a failed run and
-returns to pending AI review with a persisted diagnostic. Retries require explicit
-user action. No outcome completes or approves
+`PENDING_HUMAN_REVIEW` only for an explicit clean Markdown outcome or an empty
+structured findings array; other successful reviews route to `FINDINGS_TRIAGE`.
+Unparseable output after a zero exit records a failed run and routes to
+`FINDINGS_TRIAGE` (`check`) for human inspection. A nonzero exit records a failed run
+and returns to pending AI review. Both retain diagnostics and raw output.
+Retries require explicit user action. No outcome completes or approves
 a review cycle. Local routing advances the sync generation so an older refresh must
 retry. Cancelled/stale runs can retain late results but cannot change queue attention
 or their invalidation timestamps, including after completion and a new review cycle.

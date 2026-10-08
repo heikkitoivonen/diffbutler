@@ -77,6 +77,8 @@ Select a PR with the arrow keys, then work through the review:
 2. A successful review shows `approve` only when the AI explicitly reports no findings;
    otherwise it shows `check`. Press `Enter` to read the results, or `c` to resume
    the saved agent conversation.
+   If the agent exits normally but DiffButler cannot parse its output, the task also
+   shows `check`; use `c` to inspect the saved conversation or `L` for captured output.
    Changing reviewers leaves that conversation available through `c`; pressing `r`
    starts a new run with the current reviewer and replaces the current review details.
    Ask questions and explicitly tell the agent which comments to post, if any.

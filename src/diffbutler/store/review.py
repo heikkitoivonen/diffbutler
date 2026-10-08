@@ -562,7 +562,9 @@ class SQLiteReviewStore:
                     state = "PENDING_HUMAN_REVIEW" if no_findings else "FINDINGS_TRIAGE"
                     if run.status == "failed":
                         run.status_reason = result.error or "Agent failed"
-                        state = "PENDING_AI_REVIEW"
+                        # A normal exit with unreadable output needs human inspection;
+                        # it cannot establish whether the review has findings.
+                        state = "FINDINGS_TRIAGE" if result.exit_code == 0 else "PENDING_AI_REVIEW"
                     await transition(db, task, state)
                 else:
                     run.status = "cancelled" if task.completed_at is not None else "stale"

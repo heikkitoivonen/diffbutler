@@ -84,7 +84,7 @@ async def test_finalize_routes_and_survives_restart(database: Database, has_find
 
 
 @pytest.mark.parametrize("kind", ["malformed", "nonzero", "encoding"])
-async def test_failed_output_is_retained_and_waits_for_explicit_retry(
+async def test_failed_output_is_retained_and_routes_attention(
     database: Database, kind: str
 ) -> None:
     _, identity = await seed(database)
@@ -105,7 +105,7 @@ async def test_failed_output_is_retained_and_waits_for_explicit_retry(
     assert result.exit_code == output.exit_code and result.selected_indices == ()
     assert ResultDTO.model_validate_json(result.model_dump_json()) == result
     state = (await SQLiteQueueStore(database).snapshot(ACCOUNT)).items[0].state
-    assert state == "PENDING_AI_REVIEW"
+    assert state == ("PENDING_AI_REVIEW" if kind == "nonzero" else "FINDINGS_TRIAGE")
     async with database.sessions() as db:
         stored = await db.get(AIRun, run.id)
         assert stored is not None and stored.parse_status == "failed"
@@ -141,7 +141,10 @@ async def test_thresholds_retain_all_findings_and_normalization_notes(database: 
 
 
 @pytest.mark.parametrize("change", ["push", "request", "closed", "cancel", "base"])
-async def test_late_results_do_not_replace_new_attention(database: Database, change: str) -> None:
+@pytest.mark.parametrize("malformed", [False, True])
+async def test_late_results_do_not_replace_new_attention(
+    database: Database, change: str, malformed: bool
+) -> None:
     forge, identity = await seed(database)
     reviews = service(database)
     run = await reviews.request_review(identity)
@@ -167,7 +170,8 @@ async def test_late_results_do_not_replace_new_attention(database: Database, cha
             forge.prs[REF] = replace(PR, state="closed")
         await DiffButler(SQLiteQueueStore(database), forge).sync()
     before = await reviews.get_run(run.id)
-    finished = await reviews.finalize_review(claim.token, captured(finding()))
+    output = ReviewOutput(b"unreadable review", b"", 0) if malformed else captured(finding())
+    finished = await reviews.finalize_review(claim.token, output)
     expected = RunStatus.CANCELLED if change in {"closed", "cancel"} else RunStatus.STALE
     assert finished.status == expected
     if before.status != RunStatus.RUNNING:

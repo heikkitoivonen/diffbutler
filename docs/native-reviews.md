@@ -39,8 +39,12 @@ resume, and cleanup.
 Authentication uses the installed agent’s normal configuration and environment.
 
 If a review fails before creating a conversation, `c` explains that another review
-is needed. Failed attempts return to pending AI review; only pressing `r` (or the
-pending task's next action) retries. They do not imply readiness to approve.
+is needed. If the agent exits normally but DiffButler cannot parse its output,
+the task moves to `check` for human inspection. The attempt remains failed with
+its reason and captured output retained; `c` resumes the conversation if its ID
+was saved. Nonzero exits and execution failures, including timeouts, return to
+pending AI review. Only pressing `r` (or a pending task's next action) retries.
+Neither kind of failure implies readiness to approve.
 The preview and `Enter` detail retain the reason for a failed, cancelled, or stale
 attempt, including timeouts (15 minutes by default). `L` shows captured output,
 including partial output retained after interruption. Reasons survive restart and

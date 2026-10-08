@@ -7,6 +7,7 @@ import pytest
 from tests.test_review_claims import seed, service
 from tests.test_sync import ACCOUNT
 
+from diffbutler.core.sync import DiffButler
 from diffbutler.domain.dashboard import STATE_LABELS
 from diffbutler.reviewers.base import ReviewOutput
 from diffbutler.reviewers.extraction import StreamFormat
@@ -21,6 +22,58 @@ DRAFT = (
     "Otherwise, a stolen expired token still grants access.\n\n"
     "Limitations: Project checks were not executed.\n"
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["malformed", "truncated", "empty"])
+async def test_unreadable_backend_output_needs_check_after_restart(
+    tmp_path: Path, kind: str
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path}/unreadable.db")
+    await database.initialize()
+    try:
+        forge, identity = await seed(database)
+        reviews = service(database)
+        run = await reviews.request_review(identity)
+        claim = await reviews.claim_review(run.id)
+        assert claim is not None
+        await reviews.bind_backend_session(claim.token, "saved-session")
+        events = [
+            {"type": "session", "id": "saved-session"},
+            {"type": "assistant", "text": "" if kind == "empty" else DRAFT},
+        ]
+        if kind != "truncated":
+            events.append({"type": "complete"})
+        raw = "\n".join(json.dumps(event) for event in events).encode()
+        if kind == "malformed":
+            raw += b"\n{invalid json"
+        output = ReviewOutput(raw, b"diagnostic", 0)
+        finished = await reviews.finalize_review(
+            claim.token, output, output_format=StreamFormat(), response_format="markdown"
+        )
+        assert finished.status == "failed"
+        assert finished.status_reason == "invalid backend output"
+    finally:
+        await database.close()
+    reopened = Database(str(database.url))
+    try:
+        await reopened.initialize(auto_migrate=False)
+        restored = service(reopened)
+        result = await restored.get_result(run.id)
+        assert result is not None and result.error == "invalid backend output"
+        assert result.stdout == raw and result.stderr == output.stderr
+        assert result.markdown is None and result.document is None
+        assert (await restored.get_session(run.session_id)).backend_session_id == "saved-session"
+        queue = SQLiteQueueStore(reopened)
+        await DiffButler(queue, forge).sync()
+        state = (await queue.snapshot(ACCOUNT)).items[0].state
+        assert state == "FINDINGS_TRIAGE" and STATE_LABELS[state] == "check"
+        assert (await restored.get_run(run.id)).status == "failed"
+        retry = await restored.request_review(identity)
+        assert retry.attempt == 2 and retry.session_id == run.session_id
+        assert await restored.claim_review(retry.id) is not None
+    finally:
+        await reopened.close()
 
 
 @pytest.mark.parametrize("complete", [False, True])

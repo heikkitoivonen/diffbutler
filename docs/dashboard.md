@@ -121,9 +121,12 @@ drafts” instead of an inferred finding count.
 A successful review moves from `running` to `approve` only when its first nonblank
 line is exactly `Review outcome: no_findings`, with no other outcome lines.
 All other successful Markdown reviews move to `check`, including findings,
-inconclusive reviews, and missing or unrecognized outcomes. Failed reviews return
-to `pending`. Press `o` after checking the review to choose `approve` and open the PR,
-or `w` to wait for author changes. Existing saved review states are unchanged. Severity
+inconclusive reviews, and missing or unrecognized outcomes. If the agent exits
+normally but DiffButler cannot parse its output, the task also moves to `check`.
+The attempt retains its failed status and diagnostic; inspect the saved conversation
+with `c` when available, or captured output with `L`. Nonzero exits and execution
+failures return to `pending`. Press `o` after checking the review to choose `approve`
+and open the PR, or `w` to wait for author changes. Existing saved review states are unchanged. Severity
 and confidence thresholds filter only legacy structured findings; any reported finding
 keeps a newly completed structured review in `check`. Full details
 retain all findings. Analyzed and current SHAs are shown separately. Table cell updates preserve
