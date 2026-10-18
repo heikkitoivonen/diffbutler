@@ -227,7 +227,15 @@ async def test_public_setup_and_discovery_never_resolve_or_send_a_token(
     assert "/user" not in requests and "/user/teams" not in requests
 
 
+@pytest.fixture(params=[True, False], ids=["propagating", "non-propagating"])
+def setup_log_propagation(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Earlier CLI tests can leave either state on an xdist worker. Set it before
+    # pytest attaches its call-phase capture handlers, then leave it unchanged.
+    monkeypatch.setattr(logging.getLogger("diffbutler"), "propagate", request.param)
+
+
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("setup_log_propagation")
 @pytest.mark.parametrize("public", [False, True])
 @pytest.mark.parametrize(
     "failure", [None, "lookup-unavailable", "invalid", "wrong-user", "no-access", "no-pr-access"]
@@ -240,7 +248,6 @@ async def test_token_setup_validates_access_before_saving(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO, logger="diffbutler.core.setup")
-    monkeypatch.setattr(logging.getLogger("diffbutler"), "propagate", True)
     token = "synthetic-private-token"
     identity_calls = 0
 
