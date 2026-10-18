@@ -48,6 +48,9 @@ forge credentials, real GitHub requests, or paid model calls.
 - Use `make upgrade` to refresh pinned versions, then run checks and `make audit`.
   Routine resolution excludes releases newer than 15 days; urgent security updates
   can be selected explicitly with uv's `--exclude-newer` override after review.
+  Weekly Dependabot version-update PRs use the same 15-day cooldown for Python
+  packages and GitHub Actions. Dependabot security-update PRs bypass its cooldown
+  and require separate review before accepting a newer release.
 - Do not commit credentials, private PR content, local databases, or session transcripts.
 - Update the README and relevant guides when behavior changes. Describe what is
   implemented accurately.

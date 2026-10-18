@@ -150,7 +150,7 @@ class SQLiteDashboardStore:
                 )
             )
             result: list[CycleRecord] = []
-            for task, identity, monitor in rows.tuples():
+            for task, identity, monitor in rows:
                 runs = tuple(
                     record(run)
                     for run in await db.scalars(

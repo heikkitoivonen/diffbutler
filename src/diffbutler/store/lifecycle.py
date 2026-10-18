@@ -53,7 +53,7 @@ class SQLiteLifecycleStore:
             rows = await db.execute(
                 select(CleanupJob.status, func.count()).group_by(CleanupJob.status)
             )
-            counts = dict(rows.tuples().all())
+            counts = dict(rows.all())
             return CleanupStatus(
                 succeeded=counts.get("succeeded", 0),
                 pending=counts.get("pending", 0),

@@ -46,7 +46,7 @@ class SQLiteQueueStore:
             rows = await session.execute(select(ForgeAccount, Account).join(Account))
             return tuple(
                 ForgeIdentity(identity.forge, identity.login, account.display_name)
-                for identity, account in rows.tuples()
+                for identity, account in rows
             )
 
     async def snapshot(self, account: ForgeIdentity) -> QueueSnapshot:
@@ -96,7 +96,7 @@ class SQLiteQueueStore:
                         task.posted_at,
                         requested_at.replace(tzinfo=UTC) if requested_at else None,
                     )
-                    for monitor, task, requested_at in rows.tuples()
+                    for monitor, task, requested_at in rows
                 ),
             )
 
