@@ -65,6 +65,60 @@ notices when incorporating third-party material.
 ## Releases
 
 Versions live in `pyproject.toml`; runtime version output reads installed package metadata.
-Update the version, run `make lock`, and run `make check`,
-`make smoke`, and `make audit` before a release. Publishing is intentionally manual
-until package ownership and a release process are established; CI never publishes.
+Pushing a tag named `v<version>` runs the [publishing workflow](.github/workflows/publish.yml).
+The tag must exactly match the version in `pyproject.toml`, for example `v0.5.0`
+for version `0.5.0` (or `v0.6.0rc1` for `0.6.0rc1`). The workflow runs the existing
+checks and installation smoke tests on Linux and macOS, plus a dependency audit
+on Linux. Once all checks pass, it publishes the tested Linux-built wheel and
+source distribution to PyPI. Only the separate publishing job can request a PyPI
+identity token; it downloads those artifacts without checking out or running project code.
+
+### One-time setup
+
+1. In the GitHub repository's **Settings → Environments**, create an environment
+   named `pypi`. Restrict its deployment branches and tags to selected **tags**
+   matching `v*`. Leave required reviewers disabled for automatic publishing on
+   tag pushes; enabling them makes each release wait for approval.
+2. Configure a GitHub Actions [Trusted Publisher](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)
+   in the PyPI project's **Publishing** settings. If the project does not exist yet,
+   add a [pending publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
+   under your [PyPI account publishing settings](https://pypi.org/manage/account/publishing/).
+   Use these exact values for the upstream repository:
+
+   | Field | Value |
+   | --- | --- |
+   | PyPI project name (pending publisher only) | `diffbutler` |
+   | GitHub owner | `heikkitoivonen` |
+   | Repository | `diffbutler` |
+   | Workflow filename | `publish.yml` |
+   | Environment | `pypi` |
+
+   No PyPI API token or GitHub secret is needed. You must own an existing PyPI
+   project to configure it; a pending publisher does not reserve the project name.
+3. Use a GitHub tag ruleset for `v*` to limit release tag creation, modification,
+   and deletion to maintainers authorized to publish.
+
+### Publish a version
+
+Update `pyproject.toml`, run `make lock`, and run `make check`, `make smoke`, and
+`make audit`. Commit the version and lockfile changes and merge them, together with
+the publishing workflow, before tagging the intended release commit. For example,
+if its package version is `0.5.0` and that version has not already been published:
+
+```sh
+git tag -a v0.5.0 -m "Release 0.5.0"
+git push origin v0.5.0
+```
+
+Monitor **Actions → Publish to PyPI** for the result. A GitHub Release is optional;
+the tag push triggers publishing. Ordinary branch pushes and pull requests only
+run CI. After publication, users can install with:
+
+```sh
+uv tool install --python 3.14 diffbutler
+```
+
+If setup or checks fail before upload, fix the issue and rerun the failed workflow
+jobs when the tagged source is still correct. Source changes need a new version
+and tag. PyPI does not allow replacing uploaded files; after a successful or partial
+upload, use a new version for corrections rather than moving a published tag.

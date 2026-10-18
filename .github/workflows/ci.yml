@@ -2,8 +2,15 @@ name: CI
 
 on:
   push:
+    tags-ignore: ["v*"] # Release tags run these checks through publish.yml.
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        description: Validate the release tag and retain tested distributions
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,5 +37,27 @@ jobs:
           version: "0.12.13"
           enable-cache: true
       - run: make setup
+      - name: Check release tag matches package version
+        if: inputs.release
+        shell: uv run --locked python {0}
+        run: |
+          import os
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          expected = f"refs/tags/v{version}"
+          if os.environ["GITHUB_REF"] != expected:
+              sys.exit(f"Release ref must be {expected}; got {os.environ['GITHUB_REF']}")
       - run: make check
       - run: make smoke
+      - run: make audit
+        if: inputs.release && matrix.os == 'ubuntu-latest'
+      - name: Retain tested release distributions
+        if: inputs.release && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
