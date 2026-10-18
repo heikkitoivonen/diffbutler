@@ -10,16 +10,28 @@ finish your review in the browser.
 
 ## Install
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
-From a local checkout of this repository, run:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then
+install DiffButler from [PyPI](https://pypi.org/project/diffbutler/):
 
 ```sh
-uv tool install --python 3.14 .
+uv tool install --python 3.14 diffbutler
 ```
 
 uv manages Python and dependencies in an isolated environment. No virtual environment
 activation is needed. If `diffbutler` is not on your PATH, run `uv tool update-shell`
 and restart your shell.
+
+To upgrade a PyPI installation:
+
+```sh
+uv tool upgrade diffbutler
+```
+
+To install from a local checkout of this repository instead, run from its root:
+
+```sh
+uv tool install --python 3.14 .
+```
 
 Install and sign in to Codex CLI or Claude Code before requesting AI reviews.
 The native presets support Codex CLI or Claude Code on Linux and macOS without version checks.
@@ -132,6 +144,18 @@ After confirmation, this permanently removes DiffButler's standard configuration
 data, and state directories, including review history, saved sessions, and diagnostic
 logs. Custom files outside those directories are preserved. Use `diffbutler reset --force`
 to skip confirmation. Run `diffbutler` again to repeat first-run setup.
+
+## Uninstall
+
+Remove the uv-installed command and its isolated environment:
+
+```sh
+uv tool uninstall diffbutler
+```
+
+This keeps your DiffButler configuration, review history, and diagnostic logs.
+To remove those too, run `diffbutler reset` **before uninstalling**; see
+[Reset](#reset) for what it deletes.
 
 ## Contributing
 
