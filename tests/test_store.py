@@ -2,8 +2,10 @@
 
 import asyncio
 import sqlite3
+import threading
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import aiosqlite
@@ -31,6 +33,63 @@ from diffbutler.store.models import (
     ReviewTask,
     utc_now,
 )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_database_connect_closes_late_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loop = asyncio.get_running_loop()
+    opened = asyncio.Event()
+    closing = asyncio.Event()
+    release_open = threading.Event()
+    release_close = threading.Event()
+    closed = threading.Event()
+    connections: list[sqlite3.Connection] = []
+    connect = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        def close(self) -> None:
+            loop.call_soon_threadsafe(closing.set)
+            assert release_close.wait(5)
+            super().close()
+            closed.set()
+
+    def delayed_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+        connection = connect(*args, **kwargs, factory=TrackedConnection)
+        connections.append(connection)
+        loop.call_soon_threadsafe(opened.set)
+        assert release_open.wait(5)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", delayed_connect)
+    database = Database(f"sqlite+aiosqlite:///{tmp_path}/cancelled-connect.db")
+    task = asyncio.create_task(database.initialize())
+    try:
+        await asyncio.wait_for(opened.wait(), timeout=5)
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert not task.done()
+        release_open.set()
+        await asyncio.wait_for(closing.wait(), timeout=5)
+        task.cancel()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not task.done()
+        release_close.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+        assert closed.is_set()
+    finally:
+        release_open.set()
+        release_close.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await database.close()
+        # Also clean up when run against the leaking implementation.
+        for connection in connections:
+            sqlite3.Connection.close(connection)
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
@@ -54,6 +55,29 @@ def sqlite_url(value: str) -> URL:
     if not url.database or url.database == ":memory:":
         raise DatabaseError("db.url: use a persistent SQLite file")
     return url.set(database=str(Path(url.database).expanduser().absolute()))
+
+
+async def _finish[T](task: asyncio.Future[T]) -> tuple[T, bool]:
+    """Finish owned I/O despite cancellation, reporting it to the resource owner."""
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    return task.result(), cancelled
+
+
+async def connect_sqlite(path: Path) -> aiosqlite.Connection:
+    # Cancelling aiosqlite's initial await can discard the connection its worker
+    # thread is still opening, before SQLAlchemy can own or dispose of it.
+    connection, cancelled = await _finish(
+        asyncio.ensure_future(aiosqlite.connect(path, check_same_thread=False))
+    )
+    if cancelled:
+        await _finish(asyncio.create_task(connection.close()))
+        raise asyncio.CancelledError
+    return connection
 
 
 async def configure_sqlite(connection: aiosqlite.Connection) -> None:
@@ -115,7 +139,9 @@ class Database:
         self.url = sqlite_url(url)
         assert self.url.database is not None
         self.path = Path(self.url.database)
-        self.engine: AsyncEngine = create_async_engine(self.url)
+        self.engine: AsyncEngine = create_async_engine(
+            self.url, async_creator=partial(connect_sqlite, self.path)
+        )
         event.listen(self.engine.sync_engine, "connect", _configure_sqlite)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
 
@@ -160,13 +186,6 @@ class Database:
         # Cancellation during disposal can interrupt aiosqlite.close after the
         # pool has discarded the connection. Finish closing it before propagating
         # cancellation, including repeated cancellation during app shutdown.
-        closing = asyncio.create_task(self.engine.dispose())
-        cancelled = False
-        while not closing.done():
-            try:
-                await asyncio.shield(closing)
-            except asyncio.CancelledError:
-                cancelled = True
-        closing.result()
+        _, cancelled = await _finish(asyncio.create_task(self.engine.dispose()))
         if cancelled:
             raise asyncio.CancelledError
