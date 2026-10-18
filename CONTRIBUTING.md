@@ -81,38 +81,6 @@ The [Website workflow](.github/workflows/website.yml) builds and tests the site 
 pull requests and every push to `main`. Only `main` deploys to GitHub Pages. You
 can also run the workflow manually on `main`. No deployment token is required.
 
-### Configure GitHub Pages and Namecheap
-
-1. In the repository's **Settings → Pages**, set **Build and deployment → Source**
-   to **GitHub Actions**. In **Settings → Environments → github-pages**, allow
-   deployments from `main`. Leave required reviewers disabled for automatic deploys.
-2. Under **Pages → Custom domain**, save `diffbutler.com` before pointing DNS at
-   GitHub. You can also [verify domain ownership](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/verifying-your-custom-domain-for-github-pages)
-   under your personal GitHub account's **Settings → Pages**, using the TXT record
-   GitHub supplies.
-3. In Namecheap, open **Domain List → diffbutler.com → Manage → Advanced DNS**.
-   If Namecheap manages the domain's DNS, set these **Host Records** with automatic TTL:
-
-   | Type | Host | Value |
-   | --- | --- | --- |
-   | A | `@` | `185.199.108.153` |
-   | A | `@` | `185.199.109.153` |
-   | A | `@` | `185.199.110.153` |
-   | A | `@` | `185.199.111.153` |
-   | CNAME | `www` | `heikkitoivonen.github.io` |
-
-   Replace conflicting parking/redirect records for `@` and `www`; preserve email
-   and domain-verification records. If the domain uses another DNS provider's
-   nameservers, enter these records there instead. See
-   [Namecheap's GitHub Pages guide](https://www.namecheap.com/support/knowledgebase/article.aspx/9645/2208/how-do-i-link-my-domain-to-github-pages/).
-4. Push these changes to `main` and watch **Actions → Website**. After the DNS check
-   and certificate provisioning finish in **Settings → Pages**, enable **Enforce HTTPS**.
-   DNS changes may take up to 24 hours. With both DNS names configured, GitHub
-   redirects `www.diffbutler.com` to `diffbutler.com`.
-
-The domain is configured in GitHub settings, not a `CNAME` file: custom Actions
-deployments ignore that file. See [GitHub's custom-domain instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site).
-
 ## Releases
 
 Versions live in `pyproject.toml`; runtime version output reads installed package metadata.
