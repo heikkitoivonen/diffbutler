@@ -58,7 +58,7 @@
   include only intended changes and preserve unrelated work.
 - Every agent-created commit must include a `Co-Authored-By: Name <email>` trailer,
   separated from the message body by a blank line, identifying the assisting agent.
-  For Codex, use `Co-Authored-By: Codex <noreply@openai.com>`.
+  For Codex, use `Co-Authored-By: Codex <codex@openai.com>`.
 - Preserve the user's configured Git author identity. Do not invent a human
   identity or change global Git configuration to make a commit succeed.
 - Use a concise commit subject describing the change. Local commit permission
