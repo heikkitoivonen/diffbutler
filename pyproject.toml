@@ -1,6 +1,6 @@
 [project]
 name = "diffbutler"
-version = "0.5.1"
+version = "0.5.2"
 description = "A terminal dashboard for human-directed AI code reviews."
 readme = "README.md"
 requires-python = ">=3.14"
