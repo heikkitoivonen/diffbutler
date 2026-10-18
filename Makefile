@@ -2,7 +2,7 @@
 UV ?= uv
 RUN := $(UV) run --locked
 
-.PHONY: help setup run handoff format lint typecheck architecture test coverage check build smoke audit licenses lock upgrade
+.PHONY: help setup run handoff format lint typecheck architecture test coverage check build smoke site audit licenses lock upgrade
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "DiffButler development commands\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -44,6 +44,9 @@ build: ## Build the source distribution and wheel
 
 smoke: build ## Install the wheel in a fresh environment and check both entry points
 	$(RUN) python scripts/check_dist.py
+
+site: ## Build the README website in .cache/site
+	$(RUN) python scripts/build_site.py
 
 audit: ## Audit locked runtime and development dependencies (requires network)
 	@mkdir -p .cache

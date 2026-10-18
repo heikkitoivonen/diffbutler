@@ -1,0 +1,73 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #283438;
+  background: #f7f8f6;
+  line-height: 1.75;
+  font-size: 17px;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: #146347; text-underline-offset: 0.2em; }
+a:hover { color: #0b422f; }
+a:focus-visible { outline: 3px solid #146347; outline-offset: 5px; }
+
+.site-header, main, footer {
+  width: min(100% - 3rem, 880px);
+  margin-inline: auto;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.6rem;
+  border-bottom: 1px solid #d9dfd9;
+}
+
+.site-header a { text-decoration: none; }
+.wordmark { font-weight: 750; color: #1b292d; letter-spacing: -0.04em; }
+.wordmark span { color: #146347; }
+nav { display: flex; gap: 1.4rem; font-size: 0.88rem; }
+main { padding-block: 3rem; }
+
+h1, h2, h3 { color: #172a2e; line-height: 1.2; scroll-margin-top: 1.5rem; }
+h1 { font-size: clamp(2.8rem, 8vw, 4.5rem); letter-spacing: -0.065em; margin: 0 0 1rem; }
+h1 + p { font-size: 1.35rem; line-height: 1.5; color: #445650; }
+h2 { margin: 3rem 0 1.2rem; padding-top: 1.5rem; border-top: 1px solid #d9dfd9; font-size: 1.7rem; letter-spacing: -0.035em; }
+h3 { margin-top: 2rem; }
+p { margin-block: 1.1rem; }
+li { padding-left: 0.2rem; margin-block: 0.5rem; }
+ul, ol { padding-left: 1.5rem; }
+img { display: block; max-width: 100%; height: auto; margin-block: 2rem; border-radius: 8px; }
+
+code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 0.86em; }
+:not(pre) > code { background: #e8ede7; border-radius: 4px; padding: 0.16em 0.35em; overflow-wrap: anywhere; }
+pre { background: #172a2e; color: #e9f3e9; border-radius: 8px; padding: 1.1rem 1.4rem; overflow-x: auto; line-height: 1.65; }
+blockquote { border-left: 3px solid #146347; margin-inline: 0; padding-left: 1.2rem; }
+table { border-collapse: collapse; display: block; overflow-x: auto; }
+th, td { padding: 0.6rem 1rem; border: 1px solid #d9dfd9; text-align: left; }
+
+footer {
+  border-top: 1px solid #d9dfd9;
+  padding-block: 1.5rem 2.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: #52615a;
+}
+
+.skip-link { position: absolute; top: -5rem; left: 1rem; background: #fff; padding: 0.6rem; }
+.skip-link:focus { top: 0.5rem; }
+
+@media (max-width: 520px) {
+  :root { font-size: 16px; }
+  .site-header, main, footer { width: calc(100% - 2rem); }
+  nav { gap: 0.85rem; }
+  main { padding-top: 2rem; }
+  pre { padding: 1rem; }
+}
