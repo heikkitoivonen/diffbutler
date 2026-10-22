@@ -1,6 +1,6 @@
 [project]
 name = "diffbutler"
-version = "0.5.2"
+version = "0.5.3"
 description = "A terminal dashboard for human-directed AI code reviews."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -53,7 +53,7 @@ dev = [
 [tool.uv]
 required-version = ">=0.12.13,<0.13"
 # Give new dependency releases time to settle before routine upgrades.
-exclude-newer = "15 days"
+exclude-newer = "2 days"
 
 [tool.ruff]
 target-version = "py314"
