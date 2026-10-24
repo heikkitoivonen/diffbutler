@@ -2,7 +2,7 @@
 
 from contextlib import nullcontext
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, call
 
 import pytest
 from textual.command import CommandPalette
@@ -31,7 +31,7 @@ async def test_failed_review_status_includes_reason_and_output_hint(
     monkeypatch.setattr(app, "status", status)
     app.action_run_review()
     await app.review_tasks["task"]
-    status.assert_called_once_with(f"AI review failed: {reason} Press L for output.")
+    status.assert_any_call(f"AI review failed: {reason} Press L for output.")
     review.assert_awaited_once()
     assert not app.review_tasks
 
@@ -59,12 +59,12 @@ async def test_agent_exit_status_only_reports_failure(
 
     assert not app.attached
     handoff.__aexit__.assert_awaited_once()
-    if code == 0:
-        status.assert_not_called()
-    else:
-        status.assert_called_once_with(
-            f"Agent exited {code}; forge refresh attempted. Check refresh-pending badges."
+    expected = [call("Preparing agent session…"), call("")]
+    if code != 0:
+        expected.append(
+            call(f"Agent exited {code}; forge refresh attempted. Check refresh-pending badges.")
         )
+    assert status.call_args_list == expected
 
 
 @pytest.mark.parametrize("authenticated,expected", [(True, 60), (False, 600)])

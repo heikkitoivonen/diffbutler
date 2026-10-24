@@ -108,6 +108,21 @@ async def test_concurrent_preparation_fetches_once_and_retention_protects_each_s
 
 
 @pytest.mark.asyncio
+async def test_retention_defers_while_repository_cache_is_busy(tmp_path: Path) -> None:
+    cache = RepositoryCache(tmp_path / "cache", retention_days=0)
+    directories = await open_directories(cache.path)
+    resource = cache.resource(directories, REF)
+    repository = await directories.create(resource)
+    async with file_lock(cache.lock_path):
+        # A fetch owns this same lock. Unrelated commands must not wait for it
+        # just to perform routine retention maintenance.
+        await asyncio.wait_for(cache.prune(), timeout=1)
+        assert repository.is_dir()
+    await cache.prune()
+    assert not repository.exists()
+
+
+@pytest.mark.asyncio
 async def test_cancelled_lock_waiter_does_not_hold_lock(tmp_path: Path) -> None:
     path = tmp_path / "lock"
 

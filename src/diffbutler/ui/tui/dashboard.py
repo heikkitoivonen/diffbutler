@@ -271,12 +271,15 @@ class Dashboard(TerminalApp):
             self.view = "active"
         self.sort = SortSpec(column=settings.ui.sort_by, descending=settings.ui.sort_desc)
         self.attached = False
+        self.attaching = False
         self.ai_paused = False
         self.monitor_all_prs = False
         self.reload_lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
+        self.preference_lock = asyncio.Lock()
         self.refresh_notices: set[str] = set()
         self.review_tasks: dict[str, asyncio.Task[None]] = {}
+        self.pending_review_requests: set[str] = set()
         self.resetting_tasks: set[str] = set()
         self.current_reviewer: str | None = None
         self.poller = Poller(self.sync, settings.effective_poll_interval_s)
@@ -368,8 +371,12 @@ class Dashboard(TerminalApp):
         if self.attached or self.closing or len(self.screen_stack) > 1:
             return
         async with self.reload_lock:
+            if self.attached or self.closing or len(self.screen_stack) > 1:
+                return
             text = self.query_one(Input).value
-            if self.view == "history":
+            view = self.view
+            sort = self.sort
+            if view == "history":
                 cycles = await history_configured(self.path, HistoryFilter())
                 self.history = {
                     str(cycle.task_id): cycle
@@ -396,7 +403,10 @@ class Dashboard(TerminalApp):
                 columns = ["PR", "Cycle", "Completion", "Cleanup"]
                 column_ids = ["title", "cycle", "completion", "cleanup"]
             else:
-                rows = sort_rows(await dashboard_rows(self.path, self.view, text), self.sort)
+                rows = sort_rows(await dashboard_rows(self.path, view, text), sort)
+                for row in rows:
+                    if row.run_status in {"queued", "running"}:
+                        self.pending_review_requests.discard(str(row.row.tracked.task_id))
                 self.rows = {str(row.row.tracked.task_id): row for row in rows}
                 data = [
                     (key, tuple(self.cell(row, column) for column in self.settings.ui.columns))
@@ -417,7 +427,14 @@ class Dashboard(TerminalApp):
                     for column in self.settings.ui.columns
                 ]
                 column_ids = self.settings.ui.columns
-            if self.attached:
+            if (
+                self.attached
+                or self.closing
+                or len(self.screen_stack) > 1
+                or view != self.view
+                or sort != self.sort
+                or text != self.query_one(Input).value
+            ):
                 return
             table = self.query_one(DataTable[Text])
             wide = self.size.width >= 80
@@ -468,6 +485,11 @@ class Dashboard(TerminalApp):
 
     def cell(self, row: DashboardRow, column: str) -> str:
         value = column_value(row, column)
+        if str(row.row.tracked.task_id) in self.pending_review_requests and column in {
+            "state",
+            "ai_status",
+        }:
+            value = "queued"
         if column == "age" and isinstance(value, (int, float)):
             return f"{value / 3600:.0f}h"
         if column == "max_severity":
@@ -487,6 +509,8 @@ class Dashboard(TerminalApp):
         label = (
             "Open historical PR"
             if self.view == "history"
+            else "Review queued · Ctrl+C to cancel"
+            if key in self.pending_review_requests
             else {
                 "PENDING_AI_REVIEW": "Start AI review",
                 "FINDINGS_TRIAGE": "Discuss findings",
@@ -514,7 +538,7 @@ class Dashboard(TerminalApp):
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if len(self.screen_stack) == 1:
             event.stop()
-            await self.action_open_detail()
+            self.action_open_detail()
 
     async def on_data_table_row_highlighted(self, _: DataTable.RowHighlighted) -> None:
         if not self.reload_lock.locked() and not self.attached and len(self.screen_stack) == 1:
@@ -522,9 +546,9 @@ class Dashboard(TerminalApp):
                 self.preview(), group="selection-preview", exclusive=True, exit_on_error=False
             )
 
-    async def on_input_changed(self, _: Input.Changed) -> None:
+    def on_input_changed(self, _: Input.Changed) -> None:
         if self.ready and len(self.screen_stack) == 1:
-            await self.reload()
+            self.run_worker(self.reload(), group="queue-refresh", exit_on_error=False)
 
     def on_input_submitted(self, _: Input.Submitted) -> None:
         self.query_one(DataTable[Text]).focus()
@@ -535,7 +559,9 @@ class Dashboard(TerminalApp):
     async def on_button_pressed(self, _: Button.Pressed) -> None:
         self.action_primary_action()
 
-    def start(self, operation: Awaitable[None]) -> None:
+    def start(self, operation: Awaitable[None], *, message: str | None = None) -> None:
+        if message is not None:
+            self.status(message)
         self.run_worker(self.guarded(operation), exit_on_error=False)
 
     async def guarded(self, operation: Awaitable[None]) -> None:
@@ -583,17 +609,12 @@ class Dashboard(TerminalApp):
                     await self.reload()
 
     def action_refresh(self) -> None:
-        self.start(self.sync())
+        self.start(self.sync(), message="Refreshing GitHub…")
 
-    async def open_selected(self) -> None:
-        key = self.selected_key()
-        if self.view == "history":
-            cycle = self.history.get(key or "")
-            if cycle is None:
-                return
+    async def open_selected(self, row: DashboardRow | None, cycle: CycleRecord | None) -> None:
+        if cycle is not None:
             url = cycle.pull_request.url
         else:
-            row = self.selected()
             if row is None:
                 return
             url = await state_configured(
@@ -606,12 +627,15 @@ class Dashboard(TerminalApp):
         if not opened:
             self.copy_to_clipboard(url)
             self.status(f"Open this URL (copied if supported): {url}")
-        if self.view != "history":
+        if row is not None and self.selected_key() == str(row.row.tracked.task_id):
             table = self.query_one(DataTable[Text])
             table.move_cursor(row=min(table.cursor_row + 1, table.row_count - 1))
 
     def action_open_in_browser(self) -> None:
-        self.start(self.open_selected())
+        cycle = self.history.get(self.selected_key() or "") if self.view == "history" else None
+        row = self.selected() if self.view != "history" else None
+        if row is not None or cycle is not None:
+            self.start(self.open_selected(row, cycle), message="Opening PR…")
 
     def action_copy_url(self) -> None:
         key = self.selected_key()
@@ -622,10 +646,7 @@ class Dashboard(TerminalApp):
             self.copy_to_clipboard(url)
             self.status(url)
 
-    async def state_action(self, *, approve: bool = False) -> None:
-        row = self.selected()
-        if row is None or self.view == "history":
-            return
+    async def state_action(self, row: DashboardRow, *, approve: bool = False) -> None:
         pr = row.row.tracked.pull_request
         if approve:
             status = await approved_configured(self.path, pr.url, row.row.account.login)
@@ -634,16 +655,24 @@ class Dashboard(TerminalApp):
             await state_configured(self.path, pr.url, row.row.account.login, waiting=True)
 
     def action_mark_waiting_for_author(self) -> None:
-        self.start(self.state_action())
+        row = self.selected()
+        if row is not None and self.view != "history":
+            self.start(self.state_action(row), message="Recording waiting for author…")
 
     def action_mark_approved(self) -> None:
-        self.start(self.state_action(approve=True))
+        row = self.selected()
+        if row is not None and self.view != "history":
+            self.start(self.state_action(row, approve=True), message="Recording completion…")
 
-    async def action_next_reviewer(self) -> None:
-        await self.guarded(self.next_reviewer())
+    def action_next_reviewer(self) -> None:
+        self.next_reviewer()
 
-    async def next_reviewer(self) -> None:
-        choices, _ = await reviewer_choices_configured(self.path)
+    def next_reviewer(self) -> None:
+        choices = tuple(
+            reviewer.id
+            for reviewer in self.settings.reviewers
+            if reviewer.preset in {"codex", "claude"}
+        )
         if not choices:
             self.status("No native reviewers configured; add a Codex or Claude reviewer in config.")
             return
@@ -672,6 +701,28 @@ class Dashboard(TerminalApp):
 
         reviewer = self.current_reviewer
         pr_number = row.row.tracked.pull_request.ref.number
+        self.pending_review_requests.add(key)
+        self.status(f"Review queued for PR #{pr_number}")
+        if self.is_running:
+            table = self.query_one(DataTable[Text])
+            for index, column in enumerate(self.settings.ui.columns):
+                if column in {"state", "ai_status"}:
+                    width = list(table.columns.values())[index].width
+                    table.update_cell_at(
+                        Coordinate(table.cursor_row, index),
+                        queue_cell(self.cell(row, column), column, width),
+                    )
+            self.query_one(Button).label = "Review queued · Ctrl+C to cancel"
+
+        def progress(message: str) -> None:
+            if key in self.pending_review_requests:
+                # The core reports progress only after persisting the request.
+                # Hand rendering back to the ledger even if this run finishes
+                # before the next periodic refresh observes its queued state.
+                self.pending_review_requests.discard(key)
+                if self.is_running:
+                    self.run_worker(self.reload(), group="queue-refresh", exit_on_error=False)
+            self.status(message)
 
         async def review() -> None:
             logging.getLogger(__name__).info("Review requested task=%s pr=%s", key, pr_number)
@@ -681,7 +732,7 @@ class Dashboard(TerminalApp):
                     row.row.tracked.pull_request.url,
                     row.row.account.login,
                     reviewer,
-                    self.status,
+                    progress,
                 )
                 logging.getLogger(__name__).info(
                     "Review finished task=%s pr=%s status=%s", key, pr_number, result.status
@@ -693,19 +744,23 @@ class Dashboard(TerminalApp):
                 else:
                     self.status(f"AI review {result.status}; no publication or approval implied.")
             finally:
+                self.pending_review_requests.discard(key)
                 self.review_tasks.pop(key, None)
 
         self.review_tasks[key] = asyncio.create_task(self.guarded(review()))
 
-    async def action_cancel_review(self) -> None:
+    def action_cancel_review(self) -> None:
         key = self.selected_key()
         if key is None or self.view == "history":
             return
-        await cancel_task_configured(self.path, UUID(key))
-        task = self.review_tasks.get(key)
-        if task:
-            task.cancel()
-        await self.reload()
+
+        async def cancel() -> None:
+            await cancel_task_configured(self.path, UUID(key))
+            task = self.review_tasks.get(key)
+            if task:
+                task.cancel()
+
+        self.start(cancel(), message="Cancelling review…")
 
     def action_reset_pr(self) -> None:
         key = self.selected_key()
@@ -723,7 +778,6 @@ class Dashboard(TerminalApp):
             try:
                 # Finish any in-flight refresh before removing its saved tracking.
                 async with self.sync_lock:
-                    self.status("Resetting PR and stopping its review…")
                     result = await reset_task_configured(self.path, UUID(key), stop_review)
                     self.status(
                         f"PR reset; next forge refresh may rediscover it. Cleanup: {result}"
@@ -731,21 +785,23 @@ class Dashboard(TerminalApp):
             finally:
                 self.resetting_tasks.discard(key)
 
-        self.start(reset())
+        self.start(reset(), message="Resetting PR and stopping its review…")
 
     async def attach(self, row: DashboardRow) -> None:
-        if self.attached:
+        if self.attaching or self.attached:
             return
         logging.getLogger(__name__).info(
             "Foreground agent requested pr=%s", row.row.tracked.pull_request.ref.number
         )
-        self.attached = True
+        self.status("Preparing agent session…")
+        self.attaching = True
         error: BaseException | None = None
         code: int | None = None
         try:
             async with handoff_configured(
                 self.path, row.row.tracked.pull_request.url, row.row.account.login
             ) as (launch, started):
+                self.attached = True
                 with self.suspend():
                     try:
                         code = await run_foreground(
@@ -756,11 +812,14 @@ class Dashboard(TerminalApp):
                         )
                     except BaseException as exc:
                         error = exc
+                self.attached = False
+                self.status("")
                 # Textual's suspend must exit normally to restore the dashboard.
                 if error is not None:
                     raise error
         finally:
             self.attached = False
+            self.attaching = False
         logging.getLogger(__name__).info("Foreground agent exited code=%s", code)
         if code != 0:
             self.status(
@@ -769,7 +828,7 @@ class Dashboard(TerminalApp):
 
     def action_resume_session(self) -> None:
         row = self.selected()
-        if row and self.view != "history" and not self.attached:
+        if row and self.view != "history" and not self.attached and not self.attaching:
             self.start(self.attach(row))
 
     def action_primary_action(self) -> None:
@@ -777,7 +836,11 @@ class Dashboard(TerminalApp):
         if self.view == "history":
             self.action_open_in_browser()
         elif row:
-            state = row.row.tracked.state
+            state = (
+                "QUEUED"
+                if self.selected_key() in self.pending_review_requests
+                else row.row.tracked.state
+            )
             if state == "PENDING_AI_REVIEW":
                 self.action_run_review()
             elif state == "FINDINGS_TRIAGE":
@@ -787,12 +850,17 @@ class Dashboard(TerminalApp):
             else:
                 self.action_open_in_browser()
 
-    async def action_open_detail(self) -> None:
+    def action_open_detail(self) -> None:
         key = self.selected_key()
         if key:
-            self.push_screen(DetailScreen(describe(await detail_configured(self.path, UUID(key)))))
 
-    async def action_view_diff(self) -> None:
+            async def show() -> None:
+                detail = await detail_configured(self.path, UUID(key))
+                self.push_screen(DetailScreen(describe(detail)))
+
+            self.start(show(), message="Loading PR details…")
+
+    def action_view_diff(self) -> None:
         key = self.selected_key()
         if key:
 
@@ -800,12 +868,17 @@ class Dashboard(TerminalApp):
                 content = await diff_configured(self.path, UUID(key))
                 self.push_screen(DetailScreen(safe(content)))
 
-            self.start(show())
+            self.start(show(), message="Loading reviewed diff…")
 
-    async def action_view_run_log(self) -> None:
+    def action_view_run_log(self) -> None:
         key = self.selected_key()
         if key:
-            self.push_screen(DetailScreen(safe(await log_configured(self.path, UUID(key)))))
+
+            async def show() -> None:
+                content = await log_configured(self.path, UUID(key))
+                self.push_screen(DetailScreen(safe(content)))
+
+            self.start(show(), message="Loading review output…")
 
     def action_browse_prs(self) -> None:
         async def followed(task_id: str | None) -> None:
@@ -838,54 +911,63 @@ class Dashboard(TerminalApp):
                 else "Monitoring review requests and followed PRs."
             )
 
-        self.start(toggle())
+        self.start(toggle(), message="Changing monitored PRs…")
 
-    async def action_view_history(self) -> None:
+    def action_view_history(self) -> None:
         self.view = "active" if self.view == "history" else "history"
-        await self.reload()
+        self.sub_title = f"{self.view} · loading"
+        self.start(self.reload())
 
-    async def action_cycle_filter_preset(self) -> None:
+    def action_cycle_filter_preset(self) -> None:
         views = ["active", "requested", "following", "triage", "posted", "history"]
         self.view = views[(views.index(self.view) + 1) % len(views)]
-        await self.reload()
+        self.sub_title = f"{self.view} · loading"
+        self.start(self.reload())
 
-    async def action_cleanup_session(self) -> None:
-        self.status(f"Cleanup: {await cleanup_configured(self.path)}")
-        await self.reload()
+    def action_cleanup_session(self) -> None:
+        async def cleanup() -> None:
+            self.status(f"Cleanup: {await cleanup_configured(self.path)}")
 
-    async def save_sort(self) -> None:
-        await save_sort_configured(self.path, self.sort)
-        await self.reload()
+        self.start(cleanup(), message="Cleaning up sessions…")
 
-    async def action_sort(self) -> None:
+    async def save_sort(self, sort: SortSpec) -> None:
+        async with self.preference_lock:
+            await save_sort_configured(self.path, sort)
+
+    def action_sort(self) -> None:
         columns = self.settings.ui.columns
         index = columns.index(self.sort.column) if self.sort.column in columns else -1
         self.sort = SortSpec(
             column=columns[(index + 1) % len(columns)], descending=self.sort.descending
         )
-        await self.save_sort()
+        self.start(self.save_sort(self.sort))
 
-    async def action_reverse_sort(self) -> None:
+    def action_reverse_sort(self) -> None:
         self.sort = self.sort.model_copy(update={"descending": not self.sort.descending})
-        await self.save_sort()
+        self.start(self.save_sort(self.sort))
 
-    async def action_sort_column(self, index: int) -> None:
+    def action_sort_column(self, index: int) -> None:
         self.sort = SortSpec(
             column=self.settings.ui.columns[index], descending=self.sort.descending
         )
-        await self.save_sort()
+        self.start(self.save_sort(self.sort))
 
     async def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         if self.view != "history":
-            await self.action_sort_column(event.column_index)
+            self.action_sort_column(event.column_index)
 
-    async def action_toggle_pause(self) -> None:
+    def action_toggle_pause(self) -> None:
         self.ai_paused = not self.ai_paused
-        await pause_configured(self.path, self.ai_paused)
         self.status(
             "AI dispatch paused; current runs finish" if self.ai_paused else "AI dispatch resumed"
         )
-        await self.reload()
+        paused = self.ai_paused
+
+        async def save() -> None:
+            async with self.preference_lock:
+                await pause_configured(self.path, paused)
+
+        self.start(save())
 
     def action_help(self) -> None:
         self.push_screen(

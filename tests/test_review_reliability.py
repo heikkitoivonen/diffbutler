@@ -8,16 +8,22 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from tests.test_native import prepared
+from tests.test_native import configuration, prepared
 from tests.test_review_claims import seed, service
 from tests.test_review_results import captured
 from tests.test_sources import git
 from tests.test_sync import ACCOUNT, REF
 
-from diffbutler.core.managed import ManagedReviews, owned_directories, resolve_local
+from diffbutler.core.managed import (
+    ManagedReviews,
+    owned_directories,
+    resolve_local,
+    review_configured,
+)
 from diffbutler.core.native import NativeExecution
 from diffbutler.core.review import ReviewService
 from diffbutler.core.sync import DiffButler
+from diffbutler.domain.lifecycle import CleanupStatus
 from diffbutler.domain.review import RunRecord, RunStatus
 from diffbutler.domain.sync import RequestEvent, ReviewActivity
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
@@ -25,6 +31,63 @@ from diffbutler.store.database import Database
 from diffbutler.store.queue import SQLiteQueueStore
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("outcome", ["complete", "cancel", "error"])
+async def test_configured_review_is_durably_queued_before_slow_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    settings, forge = await prepared(tmp_path)
+    config = configuration(tmp_path, settings)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "agent-home"))
+    cleaning = asyncio.Event()
+    release = asyncio.Event()
+    original = ManagedReviews.cleanup
+
+    async def cleanup(managed: ManagedReviews) -> CleanupStatus:
+        cleaning.set()
+        await release.wait()
+        if outcome == "error":
+            raise RuntimeError("Synthetic maintenance failure")
+        return await original(managed)
+
+    monkeypatch.setattr(ManagedReviews, "cleanup", cleanup)
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        task = asyncio.create_task(review_configured(config, "acme/api#1", None, None))
+        try:
+            await asyncio.wait_for(cleaning.wait(), timeout=5)
+            row = (await queue.snapshot(ACCOUNT)).items[0]
+            assert row.state == "QUEUED" and row.task_id is not None
+            run = await managed.store.latest_run(row.task_id)
+            assert run is not None and run.status == "queued"
+            assert not await managed.leases.held_operations()
+            if outcome == "cancel":
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            elif outcome == "error":
+                release.set()
+                with pytest.raises(RuntimeError, match="Synthetic maintenance failure"):
+                    await task
+            else:
+                release.set()
+                result = await asyncio.wait_for(task, timeout=15)
+                assert result.id == run.id and result.status == "succeeded"
+            if outcome != "complete":
+                assert (await managed.reviews.get_run(run.id)).status == "cancelled"
+                assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AI_REVIEW"
+        finally:
+            release.set()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    finally:
+        await database.close()
 
 
 @pytest.mark.serial

@@ -23,7 +23,7 @@ from diffbutler.sources.git import GitSourceReader, SourceError
 
 
 @asynccontextmanager
-async def file_lock(path: Path) -> AsyncGenerator[None]:
+async def file_lock(path: Path, *, wait: bool = True) -> AsyncGenerator[bool]:
     """Cancellation never leaves a background thread waiting on an advisory lock."""
     await settled_io(lambda: path.parent.mkdir(parents=True, exist_ok=True))
     fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -36,8 +36,11 @@ async def file_lock(path: Path) -> AsyncGenerator[None]:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
+                if not wait:
+                    yield False
+                    return
                 await asyncio.sleep(0.05)
-        yield
+        yield True
     finally:
         os.close(fd)
 
@@ -218,10 +221,12 @@ class RepositoryCache:
                     await settled_io(lambda path=path: (path / "last-used").touch())
 
     async def prune(self) -> None:
-        """Evict whole inactive repositories; never expire a live session's pins."""
+        """Evict inactive repositories, deferring maintenance while the cache is busy."""
         if not self.path.exists():
             return
-        async with file_lock(self.lock_path):
+        async with file_lock(self.lock_path, wait=False) as acquired:
+            if not acquired:
+                return
             directories = await open_directories(self.path)
             for resource in await self._resources(directories):
                 path = self.path / resource.name

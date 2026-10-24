@@ -296,6 +296,9 @@ class ManagedReviews:
             findings_threshold=self.settings.review.findings_threshold,
         )
         try:
+            # Record explicit intent before maintenance can wait on another PR's I/O.
+            # Cancellation while waiting must also cancel this durable queued run.
+            await self.cleanup()
             while True:
                 preferences = await SQLiteDashboardStore(self.store.database).preferences()
                 result = await worker.execute_requested(
@@ -312,6 +315,12 @@ class ManagedReviews:
                 await asyncio.sleep(0.25)
         except asyncio.CancelledError:
             await self.reviews.cancel_review(run.id)
+            raise
+        except Exception:
+            # A maintenance failure before claiming must not leave an orphaned
+            # queued attempt after its supervisor has reported failure.
+            if (await self.reviews.get_run(run.id)).status == "queued":
+                await self.reviews.cancel_review(run.id)
             raise
 
     async def findings(self, row: PullRequestRow) -> ReviewResult | None:
@@ -363,7 +372,7 @@ async def review_configured(
             load_settings, path, repo=f"{ref.namespace}/{ref.repository}"
         )
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
-        await managed.cleanup()
+        await managed.recovery.recover_rebooted()
         return await managed.review(row, reviewer, progress)
 
 
@@ -414,7 +423,7 @@ async def handoff_configured(
     async with local_store(path) as (queue, settings):
         row = await resolve_local(queue, value, login)
         managed = ManagedReviews(queue.database, settings, await owned_directories(settings))
-        await managed.cleanup()
+        await managed.recovery.recover_rebooted()
         launch = await managed.prepare_handoff(row)
         exited = True
         try:

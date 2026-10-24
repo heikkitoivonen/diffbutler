@@ -59,6 +59,15 @@ The `approve` and `check` labels indicate the next human step; they do not trigg
 publication or approval.
 A trailing `-` marks a pending forge refresh (for example, `check -`).
 
+Keyboard actions acknowledge work immediately and perform I/O in background workers,
+so a slow fetch, cleanup, or local read does not hold up subsequent commands.
+Pressing `r` immediately shows `queued`; the request is recorded before cleanup or
+repository preparation waits for shared resources. It starts when dispatch is enabled
+and capacity is available. Repeated starts for the same PR are ignored while its
+dashboard action is active; `Ctrl+C` cancels it, including while queued. If starting
+fails, the dashboard shows the error and returns to the recorded state.
+Routine repository retention skips a busy cache and retries on a later cleanup pass.
+
 When an approved, still-open PR receives new commits, it reappears as `done+`.
 These rows sort after all other visible PRs, regardless of sort column or direction,
 and stay `done+` across further pushes and refreshes. The completed approval cycle

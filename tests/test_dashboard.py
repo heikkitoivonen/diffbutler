@@ -16,7 +16,7 @@ from rich.text import Text
 from sqlalchemy import func, select
 from tests.test_github import adapter
 from tests.test_sync import ACCOUNT, NOW, PR, REF, FakeForge
-from textual.widgets import DataTable, Static
+from textual.widgets import Button, DataTable, Input, Static
 
 from diffbutler.config.settings import load_settings
 from diffbutler.core.application import local_queue
@@ -1091,8 +1091,79 @@ def test_renewed_request_takes_precedence_over_every_open_pr_state(
 
 @pytest.mark.serial
 @pytest.mark.asyncio
+async def test_commands_and_queued_feedback_while_cleanup_is_waiting(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, queue, forge, path = ledger
+    second = replace(PR, ref=replace(REF, number=2), url=PR.url.replace("/1", "/2"))
+    forge.prs[second.ref] = second
+    forge.discovery = Discovery(
+        tuple(RequestedPR(pr, ("user:reader",)) for pr in (PR, second)), True
+    )
+    await DiffButler(queue, forge).sync()
+    cleaning = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    requested = asyncio.Event()
+    release_review = asyncio.Event()
+
+    async def cleanup(path: Path | None) -> None:
+        cleaning.set()
+        await release_cleanup.wait()
+
+    async def review(*args: object) -> None:
+        requested.set()
+        await release_review.wait()
+        raise ReviewConflict("Synthetic review stopped")
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.cleanup_configured", cleanup)
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.review_configured", review)
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test() as pilot:
+        keys = asyncio.create_task(pilot.press("C", "down", "w"))
+        try:
+            await asyncio.wait_for(cleaning.wait(), timeout=2)
+            await asyncio.wait_for(keys, timeout=2)
+            await pilot.pause()
+            row = app.selected()
+            assert row is not None
+            selected_id = row.row.tracked.task_id
+            saved = (await queue.snapshot(ACCOUNT)).items
+            assert next(item for item in saved if item.task_id == selected_id).state == (
+                "PENDING_AUTHOR_CHANGES"
+            )
+            assert all(
+                item.state == "PENDING_AI_REVIEW" for item in saved if item.task_id != selected_id
+            )
+            await pilot.press("r")
+            await asyncio.wait_for(requested.wait(), timeout=2)
+            table = app.query_one(DataTable[Text])
+            state_index = app.settings.ui.columns.index("state")
+            assert str(table.get_row_at(table.cursor_row)[state_index]) == "queued"
+            assert "queued" in str(app.query_one(Button).label)
+            assert "Review queued for PR" in str(app.query_one("#status", Static).content)
+            # A refresh with the old database state must not erase local acceptance.
+            await app.reload()
+            assert str(table.get_row_at(table.cursor_row)[state_index]) == "queued"
+            await pilot.press("space", "r")
+            assert len(app.review_tasks) == 1
+            assert not release_cleanup.is_set()
+            release_review.set()
+            await asyncio.gather(*app.review_tasks.values())
+            await app.reload()
+            assert str(table.get_row_at(table.cursor_row)[state_index]) == "author"
+            assert not app.pending_review_requests
+        finally:
+            release_cleanup.set()
+            release_review.set()
+            await keys
+            await asyncio.gather(*app.review_tasks.values())
+
+
+@pytest.mark.serial
+@pytest.mark.asyncio
 @pytest.mark.parametrize("key", ["space", "r"])
-@pytest.mark.parametrize("slow_read", ["preview", "refresh"])
+@pytest.mark.parametrize("slow_read", ["preview", "refresh", "filter"])
 async def test_start_second_review_while_dashboard_read_is_pending(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -1146,8 +1217,11 @@ async def test_start_second_review_while_dashboard_read_is_pending(
             monkeypatch.setattr("diffbutler.ui.tui.dashboard.detail_configured", detail)
         else:
             monkeypatch.setattr("diffbutler.ui.tui.dashboard.dashboard_rows", rows)
-            # Run through Textual's message pump, just like the periodic timer.
-            app.call_later(app.local_tick)
+            if slow_read == "filter":
+                app.query_one(Input).value = "acme"
+            else:
+                # Run through Textual's message pump, just like the periodic timer.
+                app.call_later(app.local_tick)
         keys = asyncio.create_task(pilot.press("down", key))
         try:
             await asyncio.wait_for(reading.wait(), timeout=2)
