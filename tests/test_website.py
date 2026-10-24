@@ -41,7 +41,16 @@ def test_build_publishes_readme_and_only_public_assets(tmp_path: Path) -> None:
     assert '<h1 id="diffbutler">DiffButler</h1>' in page
     assert 'src="diffbutler.png"' in page
     assert 'href="style.css"' in page
+    assert '<link rel="icon" href="icon.svg" type="image/svg+xml">' in page
+    assert '<a class="brand" href="#diffbutler" aria-label="DiffButler home">' in page
+    assert '<img src="icon.svg" width="44" height="44" alt="">' in page
     assert '<link rel="canonical" href="https://diffbutler.com/">' in page
     assert "<!-- README -->" not in page
-    assert {path.name for path in output.iterdir()} == {"index.html", "style.css", "diffbutler.png"}
+    assert {path.name for path in output.iterdir()} == {
+        "index.html",
+        "style.css",
+        "diffbutler.png",
+        "icon.svg",
+    }
     assert (output / "diffbutler.png").read_bytes() == (root / "diffbutler.png").read_bytes()
+    assert (output / "icon.svg").read_bytes() == (root / "website" / "icon.svg").read_bytes()

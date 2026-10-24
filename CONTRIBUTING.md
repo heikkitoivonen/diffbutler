@@ -69,8 +69,9 @@ notices when incorporating third-party material.
 
 The one-page website at `https://diffbutler.com` is generated directly from
 `README.md`, including the dashboard image. Edit the README to update the page's
-content; `website/` contains its HTML template and CSS. Relative documentation and
-license links point to the corresponding files on GitHub.
+content; `website/` contains its HTML template, CSS, and `icon.svg`, shared by the
+header and favicon. Relative documentation and license links point to the
+corresponding files on GitHub.
 
 Run `make site` to generate `.cache/site/`. To preview it locally, run
 `uv run --locked python -m http.server 8000 --directory .cache/site` and open

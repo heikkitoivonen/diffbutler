@@ -28,8 +28,9 @@ a:focus-visible { outline: 3px solid #146347; outline-offset: 5px; }
 }
 
 .site-header a { text-decoration: none; }
-.wordmark { font-weight: 750; color: #1b292d; letter-spacing: -0.04em; }
-.wordmark span { color: #146347; }
+.brand { display: inline-flex; border-radius: 11px; }
+.brand:hover { opacity: 0.85; }
+.brand img { width: 44px; height: 44px; margin: 0; border-radius: 0; }
 nav { display: flex; gap: 1.4rem; font-size: 0.88rem; }
 main { padding-block: 3rem; }
 

@@ -48,6 +48,7 @@ def build_site(root: Path, output: Path) -> None:
         template.replace("<!-- README -->", content), encoding="utf-8"
     )
     shutil.copyfile(root / "website" / "style.css", output / "style.css")
+    shutil.copyfile(root / "website" / "icon.svg", output / "icon.svg")
     shutil.copyfile(root / "diffbutler.png", output / "diffbutler.png")
 
 
