@@ -12,6 +12,17 @@ def identity_part(value: str) -> str:
     return value
 
 
+def repository_parts(value: str, *, allow_wildcard: bool = False) -> tuple[str, str]:
+    parts = value.split("/")
+    if len(parts) != 2:
+        raise ValueError("repository must be namespace/name")
+    owner, name = parts
+    identity_part(owner)
+    if not (allow_wildcard and name == "*"):
+        identity_part(name)
+    return owner, name
+
+
 @dataclass(frozen=True)
 class Account:
     forge: str
@@ -31,6 +42,13 @@ class PRRef:
         identity_part(self.repository)
         if self.number < 1:
             raise ValueError("PR number must be positive")
+
+
+def repository_matches(scope: str, ref: PRRef) -> bool:
+    owner, name = repository_parts(scope, allow_wildcard=True)
+    return owner.lower() == ref.namespace.lower() and (
+        name == "*" or name.lower() == ref.repository.lower()
+    )
 
 
 @dataclass(frozen=True)
@@ -67,11 +85,7 @@ class PRQuery:
 
     def __post_init__(self) -> None:
         if self.repository is not None:
-            parts = self.repository.split("/")
-            if len(parts) != 2:
-                raise ValueError("repository must be namespace/name")
-            for part in parts:
-                identity_part(part)
+            repository_parts(self.repository, allow_wildcard=True)
         if self.author is not None:
             identity_part(self.author)
         if self.state not in {"open", "closed", "merged", "all"}:

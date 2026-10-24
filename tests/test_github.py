@@ -58,7 +58,7 @@ def adapter(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("repositories", [(), ("acme/api",)])
+@pytest.mark.parametrize("repositories", [(), ("acme/api",), ("acme/*",), ("acme/*", "acme/api")])
 async def test_direct_and_team_discovery_deduplicates_and_keeps_provenance(
     repositories: tuple[str, ...],
 ) -> None:
@@ -76,7 +76,11 @@ async def test_direct_and_team_discovery_deduplicates_and_keeps_provenance(
                 json=[{"slug": "Reviewers", "organization": {"login": "Acme"}}],
             )
         if request.url.path == "/search/issues":
-            assert ("repo:acme/api" in request.url.params["q"]) == bool(repositories)
+            query = request.url.params["q"]
+            if repositories:
+                assert query.endswith("user:acme") or query.endswith("repo:acme/api")
+            else:
+                assert "repo:" not in query and "user:" not in query
             return httpx.Response(
                 200,
                 json=search(1, 2)
@@ -173,7 +177,54 @@ async def test_stale_search_hits_are_not_current_requests_and_team_opt_out() -> 
 
 
 @pytest.mark.asyncio
-async def test_search_filters_pagination_and_direct_lookup() -> None:
+@pytest.mark.parametrize(
+    ("repositories", "expected"),
+    [
+        (("acme/api",), {"acme/api"}),
+        (("ACME/*",), {"acme/api", "acme/web"}),
+        (("ACME/*", "other/api"), {"acme/api", "acme/web", "other/api"}),
+    ],
+)
+async def test_discovery_matches_refreshed_repository_scope(
+    repositories: tuple[str, ...], expected: set[str]
+) -> None:
+    names = {1: "acme/api", 2: "acme/web", 3: "other/api", 4: "acme-other/api"}
+    queries: set[str] = set()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/user":
+            return httpx.Response(200, json={"login": "reader"})
+        if request.url.path == "/search/issues":
+            queries.add(request.url.params["q"])
+            # Stale search results can include PRs transferred to a different owner.
+            return httpx.Response(200, json=search(*names))
+        number = int(request.url.path.rsplit("/", 1)[1])
+        data = pull(number)
+        data["base"]["repo"]["full_name"] = names[number]
+        return httpx.Response(200, json=data)
+
+    forge = adapter(handle, teams=False)
+    forge.repositories = repositories
+    try:
+        result = await forge.list_review_requests()
+        assert result.complete
+        assert {
+            f"{p.pull_request.ref.namespace}/{p.pull_request.ref.repository}" for p in result.items
+        } == expected
+        assert queries == {
+            "is:pr is:open review-requested:reader "
+            + (f"user:{repo.split('/')[0]}" if repo.endswith("/*") else f"repo:{repo}")
+            for repo in repositories
+        }
+    finally:
+        await forge.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("repository", "qualifier"), [("acme/api", "repo:acme/api"), ("acme/*", "user:acme")]
+)
+async def test_search_filters_pagination_and_direct_lookup(repository: str, qualifier: str) -> None:
     queries: list[str] = []
 
     def handle(request: httpx.Request) -> httpx.Response:
@@ -195,14 +246,14 @@ async def test_search_filters_pagination_and_direct_lookup() -> None:
     forge = adapter(handle)
     try:
         query = PRQuery(
-            repository="acme/api", author="author", state="merged", text="fix bug", page_size=1
+            repository=repository, author="author", state="merged", text="fix bug", page_size=1
         )
         first = await forge.search_pull_requests(query)
         second = await forge.search_pull_requests(query, first.next_cursor)
         assert first.next_cursor == "2" and second.next_cursor is None
         assert first.complete and second.complete
         assert [item.ref.number for item in (*first.items, *second.items)] == [1, 2]
-        assert queries == ['is:pr is:merged repo:acme/api author:author "fix bug"'] * 2
+        assert queries == [f'is:pr is:merged {qualifier} author:author "fix bug"'] * 2
         direct = await forge.get_pull_request(
             forge.ref("https://github.com/ACME/API/pull/2#discussion")
         )

@@ -15,7 +15,7 @@ from diffbutler.config.settings import NATIVE_PRESETS, ConfigError, Forge, Revie
 def save_setup(
     path: Path | None,
     forge: Forge | None,
-    repository_path: Path | None,
+    local_repository: tuple[str, Path] | None,
     reviewers: Sequence[Reviewer] = (),
     default_reviewer: str | None = None,
 ) -> Path:
@@ -40,7 +40,8 @@ def save_setup(
             if "review" not in document:
                 document["review"] = tomlkit.table()
             document["review"]["default_reviewer"] = default_reviewer
-        if repository_path is not None and forge is not None:
+        if local_repository is not None and forge is not None:
+            repository, repository_path = local_repository
             repos = document.get("repos")
             if repos is None:
                 repos = tomlkit.table()
@@ -48,7 +49,6 @@ def save_setup(
             if not isinstance(repos, MutableMapping):
                 raise ConfigError("Use a [repos] table to save local repository paths")
             repos = cast(MutableMapping[str, Any], repos)
-            repository = forge.repositories[0]
             if repository not in repos:
                 repos[repository] = {"path": str(repository_path)}
             else:

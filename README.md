@@ -63,15 +63,18 @@ From the GitHub repository you want to review, launch:
 diffbutler
 ```
 
-First-run setup detects the local repository, looks up your GitHub username using
-the selected token, asks for your preferred agent, and saves your choices. If username detection
-is unavailable, setup asks for it. Choose the recommended token access for public repositories;
-private repositories require it. Setup asks for the token's environment variable name
-and validates access. It never saves the token.
+First-run setup detects the local repository and asks whether to monitor just that
+repository or all repositories belonging to the same owner. It looks up your GitHub
+username using the selected token, asks for your preferred agent, and saves your choices.
+If username detection is unavailable, setup asks for it. Choose the recommended token
+access for public repositories; private repositories require it. Setup asks for the
+token's environment variable name and validates access. It never saves the token.
 New configs silently enable both Codex and Claude when found in `PATH`; setup asks
 only which detected agent should be the default. Missing agents get commented-out
 entries you can enable after installation.
 Later launches reuse your configuration.
+Repository filters accept exact names such as `heikkitoivonen/diffbutler` or
+`heikkitoivonen/*` for all accessible repositories owned by that account.
 
 The dashboard shows active reviews, including followed PRs whose GitHub review
 requests have disappeared after you posted feedback. Waiting-for-author reviews

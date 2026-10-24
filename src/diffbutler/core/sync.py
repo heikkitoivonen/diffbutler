@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from diffbutler.domain.forge import Account, Discovery, PRPage, PRQuery, PRRef
+from diffbutler.domain.forge import Account, Discovery, PRPage, PRQuery, PRRef, repository_matches
 from diffbutler.domain.sync import ReviewActivity, TrackedPR, reconcile
 from diffbutler.forges.base import ForgeError, ReadForge
 from diffbutler.store.base import QueueStore, SyncConflict
@@ -80,8 +80,7 @@ class DiffButler:
                             if (
                                 pr.state == "open"
                                 and pr.ref.forge == account.forge
-                                and f"{pr.ref.namespace}/{pr.ref.repository}".lower()
-                                == repository.lower()
+                                and repository_matches(repository, pr.ref)
                             ):
                                 discovered[pr.ref] = pr
                         cursor = page.next_cursor

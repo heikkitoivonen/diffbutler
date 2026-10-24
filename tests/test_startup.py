@@ -25,9 +25,11 @@ def public_repository_checks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("diffbutler.core.setup.shutil.which", without_agents)
 
     async def public(base_url: str, repository: str) -> bool:
+        assert repository == "acme/api"
         return True
 
     async def validate(base_url: str, repository: str, login: str, token: str | None) -> str:
+        assert repository == "acme/api"
         assert token is None
         return login
 
@@ -41,6 +43,9 @@ def public_repository_checks(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def accept_default(label: str, default: str) -> str:
+    if label.startswith("Repositories to monitor"):
+        assert default == "repo"
+        return default
     if label == "GitHub access (token recommended, anonymous)":
         assert default == "token"
         return "anonymous"
@@ -65,6 +70,7 @@ async def accept_default(label: str, default: str) -> str:
         ("file:///local/repo", None),
         ("https://github.com/acme/api?token=secret", None),
         ("ext::arbitrary command", None),
+        ("https://github.com/acme/*.git", None),
     ],
 )
 def test_remote_identity(remote: str, expected: tuple[str, str] | None) -> None:
@@ -73,7 +79,10 @@ def test_remote_identity(remote: str, expected: tuple[str, str] | None) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("custom", [False, True])
-async def test_git_inference_asks_for_username_and_reviewer(tmp_path: Path, custom: bool) -> None:
+@pytest.mark.parametrize("scope", ["repo", "all"])
+async def test_git_inference_asks_for_monitoring_scope_username_and_reviewer(
+    tmp_path: Path, custom: bool, scope: str
+) -> None:
     repo = tmp_path / "repository"
     repo.mkdir()
     await git(repo, "init", "--template=")
@@ -83,11 +92,17 @@ async def test_git_inference_asks_for_username_and_reviewer(tmp_path: Path, cust
     subdirectory.mkdir()
     path = tmp_path / "custom" / "settings.toml" if custom else config_path()
 
-    settings = await startup_settings(
-        path if custom else None, directory=subdirectory, ask=accept_default
-    )
+    async def ask(label: str, default: str) -> str:
+        if label.startswith("Repositories to monitor"):
+            assert "acme/api" in label and "acme/*" in label
+            assert default == "repo"
+            return scope
+        return await accept_default(label, default)
+
+    settings = await startup_settings(path if custom else None, directory=subdirectory, ask=ask)
     assert settings.forges[0].base_url == "https://api.github.com"
-    assert settings.forges[0].repositories == ["acme/api"]
+    assert settings.forges[0].repositories == ["acme/*" if scope == "all" else "acme/api"]
+    assert set(settings.repos) == {"acme/api"}
     assert settings.repos["acme/api"].path == repo
     assert "secret" not in path.read_text()
     assert not (tmp_path / "data").exists()
@@ -127,7 +142,15 @@ async def test_enterprise_remote_requires_provider_confirmation(tmp_path: Path) 
     await git(tmp_path, "init", "--template=")
     await git(tmp_path, "remote", "add", "origin", "git@git.example.com:acme/api.git")
     answers = iter(
-        ["github-enterprise", "git.example.com", "anonymous", "reader", "codex", sys.executable]
+        [
+            "github-enterprise",
+            "git.example.com",
+            "repo",
+            "anonymous",
+            "reader",
+            "codex",
+            sys.executable,
+        ]
     )
 
     async def ask(label: str, default: str) -> str:
@@ -177,14 +200,47 @@ async def test_environment_forge_still_requires_reviewer_setup(
     assert not config_path().exists()
 
 
-def test_repository_filters_are_validated(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "repository",
+    ["acme/api is:closed", "*/api", "*/*", "acme/ap*", "acme/?", "acme/**", "acme/*/api"],
+)
+def test_repository_filters_are_validated(tmp_path: Path, repository: str) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
         '[[forges]]\nkind="github"\nbase_url="https://api.github.com"\n'
-        'token_env="TEST"\nrepositories=["acme/api is:closed"]\n'
+        f'token_env="TEST"\nrepositories=["{repository}"]\n'
     )
     with pytest.raises(ConfigError, match="repositories"):
         load_settings(path)
+
+
+def test_repository_filters_accept_mixed_exact_and_owner_scopes(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[[forges]]\nkind="github"\nbase_url="https://api.github.com"\n'
+        'repositories=["acme/*", "other/api"]\n'
+    )
+    assert load_settings(path).forges[0].repositories == ["acme/*", "other/api"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("choice", ["invalid", "cancel"])
+async def test_incomplete_scope_choice_preserves_config(tmp_path: Path, choice: str) -> None:
+    await git(tmp_path, "init", "--template=")
+    await git(tmp_path, "remote", "add", "origin", "git@github.com:acme/api.git")
+    path = tmp_path / "config.toml"
+    original = "# keep my settings\nforges=[]\n"
+    path.write_text(original)
+
+    async def ask(label: str, default: str) -> str:
+        assert label.startswith("Repositories to monitor")
+        if choice == "cancel":
+            raise asyncio.CancelledError
+        return choice
+
+    with pytest.raises(asyncio.CancelledError if choice == "cancel" else ConfigError):
+        await startup_settings(path, directory=tmp_path, ask=ask)
+    assert path.read_text() == original
 
 
 @pytest.mark.parametrize("arguments", [[], ["dashboard"], ["dashboard", "--offline"]])
@@ -220,8 +276,9 @@ def test_dashboard_startup_runs_setup_before_rendering(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("inline", [False, True])
+@pytest.mark.parametrize("scope", ["repo", "all"])
 async def test_existing_repository_options_and_symlink_are_preserved(
-    tmp_path: Path, inline: bool
+    tmp_path: Path, inline: bool, scope: str
 ) -> None:
     await git(tmp_path, "init", "--template=")
     await git(tmp_path, "remote", "add", "origin", "git@github.com:acme/api.git")
@@ -233,15 +290,23 @@ async def test_existing_repository_options_and_symlink_are_preserved(
     )
     link = tmp_path / "linked.toml"
     link.symlink_to(target)
-    settings = await startup_settings(link, directory=tmp_path, ask=accept_default)
+
+    async def ask(label: str, default: str) -> str:
+        if label.startswith("Repositories to monitor"):
+            return scope
+        return await accept_default(label, default)
+
+    settings = await startup_settings(link, directory=tmp_path, ask=ask)
     assert link.is_symlink()
     assert settings.repos["acme/api"].enabled is False
     assert settings.repos["acme/api"].path == tmp_path
+    assert set(settings.repos) == {"acme/api"}
 
 
 @pytest.mark.asyncio
-async def test_invalid_answer_leaves_config_untouched(tmp_path: Path) -> None:
-    answers = iter(["github", "not a repository"])
+@pytest.mark.parametrize("repository", ["not a repository", "acme/*"])
+async def test_invalid_answer_leaves_config_untouched(tmp_path: Path, repository: str) -> None:
+    answers = iter(["github", repository])
 
     async def ask(label: str, default: str) -> str:
         return next(answers)

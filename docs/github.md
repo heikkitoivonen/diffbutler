@@ -98,6 +98,19 @@ variable directly; export the token before starting setup. It never asks for a t
 diagnostics or persistence.
 Successful username detection is recorded at INFO level in the application log.
 
+The forge's `repositories` filter accepts exact names (`owner/repo`) and owner wildcards
+(`owner/*`), including a mix of both. Wildcards cover accessible repositories owned by
+that account and apply to direct/team requests and **Monitor all PRs** mode. DiffButler
+uses GitHub's [owner search qualifier](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests#search-within-a-users-or-organizations-repositories)
+for wildcards, so new repositories are included without updating the configuration.
+It does not enumerate repositories: each owner filter uses one paginated search per
+request type (direct requests or each team), or one paginated search for all open PRs.
+Matching PRs are then fetched individually. GitHub's
+[search limits](https://docs.github.com/en/rest/search/search#search-scope-limits) apply:
+each query searches at most 4,000 matching repositories and returns at most 1,000
+results. DiffButler warns when the result count exceeds 1,000 or GitHub reports
+incomplete results; it cannot guarantee full coverage beyond the repository limit.
+
 For the anonymous public fallback, omit `token_env` (`None` internally):
 
 ```toml

@@ -17,6 +17,8 @@ from diffbutler.domain.forge import (
     RequestedPR,
     TeamMembership,
     identity_part,
+    repository_matches,
+    repository_parts,
 )
 from diffbutler.domain.sync import CommentEvent, RequestEvent, ReviewActivity, ReviewEvent
 from diffbutler.forges.base import ForgeError
@@ -33,6 +35,11 @@ from diffbutler.forges.github.mapping import (
     pull_request,
     timestamp,
 )
+
+
+def repository_qualifier(repository: str) -> str:
+    owner, name = repository_parts(repository, allow_wildcard=True)
+    return f"user:{owner}" if name == "*" else f"repo:{repository}"
 
 
 class GitHubForge:
@@ -202,7 +209,7 @@ class GitHubForge:
         if query.state != "all":
             terms.append(f"is:{query.state}")
         if query.repository:
-            terms.append(f"repo:{query.repository}")
+            terms.append(repository_qualifier(query.repository))
         if query.author:
             terms.append(f"author:{query.author}")
         if query.text.strip():
@@ -218,7 +225,11 @@ class GitHubForge:
         queries = [f"is:pr is:open review-requested:{account.login}"]
         queries.extend(f"is:pr is:open team-review-requested:{team}" for team in memberships.teams)
         if self.repositories:
-            queries = [f"{query} repo:{repo}" for query in queries for repo in self.repositories]
+            queries = [
+                f"{query} {repository_qualifier(repo)}"
+                for query in queries
+                for repo in self.repositories
+            ]
         discovered: dict[PRRef, RequestedPR] = {}
         refreshed: dict[PRRef, PullRequest] = {}
         # Hydration is shared between overlapping direct/team searches during one
@@ -231,6 +242,10 @@ class GitHubForge:
                     warnings.extend(result.warnings)
                     for pr in result.items:
                         if pr.state != "open":
+                            continue
+                        if self.repositories and not any(
+                            repository_matches(repo, pr.ref) for repo in self.repositories
+                        ):
                             continue
                         sources: list[str] = []
                         if account.login.lower() in pr.requested_users:

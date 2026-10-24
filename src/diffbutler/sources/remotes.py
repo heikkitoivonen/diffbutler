@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from diffbutler.domain.forge import PRQuery
+from diffbutler.domain.forge import repository_parts
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ def remote_identity(value: str) -> tuple[str, str] | None:
         if url.query or url.fragment:
             return None
         repository = url.path.strip("/").removesuffix(".git")
-        PRQuery(repository=repository)
+        repository_parts(repository)
         return url.hostname.lower(), repository
     except ValueError:
         return None

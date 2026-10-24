@@ -68,6 +68,9 @@ from a repository subdirectory saves the Git root as its local source path. Cred
 embedded in remote URLs are never saved. Ambiguous or missing information prompts for
 the forge and repository; unknown hosts require confirmation as GitHub Enterprise.
 GitLab is not implemented. Existing forge configurations skip setup.
+When a local repository is detected, setup asks whether to monitor just `owner/repo`
+(the default) or all repositories owned by that account (`owner/*`). The local checkout
+path is saved only for the detected repository, regardless of the monitoring choice.
 
 Prepare authentication before launching: prefer
 `export GITHUB_TOKEN="$(gh auth token)"` with an existing `gh` login, or create a
@@ -98,9 +101,16 @@ Existing anonymous configurations stay anonymous until you add `token_env = "GIT
 to their `[[forges]]` entry. For a minimal fine-grained token, also set
 `include_team_requests = false`; private-repository setup otherwise enables team discovery.
 
-The selected forge gets `repositories = ["owner/repo"]`, which limits both direct and
-team review-request discovery. An empty list (the default for manually configured
-forges) searches across accessible repositories. Each entry must be `owner/repo`.
+The selected forge gets `repositories = ["owner/repo"]` or `repositories = ["owner/*"]`,
+which limits both direct and team review-request discovery and the dashboard's
+**Monitor all PRs** mode. Exact entries monitor only that repository; `owner/*`
+monitors all accessible repositories owned by that account, including new repositories.
+You can mix exact entries and owner wildcards, for example
+`repositories = ["heikkitoivonen/*", "other/project"]`. Only a whole repository-name
+wildcard is supported; partial names and wildcard owners are invalid.
+An empty list (the default for manually configured forges) searches review requests
+across accessible repositories. Wildcards do not grant additional repository access;
+fine-grained tokens must cover the repositories you want to monitor.
 Explicitly followed PRs continue to be monitored independently of this request filter.
 The chosen repository's existing AI opt-in and review settings are preserved.
 

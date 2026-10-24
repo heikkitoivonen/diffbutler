@@ -2,7 +2,7 @@
 
 import asyncio
 
-from diffbutler.domain.forge import PRQuery, identity_part
+from diffbutler.domain.forge import identity_part, repository_parts
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.http import GitHubHTTP
 from diffbutler.forges.github.mapping import ResponseModel, User, parse
@@ -31,7 +31,7 @@ async def detect_login(base_url: str, token: str) -> str | None:
 
 
 async def repository_access(http: GitHubHTTP, repository: str) -> RepositoryAccess:
-    PRQuery(repository=repository)
+    repository_parts(repository)
     response = await http.get(f"repos/{repository}")
     access = parse(RepositoryAccess, response.body)
     if access.full_name.lower() != repository.lower():

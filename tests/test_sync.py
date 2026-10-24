@@ -420,12 +420,15 @@ async def test_failed_refresh_cannot_overwrite_other_accounts_newer_cache(
 
 
 @pytest.mark.asyncio
-async def test_monitor_all_pages_without_request_membership(database: Database) -> None:
+@pytest.mark.parametrize("repository", ["acme/api", "ACME/*"])
+async def test_monitor_all_pages_without_request_membership(
+    database: Database, repository: str
+) -> None:
     forge = FakeForge()
     forge.discovery = Discovery((), True)
     forge.prs[REF] = replace(PR, requested_users=())
     store = SQLiteQueueStore(database)
-    service = DiffButler(store, forge, monitor_repositories=("acme/api",))
+    service = DiffButler(store, forge, monitor_repositories=(repository,))
     report = await service.sync()
     assert report.complete
     assert report.discovered == 1
@@ -439,6 +442,38 @@ async def test_monitor_all_pages_without_request_membership(database: Database) 
     forge.prs[REF] = replace(forge.prs[REF], state="closed")
     await DiffButler(store, forge).sync()
     assert (await store.snapshot(ACCOUNT)).items[0].state == "DONE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("repositories", "expected"),
+    [
+        (("acme/api",), {"acme/api"}),
+        (("ACME/*", "acme/api"), {"acme/api", "acme/web"}),
+        (("ACME/*", "other/api"), {"acme/api", "acme/web", "other/api"}),
+    ],
+)
+async def test_monitoring_repository_scopes_filters_and_deduplicates(
+    database: Database, repositories: tuple[str, ...], expected: set[str]
+) -> None:
+    forge = FakeForge()
+    forge.discovery = Discovery((), True)
+    forge.prs.clear()
+    for name in ("acme/api", "acme/web", "other/api", "acme-other/api"):
+        owner, repository = name.split("/")
+        ref = replace(REF, namespace=owner, repository=repository)
+        forge.prs[ref] = replace(PR, ref=ref, requested_users=())
+    store = SQLiteQueueStore(database)
+    report = await DiffButler(store, forge, monitor_repositories=repositories).sync()
+    assert report.complete and report.discovered == len(expected)
+    items = (await store.snapshot(ACCOUNT)).items
+    assert {
+        f"{item.pull_request.ref.namespace}/{item.pull_request.ref.repository}" for item in items
+    } == expected
+    assert all(item.following and not item.sources for item in items)
+    assert not await list_queue(store, view="requested")
+    async with database.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(AIRun)) == 0
 
 
 @pytest.mark.asyncio

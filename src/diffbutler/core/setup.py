@@ -19,7 +19,7 @@ from diffbutler.config.settings import (
     load_settings,
 )
 from diffbutler.config.setup import save_setup
-from diffbutler.domain.forge import PRQuery, identity_part
+from diffbutler.domain.forge import identity_part, repository_parts
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.github.setup import detect_login, repository_is_public, validate_access
 from diffbutler.sources.remotes import discover_repository
@@ -100,9 +100,21 @@ async def startup_settings(
         else await question("Repository to monitor (owner/name)")
     )
     try:
-        PRQuery(repository=repository)
+        repository_parts(repository)
     except ValueError:
         raise ConfigError("Repository must be owner/name") from None
+    scope = repository
+    if detected is not None and matched:
+        owner = repository.split("/")[0]
+        choice = (
+            await question(
+                f"Repositories to monitor (repo for just {repository}, all for {owner}/*)", "repo"
+            )
+        ).lower()
+        if choice not in {"repo", "all"}:
+            raise ConfigError("Choose repo or all repositories")
+        if choice == "all":
+            scope = f"{owner}/*"
     base_url = "https://api.github.com" if host == "github.com" else f"https://{host}/api/v3"
     public = await check(
         "Checking GitHub repository visibility", repository_is_public(base_url, repository)
@@ -154,7 +166,7 @@ async def startup_settings(
         token_env=token_env,
         login=login,
         include_team_requests=not public,
-        repositories=[repository],
+        repositories=[scope],
     )
     reviewers, default = await setup_reviewer(
         settings, directory, question, progress, discover=new_config
@@ -163,7 +175,7 @@ async def startup_settings(
         save_setup,
         path,
         forge,
-        detected.path if detected and matched else None,
+        (repository, detected.path) if detected and matched else None,
         reviewers,
         default,
     )
