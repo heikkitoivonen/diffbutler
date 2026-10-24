@@ -151,6 +151,39 @@ def terminal(tmp_path: Path) -> Iterator[Terminal]:
         terminal.close()
 
 
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        (b"\x1b]11;rgb:ffff/ffff/ffff\x1b\\", "ansi-light"),
+        (b"\x1b]11;rgb:0000/0000/0000\x07", "ansi-dark"),
+        (b"", "ansi-dark"),
+    ],
+)
+def test_terminal_background_detection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, response: bytes, expected: str
+) -> None:
+    monkeypatch.delenv("COLORFGBG", raising=False)
+    theme_file = tmp_path / "theme.txt"
+    bootstrap = (
+        "from pathlib import Path\n"
+        "from diffbutler.ui.tui.app import TerminalApp\n"
+        "class Probe(TerminalApp):\n"
+        "    BINDINGS = [('q', 'quit', 'Quit'), ('t', 'report', 'Report')]\n"
+        "    def action_report(self):\n"
+        f"        Path({str(theme_file)!r}).write_text(self.theme)\n"
+        "Probe().run()\n"
+    )
+    terminal = Terminal(tmp_path, app_argv=[sys.executable, "-c", bootstrap])
+    try:
+        terminal.wait(lambda: b"\x1b]11;?\x1b\\" in terminal.output)
+        terminal.send(response + b"t")
+        terminal.wait(theme_file.exists)
+        assert theme_file.read_text() == expected
+        terminal.quit()
+    finally:
+        terminal.close()
+
+
 def test_wait_accepts_exit_between_condition_and_liveness_checks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

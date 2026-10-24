@@ -5,8 +5,15 @@ from typing import Any, ClassVar
 
 from textual.app import App, SystemCommand
 from textual.binding import Binding, BindingType
+from textual.driver import Driver
 from textual.screen import Screen
 from textual.widgets import HelpPanel
+
+from diffbutler.ui.tui.terminal_theme import (
+    TerminalBackground,
+    ThemeDetectingDriver,
+    environment_theme,
+)
 
 
 class TerminalApp(App[None]):
@@ -18,7 +25,24 @@ class TerminalApp(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        self.theme = "ansi-dark"
+        self.theme = environment_theme()
+        self._initial_theme = self.theme
+        self._theme_selected = False
+
+    def get_driver_class(self) -> type[Driver]:
+        driver = super().get_driver_class()
+        # Preserve explicitly configured drivers and headless test behavior.
+        from textual.drivers.linux_driver import LinuxDriver
+
+        return ThemeDetectingDriver if driver is LinuxDriver else driver
+
+    def action_change_theme(self) -> None:
+        self._theme_selected = True
+        super().action_change_theme()
+
+    def on_terminal_background(self, message: TerminalBackground) -> None:
+        if not self._theme_selected and self.theme == self._initial_theme:
+            self.theme = message.theme
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "hide_help_panel":
