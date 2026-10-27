@@ -166,7 +166,7 @@ class DiffButler:
             )
         raise AssertionError("unreachable")
 
-    async def follow_pr(self, ref: PRRef) -> PullRequestRow:
+    async def follow_pr(self, ref: PRRef, *, for_review: bool = False) -> PullRequestRow:
         account = await self._account()
         stale: TrackedPR | None = None
         for attempt in range(3):
@@ -179,6 +179,8 @@ class DiffButler:
             pr = await self.forge.get_pull_request(ref)
             if pr.ref != ref:
                 raise ForgeError("Forge returned a different PR identity")
+            if for_review and pr.state != "open":
+                raise ForgeError("PR is closed or merged; choose an open PR")
             # Following succeeds even if activity access fails; return the warning to the UI.
             try:
                 activity = await self.forge.get_review_activity(ref)
@@ -199,6 +201,33 @@ class DiffButler:
                 continue
             persisted = await self.store.snapshot(account)
             result = next(row for row in persisted.items if row.pull_request.ref == ref)
+            if for_review and result.state == "DONE":
+                # An explicit review request may reopen an approved, still-open PR.
+                # Persist completion first so the old cycle and its cleanup survive.
+                if result.pull_request.state != "open":
+                    raise ForgeError("PR is closed or merged; choose an open PR")
+                reopened = replace(
+                    result,
+                    task_id=None,
+                    cycle=result.cycle + 1,
+                    state="PENDING_AI_REVIEW",
+                    completion_reason=None,
+                    completion_event=None,
+                    opened_at=None,
+                    posted_at=None,
+                    review_requested_at=None,
+                    notice="Review explicitly requested",
+                )
+                try:
+                    await self.store.apply(account, persisted.version, (reopened,))
+                except SyncConflict:
+                    if attempt == 2:
+                        raise ForgeError(
+                            "Queue changed concurrently; retry review request"
+                        ) from None
+                    continue
+                persisted = await self.store.snapshot(account)
+                result = next(row for row in persisted.items if row.pull_request.ref == ref)
             return PullRequestRow(account=account, tracked=result, warnings=activity.warnings)
         raise AssertionError("unreachable")
 

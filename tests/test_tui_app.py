@@ -21,7 +21,8 @@ async def test_failed_review_status_includes_reason_and_output_hint(
     config = tmp_path / "config.toml"
     config.write_text("")
     app = Dashboard(config, load_settings(config), offline=True)
-    monkeypatch.setattr(app, "selected", Mock(return_value=Mock(spec=DashboardRow, row=Mock())))
+    row = Mock(spec=DashboardRow, row=Mock(tracked=Mock(task_id="task")))
+    monkeypatch.setattr(app, "selected", Mock(return_value=row))
     monkeypatch.setattr(app, "selected_key", Mock(return_value="task"))
     monkeypatch.setattr(app, "reload", AsyncMock())
     reason = "Codex conversation is busy (thread already has an active writer)."

@@ -19,6 +19,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
 from diffbutler.config.settings import ConfigError, Settings
+from diffbutler.core.application import follow_review_target_configured
 from diffbutler.core.dashboard import (
     CycleDetail,
     DashboardRow,
@@ -49,6 +50,8 @@ from diffbutler.core.managed import (
     reviewer_choices_configured,
 )
 from diffbutler.core.native import foreground_environment
+from diffbutler.core.pr_lookup import ReviewTarget
+from diffbutler.core.sync import PullRequestRow
 from diffbutler.domain.dashboard import CycleRecord
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
@@ -58,6 +61,7 @@ from diffbutler.ui.tui.app import TerminalApp
 from diffbutler.ui.tui.browse import BrowseScreen
 from diffbutler.ui.tui.browser import open_browser
 from diffbutler.ui.tui.foreground import run_foreground
+from diffbutler.ui.tui.review_prompt import ReviewPrompt
 
 
 def safe(value: object) -> str:
@@ -235,7 +239,8 @@ class Dashboard(TerminalApp):
         ("h", "view_history", "History"),
         ("b", "browse_prs", "Browse all PRs"),
         ("a", "toggle_monitoring", "Monitor all PRs"),
-        ("R", "refresh", "Refresh"),
+        ("ctrl+r", "refresh", "Refresh"),
+        ("R", "review_pr", "Review PR…"),
         ("space", "primary_action", "Next action"),
         ("enter", "open_detail", "Detail"),
         ("D", "view_diff", "Pinned diff"),
@@ -689,28 +694,47 @@ class Dashboard(TerminalApp):
 
     def action_run_review(self) -> None:
         row = self.selected()
-        key = self.selected_key()
-        if (
-            row is None
-            or key is None
-            or self.view == "history"
-            or key in self.review_tasks
-            or key in self.resetting_tasks
-        ):
+        if row is not None and self.view != "history":
+            self.start_review(row.row)
+
+    def action_review_pr(self) -> None:
+        if len(self.screen_stack) > 1:
+            return
+
+        def chosen(target: ReviewTarget | None) -> None:
+            if target is not None:
+                self.start(self.review_target(target), message="Preparing selected PR…")
+
+        self.push_screen(ReviewPrompt(self.path), chosen)
+
+    async def review_target(self, target: ReviewTarget) -> None:
+        row = await follow_review_target_configured(self.path, target)
+        self.view = "active"
+        self.query_one(Input).value = ""
+        await self.reload()
+        key = str(row.tracked.task_id)
+        keys = list(self.rows)
+        if key in keys:
+            self.query_one(DataTable[Text]).move_cursor(row=keys.index(key))
+        self.start_review(row)
+
+    def start_review(self, row: PullRequestRow) -> None:
+        key = str(row.tracked.task_id)
+        if row.tracked.task_id is None or key in self.review_tasks or key in self.resetting_tasks:
             return
 
         reviewer = self.current_reviewer
-        pr_number = row.row.tracked.pull_request.ref.number
+        pr_number = row.tracked.pull_request.ref.number
         self.pending_review_requests.add(key)
         self.status(f"Review queued for PR #{pr_number}")
-        if self.is_running:
+        if self.is_running and self.selected_key() == key and self.view != "history":
             table = self.query_one(DataTable[Text])
             for index, column in enumerate(self.settings.ui.columns):
                 if column in {"state", "ai_status"}:
                     width = list(table.columns.values())[index].width
                     table.update_cell_at(
                         Coordinate(table.cursor_row, index),
-                        queue_cell(self.cell(row, column), column, width),
+                        queue_cell(self.cell(DashboardRow(row=row), column), column, width),
                     )
             self.query_one(Button).label = "Review queued · Ctrl+C to cancel"
 
@@ -729,8 +753,8 @@ class Dashboard(TerminalApp):
             try:
                 result = await review_configured(
                     self.path,
-                    row.row.tracked.pull_request.url,
-                    row.row.account.login,
+                    row.tracked.pull_request.url,
+                    row.account.login,
                     reviewer,
                     progress,
                 )
@@ -980,7 +1004,9 @@ class Dashboard(TerminalApp):
                 "m records your completed approval locally and schedules cleanup.\n"
                 "It does not submit approval.\n"
                 "a toggles monitoring all open PRs in configured repositories.\n"
-                "h browses offline history. C retries due cleanup. R refreshes forge evidence.\n"
+                "h browses offline history. C retries due cleanup.\n"
+                "Ctrl+R refreshes forge evidence.\n"
+                "R asks for a PR link or number to review, then a repository if ambiguous.\n"
                 "s cycles sort columns; S reverses; 1-9 or a column header selects a sort.\n"
                 "/ filters; f cycles views. Ctrl+C cancels the selected run launched here.\n"
                 "P pauses AI dispatch; forge polling continues.\n"

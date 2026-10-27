@@ -87,6 +87,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 |---|---|
 | `space` | Start review, discuss findings, or open the PR according to its state |
 | `r` | Request a background native review of the selected active PR |
+| `R` | Enter a PR link or number to review; choose a repository if ambiguous |
 | `n` | Change the current AI reviewer globally for subsequent runs |
 | `c` | Resume the exact saved conversation in the same terminal |
 | `o` / `ctrl+o` | Choose pending human review and open the browser |
@@ -100,7 +101,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `C` | Retry due cleanup jobs, respecting persisted backoff |
 | `a` | Toggle monitoring all open PRs in configured repositories; saved across restarts |
 | `b` | Search accessible open PRs; select one with Enter to follow it |
-| `R` | Refresh forge evidence now |
+| `ctrl+r` | Refresh forge evidence now |
 | `/` | Filter the local queue by repository, number, title, or author |
 | `f` | Cycle active, requested, following, triage, waiting/posted, and history views |
 | `s` / `S` | Cycle displayed sort columns / reverse direction |
@@ -127,6 +128,20 @@ reviewer must be configured to switch.
 Accessible-PR search is paginated (`n`); `f` in that screen chooses the next configured
 forge. Following a result does not start AI. Return to the queue and press `r`.
 The CLI also supports repository/author/state search filters through `ls --view all`.
+
+Press `R` to request a review of a PR by its HTTPS link or positive number (with an
+optional `#`). A link must belong to a configured forge and can name a repository
+outside your monitoring scope. Numbers are checked against every configured forge's
+`repositories` list, including owner wildcards, regardless of the current queue view
+or all-PR monitoring switch. Only accessible, open PRs qualify. If several repositories
+match, select the intended repository and press Enter; the account and forge are
+shown too. Escape cancels without following a PR or starting a review. Failed or
+incomplete lookups must be retried rather than treating partial results as unambiguous.
+Submitting a unique match or choosing a repository follows that PR and requests a
+review with the current reviewer, using the usual queue, pause, and cancellation
+controls. Own-PR and assignee visibility settings still apply to the queue.
+If that open PR's previous review cycle is complete, this explicit request starts
+a fresh cycle and retains the completed cycle and its cleanup in history.
 
 The preview and full details show the saved Markdown review drafts. Each issue
 includes a copyable comment for human evaluation. Native reviews show “Read review
@@ -227,7 +242,7 @@ cannot cover a refresh, polling waits until reset. Reset clears the old quota sl
 and consumption estimate while retaining the refresh-cost estimate. Missing headers
 do not authorize acceleration; expired quota observations stop delaying polling.
 
-Manual `R` refreshes can bypass the adaptive interval and update the next automatic
+Manual `Ctrl+R` refreshes can bypass the adaptive interval and update the next automatic
 deadline, but still respect recorded server cooldowns and request pacing. Quota and
 cooldowns observed during incomplete refreshes also affect scheduling. Errors retain
 exponential retry backoff. Interval changes are logged with account, resource, remaining

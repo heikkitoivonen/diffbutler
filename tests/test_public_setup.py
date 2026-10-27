@@ -139,7 +139,7 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
         assert app.view == "active"
         assert app.query_one(DataTable).row_count == 2
         assert refreshes == 0 and len(calls) == before
-        await pilot.press("R")
+        await pilot.press("ctrl+r")
         await asyncio.wait_for(
             asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
         )
