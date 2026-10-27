@@ -1,12 +1,13 @@
 """Shared terminal command and keyboard behavior."""
 
+import asyncio
 from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, call
 
 import pytest
 from textual.command import CommandPalette
-from textual.widgets import HelpPanel
+from textual.widgets import HelpPanel, Static
 
 from diffbutler.config.settings import load_settings
 from diffbutler.core.dashboard import DashboardRow
@@ -110,6 +111,40 @@ async def test_screenshots_are_disabled(
         assert {"Theme", "Quit", "Keys"} <= commands
         await app.run_action("screenshot")
         await pilot.pause()
+
+
+@pytest.mark.serial
+@pytest.mark.asyncio
+async def test_handoff_heartbeat_stops_before_shutdown_removes_widgets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class ShutdownProbe(HandoffProbe):
+        outcomes: list[object]
+        ticks_at_shutdown: int
+
+        async def _close_all(self) -> None:
+            # Textual marks the app stopped before pruning screens, but cancels
+            # app workers later. Force a heartbeat to wake in that interval.
+            assert not self.is_running
+            self.ticks_at_shutdown = self.ticks
+            heartbeat = next(worker for worker in self.workers if worker.name == "heartbeat")
+            await self.query_one("#heartbeat", Static).remove()
+            self.outcomes = list(
+                await asyncio.wait_for(
+                    asyncio.gather(heartbeat.wait(), return_exceptions=True), timeout=2
+                )
+            )
+            await super()._close_all()
+
+    app = ShutdownProbe(tmp_path, ["unused"], tmp_path / "events.jsonl")
+    monkeypatch.setattr(app, "background_output", AsyncMock())
+    async with app.run_test() as pilot:
+        async with asyncio.timeout(2):
+            while not app.ticks:
+                await pilot.pause()
+        assert "Background ticks:" in str(app.query_one("#heartbeat", Static).content)
+    assert app.outcomes == [None]
+    assert app.ticks == app.ticks_at_shutdown
 
 
 @pytest.mark.serial

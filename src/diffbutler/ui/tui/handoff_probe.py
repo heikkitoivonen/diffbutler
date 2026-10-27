@@ -81,6 +81,9 @@ class HandoffProbe(TerminalApp):
     async def heartbeat(self) -> None:
         while True:
             await asyncio.sleep(0.1)
+            # Shutdown can prune widgets before app workers are cancelled.
+            if not self.is_running:
+                return
             self.ticks += 1
             self.record("tick", attached=self.attached)
             if not self.attached:

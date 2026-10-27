@@ -177,7 +177,8 @@ def test_terminal_background_detection(
     try:
         terminal.wait(lambda: b"\x1b]11;?\x1b\\" in terminal.output)
         terminal.send(response + b"t")
-        terminal.wait(theme_file.exists)
+        # The child creates the file before its theme text becomes readable.
+        terminal.wait(lambda: theme_file.exists() and bool(theme_file.read_text()))
         assert theme_file.read_text() == expected
         terminal.quit()
     finally:
