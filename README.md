@@ -106,7 +106,8 @@ Select a PR with the arrow keys, then work through the review:
    while retaining review history.
 
 `Space` performs the selected PR's next action: start a review, discuss findings,
-or open the browser. An AI review never counts as your approval. Background analysis
+or open the browser. For `check` and `author`, it resumes the saved agent conversation,
+just like `c`. An AI review never counts as your approval. Background analysis
 uses the agent's [native permission controls](docs/native-reviews.md#native-permissions-and-authentication)
 and read-only review instructions; source sent to the agent may go to its model provider.
 

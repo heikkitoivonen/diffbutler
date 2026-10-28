@@ -519,6 +519,7 @@ class Dashboard(TerminalApp):
             else {
                 "PENDING_AI_REVIEW": "Start AI review",
                 "FINDINGS_TRIAGE": "Discuss findings",
+                "PENDING_AUTHOR_CHANGES": "Discuss findings",
                 "QUEUED": "Review queued · Ctrl+C to cancel",
                 "AI_RUNNING": "Review running · Ctrl+C to cancel",
             }.get(row.row.tracked.state if row else "", "Open PR for human review")
@@ -867,7 +868,7 @@ class Dashboard(TerminalApp):
             )
             if state == "PENDING_AI_REVIEW":
                 self.action_run_review()
-            elif state == "FINDINGS_TRIAGE":
+            elif state in {"FINDINGS_TRIAGE", "PENDING_AUTHOR_CHANGES"}:
                 self.action_resume_session()
             elif state in {"QUEUED", "AI_RUNNING"}:
                 self.status("Review in progress; Ctrl+C cancels the selected local run.")

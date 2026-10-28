@@ -111,6 +111,10 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `y` | Copy the PR URL using terminal clipboard support |
 | `?` / `q` | Help / quit and settle reviews launched by this dashboard |
 
+For `check` and `author` PRs, `space` and the **Discuss findings** button resume
+the saved agent conversation, just like `c`. Resuming does not itself change the
+review state; returning from the session reconciles any new forge activity.
+
 At startup, the top message area shows `Current AI reviewer: <name> - n to change`.
 The next status message replaces it; queue refreshes do not restore it.
 Press `n` to cycle configured Codex/Claude reviewers in configuration order, starting

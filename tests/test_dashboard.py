@@ -599,6 +599,45 @@ def test_all_columns_sort_stably_and_missing_findings_stay_last() -> None:
 
 @pytest.mark.serial
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["space", "c", "button"])
+async def test_author_actions_resume_findings_without_changing_state(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+) -> None:
+    database, queue, _, path = ledger
+    tracked = (await queue.snapshot(ACCOUNT)).items[0]
+    assert tracked.task_id is not None
+    await SQLiteDashboardStore(database).choose_state(tracked.task_id, waiting=True)
+    resumed: list[DashboardRow] = []
+    opened: list[str] = []
+
+    async def attach(self: Dashboard, row: DashboardRow) -> None:
+        resumed.append(row)
+
+    async def browser(url: str, command: list[str] | None = None) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(Dashboard, "attach", attach)
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.open_browser", browser)
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test() as pilot:
+        if action == "button":
+            await pilot.click("#primary")
+        else:
+            await pilot.press(action)
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
+        assert [row.row.tracked.task_id for row in resumed] == [tracked.task_id]
+        assert not opened
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AUTHOR_CHANGES"
+        assert str(app.query_one(Button).label) == "Discuss findings"
+
+
+@pytest.mark.serial
+@pytest.mark.asyncio
 @pytest.mark.skipif(
     sys.platform not in {"linux", "darwin"}, reason="Native cleanup requires host/boot identity"
 )
