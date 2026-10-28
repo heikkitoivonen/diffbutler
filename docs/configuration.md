@@ -254,6 +254,10 @@ Revision `0009` adds retained forge receipts, per-cycle PR snapshots, refresh-pe
 status and persistent UI preferences. See [dashboard operation](dashboard.md).
 
 Revision `0010` adds durable review failure and invalidation reasons on `ai_run`.
+Revision `0011` adds per-PR visibility overrides for explicit review selections.
+
+PRs explicitly selected with `R` bypass the following visibility settings while active.
+The override is saved per PR and does not change these defaults.
 
 `ui.include_own_prs` defaults to `false`, hiding PRs authored by the reviewing account
 from dashboard and CLI local queue views, regardless of direct/team requests or
@@ -265,7 +269,8 @@ accessible-PR search remain available. Saved state is preserved when toggling it
 account from the same local queue views, even with direct or team review requests.
 Set it to `true` or use `DIFFBUTLER_UI__INCLUDE_ASSIGNED_PRS=true` to include them.
 Matching ignores letter case. This setting is independent of `include_own_prs`;
-both must be enabled for a PR you authored and are assigned to. Assignees are saved
+both must be enabled for a PR you authored and are assigned to unless you select it
+with `R`. Assignees are saved
 on forge refresh; older cached PRs need a successful refresh before this filter applies.
 History, accessible-PR search, monitoring, and saved review state are preserved.
 

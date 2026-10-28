@@ -114,7 +114,8 @@ and read-only review instructions; source sent to the agent may go to its model 
 - `/`: Filter the queue.
 - `a`: Toggle monitoring all open PRs in configured repositories.
 - `b`: Browse accessible PRs and follow one.
-- `R`: Review a PR by link or number; choose a repository if the number is ambiguous.
+- `R`: Find and add a PR by link or number, then review it; choose a repository if
+  the number is ambiguous. Explicitly selected PRs bypass queue visibility filters.
 - `Ctrl+R`: Refresh from GitHub.
 - `k`: Stop the selected PR's review and reset its local tracking and owned resources.
   It disappears until a forge refresh rediscovers it; review history is retained.
@@ -126,10 +127,11 @@ See the [dashboard guide](docs/dashboard.md) for all actions and
 [configuration guide](docs/configuration.md) for settings.
 
 Your own PRs are hidden from the review queue by default, including direct and team
-requests. Set `include_own_prs = true` in `[ui]` to review them, such as PRs an agent
-created using your account. PRs assigned to you are also hidden by default, even when
+requests. Use `R` to select one explicitly, or set `include_own_prs = true` in `[ui]`
+to show them all, such as PRs an agent created using your account.
+PRs assigned to you are also hidden by default, even when
 you are requested directly or through a team. Set `include_assigned_prs = true` in
-`[ui]` to include them.
+`[ui]` to include them, or select one with `R`.
 
 ## Reset
 

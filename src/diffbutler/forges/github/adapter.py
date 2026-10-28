@@ -162,6 +162,8 @@ class GitHubForge:
         page: int,
         page_size: int,
         refreshed: dict[PRRef, PullRequest] | None = None,
+        *,
+        number: int | None = None,
     ) -> PRPage:
         response = await self.http.get(
             "search/issues",
@@ -182,6 +184,8 @@ class GitHubForge:
                 if not url:
                     raise ForgeError("GitHub search result lacks a pull request URL")
                 ref = self.search_ref(url)
+                if number is not None and ref.number != number:
+                    continue
                 pr = refreshed.get(ref) if refreshed is not None else None
                 if pr is None:
                     pr = await self.get_pull_request(ref)
@@ -214,7 +218,7 @@ class GitHubForge:
             terms.append(f"author:{query.author}")
         if query.text.strip():
             terms.append(json.dumps(query.text.strip(), ensure_ascii=False))
-        return await self.search_page(" ".join(terms), page, query.page_size)
+        return await self.search_page(" ".join(terms), page, query.page_size, number=query.number)
 
     async def list_review_requests(self) -> Discovery:
         account = await self.whoami()

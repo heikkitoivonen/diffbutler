@@ -46,7 +46,7 @@ async def numbered_prs(
         seen: set[str] = set()
         while True:
             page = await forge.search_pull_requests(
-                PRQuery(repository=repository, page_size=100), cursor
+                PRQuery(repository=repository, page_size=100, number=number), cursor
             )
             if not page.complete:
                 raise ForgeError("PR lookup is incomplete; retry before choosing a repository")

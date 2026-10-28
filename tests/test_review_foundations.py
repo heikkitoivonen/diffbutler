@@ -127,7 +127,7 @@ async def test_upgrade_persists_queue_then_sessions_and_runs(tmp_path: Path) -> 
             await db.commit()
             task_id = task.id
         status = await database.initialize()
-        assert status.revision == "0010" and status.backup is not None
+        assert status.revision == "0011" and status.backup is not None
         async with database.sessions() as db:
             assert await db.scalar(select(ReviewTask.state)) == "PENDING_AI_REVIEW"
             assert await db.scalar(select(func.count()).select_from(AIRun)) == 0

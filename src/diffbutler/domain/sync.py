@@ -72,6 +72,7 @@ class TrackedPR:
     notice: str = ""
     posted_at: datetime | None = None
     review_requested_at: datetime | None = None
+    explicit_review: bool = False
 
 
 @dataclass(frozen=True)

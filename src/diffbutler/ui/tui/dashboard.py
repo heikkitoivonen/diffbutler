@@ -19,7 +19,6 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
 from diffbutler.config.settings import ConfigError, Settings
-from diffbutler.core.application import follow_review_target_configured
 from diffbutler.core.dashboard import (
     CycleDetail,
     DashboardRow,
@@ -50,7 +49,6 @@ from diffbutler.core.managed import (
     reviewer_choices_configured,
 )
 from diffbutler.core.native import foreground_environment
-from diffbutler.core.pr_lookup import ReviewTarget
 from diffbutler.core.sync import PullRequestRow
 from diffbutler.domain.dashboard import CycleRecord
 from diffbutler.domain.review import ReviewConflict
@@ -702,14 +700,13 @@ class Dashboard(TerminalApp):
         if len(self.screen_stack) > 1:
             return
 
-        def chosen(target: ReviewTarget | None) -> None:
-            if target is not None:
-                self.start(self.review_target(target), message="Preparing selected PR…")
+        def chosen(row: PullRequestRow | None) -> None:
+            if row is not None:
+                self.start(self.review_target(row), message="Preparing selected PR…")
 
         self.push_screen(ReviewPrompt(self.path), chosen)
 
-    async def review_target(self, target: ReviewTarget) -> None:
-        row = await follow_review_target_configured(self.path, target)
+    async def review_target(self, row: PullRequestRow) -> None:
         self.view = "active"
         self.query_one(Input).value = ""
         await self.reload()

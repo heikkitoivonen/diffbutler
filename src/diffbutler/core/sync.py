@@ -189,7 +189,7 @@ class DiffButler:
             if activity.account != account or await self._account() != account:
                 raise ForgeError("Account changed during follow; no changes saved")
             item = reconcile(previous, pr, activity, previous.sources if previous else ())
-            item = replace(item, following=True)
+            item = replace(item, following=True, explicit_review=item.explicit_review or for_review)
             try:
                 await self.store.apply(
                     account, snapshot.version, (item,), refreshed=frozenset({ref})
@@ -250,6 +250,9 @@ async def list_queue(
         if login is not None and account.login.lower() != login.lower():
             continue
         for item in (await store.snapshot(account)).items:
+            if item.explicit_review and item.state != "DONE":
+                rows.append(PullRequestRow(account=account, tracked=item))
+                continue
             if (
                 not include_own_prs
                 and item.pull_request.author.casefold() == account.login.casefold()

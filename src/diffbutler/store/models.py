@@ -145,6 +145,7 @@ class PRMonitor(Base):
     pull_request_id: Mapped[UUID] = mapped_column(ForeignKey("pull_request.id"), primary_key=True)
     task_id: Mapped[UUID] = mapped_column(ForeignKey("review_task.id"))
     following: Mapped[bool] = mapped_column(default=True)
+    explicit_review: Mapped[bool] = mapped_column(default=False, server_default="0")
     sources: Mapped[list[str]] = mapped_column(JSON, default=list)
     snapshot_json: Mapped[dict[str, object]] = mapped_column(JSON)
     activity_json: Mapped[str | None] = mapped_column(Text)

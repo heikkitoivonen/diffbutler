@@ -62,7 +62,7 @@ def main() -> None:
             result = subprocess.run(
                 args, cwd=directory, env=doctor_env, check=True, capture_output=True, text=True
             )
-            if "Schema 0010 current" not in result.stdout or "FAIL" in result.stdout:
+            if "Schema 0011 current" not in result.stdout or "FAIL" in result.stdout:
                 raise SystemExit(f"Unexpected installed doctor output: {result.stdout!r}")
         result = subprocess.run(
             [str(command), "ls", "--json"],

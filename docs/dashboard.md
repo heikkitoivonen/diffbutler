@@ -32,12 +32,14 @@ include_own_prs = true
 
 This also applies to CLI local queue listings. The setting only changes visibility;
 saved review state and monitoring are retained. History and accessible-PR search
-continue to include your PRs. Following a search result does not override this setting.
+continue to include your PRs. Following a search result does not override this setting;
+explicitly selecting a PR with `R` does.
 
 PRs assigned to the reviewing account are also hidden by default, even with direct
 or team review requests. Set `include_assigned_prs = true` in `[ui]` to include them.
 This independent filter uses the same case-insensitive, per-account matching and
-applies to all dashboard and CLI local queue views. Both settings must be enabled
+applies to all dashboard and CLI local queue views unless the PR was explicitly
+selected with `R`. Otherwise, both settings must be enabled
 for PRs you authored and are assigned to. Existing saved PRs gain assignee data on
 the next successful forge refresh; history and accessible-PR search are unaffected.
 
@@ -139,11 +141,19 @@ outside your monitoring scope. Numbers are checked against every configured forg
 `repositories` list, including owner wildcards, regardless of the current queue view
 or all-PR monitoring switch. Only accessible, open PRs qualify. If several repositories
 match, select the intended repository and press Enter; the account and forge are
-shown too. Escape cancels without following a PR or starting a review. Failed or
-incomplete lookups must be retried rather than treating partial results as unambiguous.
-Submitting a unique match or choosing a repository follows that PR and requests a
-review with the current reviewer, using the usual queue, pause, and cancellation
-controls. Own-PR and assignee visibility settings still apply to the queue.
+shown too. Lookup and validation errors appear in the dialog and allow retry;
+lookups time out after 60 seconds with guidance to retry or use the full link.
+Failed or incomplete lookups must be retried rather than treating partial results
+as unambiguous. Escape cancels without starting a review.
+Submitting a unique match or choosing a repository validates and saves that PR,
+closes the dialog, switches to the active queue, and selects the PR before requesting
+a review with the current reviewer. The usual queue, pause, and cancellation controls
+apply. If AI review fails, the PR stays visible with the error available in the dashboard.
+Explicitly selected active PRs bypass author, assignee, request membership, queue-view,
+and text filters, even when you are the author, assignee, and requested reviewer.
+This per-PR override survives refreshes and restarts; it does not change your global
+settings or request membership. Completion still removes the task from the active
+queue, and resetting the PR removes its override along with local tracking.
 If that open PR's previous review cycle is complete, this explicit request starts
 a fresh cycle and retains the completed cycle and its cleanup in history.
 
@@ -317,14 +327,14 @@ Enabling all-PR monitoring refreshes immediately in live mode; offline mode save
 choice for the next live sync. Switching back shows the saved Active view without
 another network request; normal polling updates it. Already followed PRs remain
 monitored, including PRs discovered while all-PR monitoring was enabled. Visibility
-respects the author and assignee filters.
+respects the author and assignee filters except for PRs explicitly selected with `R`.
 Requested includes direct/team
 review requests; assignees do not affect membership, including stale saved assignment
 entries. The default view and return from History show Active. A discovered PR is
 automatically followed, so submitting comments or losing its GitHub review request
 does not hide an unfinished review. Waiting-for-author reviews remain visible across
 polls and restarts, and new commits return them to pending without starting AI.
-Use the Requested filter explicitly to see only current review requests.
+Use the Requested filter to see current review requests and explicitly selected active PRs.
 Refresh failures show the specific safe forge diagnostic
 and preserve saved rows. No AI review starts as a result of this switch.
 

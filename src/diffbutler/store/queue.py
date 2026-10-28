@@ -95,6 +95,7 @@ class SQLiteQueueStore:
                         monitor.notice,
                         task.posted_at,
                         requested_at.replace(tzinfo=UTC) if requested_at else None,
+                        monitor.explicit_review,
                     )
                     for monitor, task, requested_at in rows
                 ),
@@ -266,6 +267,7 @@ class SQLiteQueueStore:
             session.add(monitor)
         monitor.task_id = task.id
         monitor.following = item.following
+        monitor.explicit_review = item.explicit_review
         monitor.sources = list(item.sources)
         monitor.snapshot_json = cast(dict[str, object], PR_ADAPTER.dump_python(remote, mode="json"))
         monitor.request_key = item.request_key

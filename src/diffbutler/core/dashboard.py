@@ -176,15 +176,23 @@ async def dashboard_rows(
         for row in rows:
             if row.tracked.state == "DONE":
                 continue
-            if view == "triage" and row.tracked.state != "FINDINGS_TRIAGE":
+            if (
+                not row.tracked.explicit_review
+                and view == "triage"
+                and row.tracked.state != "FINDINGS_TRIAGE"
+            ):
                 continue
-            if view == "posted" and row.tracked.state != "PENDING_AUTHOR_CHANGES":
+            if (
+                not row.tracked.explicit_review
+                and view == "posted"
+                and row.tracked.state != "PENDING_AUTHOR_CHANGES"
+            ):
                 continue
             pr = row.tracked.pull_request
             searchable = (
                 f"{pr.ref.namespace}/{pr.ref.repository}#{pr.ref.number} {pr.title} {pr.author}"
             )
-            if text.lower() not in searchable.lower():
+            if not row.tracked.explicit_review and text.lower() not in searchable.lower():
                 continue
             run = await store.latest_run(row.tracked.task_id) if row.tracked.task_id else None
             analysis = await reviews.get_result(run.id) if run else None

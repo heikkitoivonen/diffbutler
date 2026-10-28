@@ -4,20 +4,25 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from alembic import command
 from tests.test_sync import ACCOUNT, NOW, PR, REF, FakeForge
 
 from diffbutler.config.settings import Forge
 from diffbutler.core.application import (
     follow_review_target_configured,
+    local_queue,
     local_store,
     review_targets_configured,
 )
+from diffbutler.core.dashboard import dashboard_rows
 from diffbutler.core.pr_lookup import numbered_prs
 from diffbutler.core.sync import DiffButler
-from diffbutler.domain.forge import PRPage, PRQuery, PRRef, PullRequest
+from diffbutler.domain.forge import Discovery, PRPage, PRQuery, PRRef, PullRequest
 from diffbutler.domain.sync import ReviewEvent
 from diffbutler.forges.base import ForgeError
 from diffbutler.store.dashboard import SQLiteDashboardStore
+from diffbutler.store.database import migration_config
+from diffbutler.store.review import SQLiteReviewStore
 
 
 class LookupForge(FakeForge):
@@ -108,6 +113,62 @@ async def test_link_outside_scope_and_unknown_link(
         await review_targets_configured(path, "https://unconfigured.example/a/b/pull/1")
     forge.prs[REF] = replace(PR, state="closed")
     assert not await review_targets_configured(path, PR.url)
+
+
+@pytest.mark.asyncio
+async def test_explicit_visibility_survives_refresh_restart_and_ends_at_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forge = LookupForge()
+    forge.prs[REF] = replace(PR, author="ReAdEr", assignees=("READER",))
+    forge.discovery = Discovery((), True)
+    install_forge(monkeypatch, forge)
+    path = config(tmp_path, [])
+    (target,) = await review_targets_configured(path, PR.url)
+    row = await follow_review_target_configured(path, target)
+    assert row.tracked.explicit_review
+    async with local_store(path) as (store, _):
+        await DiffButler(store, forge).sync()
+    # Each configured read opens a fresh database, as on dashboard restart.
+    for view in ("active", "requested", "following", "triage", "posted"):
+        (visible,) = await dashboard_rows(path, view, "unrelated filter")
+        assert visible.row.tracked.task_id == row.tracked.task_id
+        assert visible.row.tracked.explicit_review
+        assert not visible.row.tracked.sources
+    assert len(await local_queue(path, "active", None)) == 1
+    assert row.tracked.task_id is not None
+    async with local_store(path) as (store, _):
+        await SQLiteReviewStore(store.database).mark_approved(row.tracked.task_id)
+    assert not await dashboard_rows(path)
+    row = await follow_review_target_configured(path, target)
+    assert row.tracked.task_id is not None
+    async with local_store(path) as (store, _):
+        await SQLiteDashboardStore(store.database).reset_task(row.tracked.task_id)
+        rediscovered = await DiffButler(store, forge).follow_pr(REF)
+        assert not rediscovered.tracked.explicit_review
+    assert not await dashboard_rows(path)
+
+
+@pytest.mark.asyncio
+async def test_visibility_migration_preserves_existing_monitors_without_overriding_filters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forge = LookupForge()
+    forge.prs[REF] = replace(PR, author="reader", assignees=("reader",))
+    install_forge(monkeypatch, forge)
+    path = config(tmp_path, [])
+    async with local_store(path) as (store, _):
+        original = await DiffButler(store, forge).follow_pr(REF)
+        async with store.database.engine.begin() as connection:
+            await connection.run_sync(
+                lambda conn: command.downgrade(migration_config(conn), "0010")
+            )
+    async with local_store(path) as (store, _):
+        (migrated,) = (await store.snapshot(ACCOUNT)).items
+        assert migrated.task_id == original.tracked.task_id
+        assert migrated.pull_request == original.tracked.pull_request
+        assert migrated.following and not migrated.explicit_review
+    assert not await dashboard_rows(path)
 
 
 @pytest.mark.asyncio
