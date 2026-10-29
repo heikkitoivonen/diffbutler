@@ -17,7 +17,7 @@ from diffbutler.core.application import (
 from diffbutler.core.dashboard import dashboard_rows
 from diffbutler.core.pr_lookup import numbered_prs
 from diffbutler.core.sync import DiffButler
-from diffbutler.domain.forge import Discovery, PRPage, PRQuery, PRRef, PullRequest
+from diffbutler.domain.forge import Discovery, PRRef, PullRequest
 from diffbutler.domain.sync import ReviewEvent
 from diffbutler.forges.base import ForgeError
 from diffbutler.store.dashboard import SQLiteDashboardStore
@@ -71,7 +71,7 @@ async def test_number_search_excludes_closed_merged_missing_and_deduplicates(
     path = config(tmp_path, ["acme/api", "acme/missing", "acme/*", "acme/api"])
     targets = await review_targets_configured(path, " #1 ")
     assert {target.pull_request.ref.repository for target in targets} == {"api", "other"}
-    assert forge.cursors == [None, "2"]
+    assert not forge.cursors  # Number lookup does not depend on PR search coverage.
     assert forge.lookups.count(REF) == 1
     assert forge.closed
     async with local_store(path) as (store, _):
@@ -179,13 +179,20 @@ async def test_invalid_target(tmp_path: Path, value: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["incomplete", "repeated", "forbidden"])
+@pytest.mark.parametrize("failure", ["repositories", "pull_request", "wrong_owner"])
 async def test_partial_results_never_appear_unambiguous(failure: str) -> None:
     class PartialForge(LookupForge):
-        async def search_pull_requests(self, query: PRQuery, cursor: str | None = None) -> PRPage:
-            if failure == "forbidden":
-                raise ForgeError("Forbidden", status=403)
-            return PRPage((PR,), "same", complete=failure != "incomplete")
+        async def list_repositories(self, owner: str) -> tuple[str, ...]:
+            if failure == "repositories":
+                raise ForgeError("Repository listing failed", status=403)
+            if failure == "wrong_owner":
+                return ("other/api",)
+            return ("acme/api", "acme/other")
+
+        async def get_pull_request(self, ref: PRRef) -> PullRequest:
+            if ref.repository == "other":
+                raise ForgeError("PR lookup failed", status=403)
+            return await super().get_pull_request(ref)
 
     with pytest.raises(ForgeError):
         await numbered_prs(PartialForge(), ["acme/api", "acme/*"], 1)

@@ -264,36 +264,6 @@ async def test_search_filters_pagination_and_direct_lookup(repository: str, qual
 
 
 @pytest.mark.asyncio
-async def test_number_lookup_only_fetches_matching_prs_across_pages() -> None:
-    from diffbutler.core.pr_lookup import numbered_prs
-
-    lookups: list[str] = []
-    pages: list[int] = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/search/issues":
-            page = int(request.url.params["page"])
-            pages.append(page)
-            return httpx.Response(
-                200,
-                json=search(*(range(2, 102) if page == 1 else (1,)), total=101),
-                headers={"Link": f'<{API}/search/issues?page=2>; rel="next"'} if page == 1 else {},
-            )
-        lookups.append(request.url.path)
-        assert request.url.path == "/repos/acme/api/pulls/1"
-        return httpx.Response(200, json=pull())
-
-    forge = adapter(handle)
-    try:
-        (pr,) = await numbered_prs(forge, ["acme/*"], 1)
-        assert pr.ref.number == 1
-        assert pages == [1, 2]
-        assert lookups and set(lookups) == {"/repos/acme/api/pulls/1"}
-    finally:
-        await forge.close()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(("total", "incomplete"), [(1001, False), (1, True)])
 async def test_search_limitations_are_explicit(total: int, incomplete: bool) -> None:
     def handle(request: httpx.Request) -> httpx.Response:

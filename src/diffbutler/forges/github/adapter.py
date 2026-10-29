@@ -35,6 +35,7 @@ from diffbutler.forges.github.mapping import (
     pull_request,
     timestamp,
 )
+from diffbutler.forges.github.repositories import list_repositories
 
 
 def repository_qualifier(repository: str) -> str:
@@ -148,6 +149,9 @@ class GitHubForge:
             raise ForgeError("GitHub returned a different pull request number")
         return result
 
+    async def list_repositories(self, owner: str) -> tuple[str, ...]:
+        return await list_repositories(self.http, owner)
+
     def search_ref(self, value: str) -> PRRef:
         url = self.http.checked_url(value)
         path = url.path.removeprefix(self.http.base_url.path)
@@ -162,8 +166,6 @@ class GitHubForge:
         page: int,
         page_size: int,
         refreshed: dict[PRRef, PullRequest] | None = None,
-        *,
-        number: int | None = None,
     ) -> PRPage:
         response = await self.http.get(
             "search/issues",
@@ -184,8 +186,6 @@ class GitHubForge:
                 if not url:
                     raise ForgeError("GitHub search result lacks a pull request URL")
                 ref = self.search_ref(url)
-                if number is not None and ref.number != number:
-                    continue
                 pr = refreshed.get(ref) if refreshed is not None else None
                 if pr is None:
                     pr = await self.get_pull_request(ref)
@@ -218,7 +218,7 @@ class GitHubForge:
             terms.append(f"author:{query.author}")
         if query.text.strip():
             terms.append(json.dumps(query.text.strip(), ensure_ascii=False))
-        return await self.search_page(" ".join(terms), page, query.page_size, number=query.number)
+        return await self.search_page(" ".join(terms), page, query.page_size)
 
     async def list_review_requests(self) -> Discovery:
         account = await self.whoami()

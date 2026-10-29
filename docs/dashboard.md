@@ -139,7 +139,9 @@ Press `R` to request a review of a PR by its HTTPS link or positive number (with
 optional `#`). A link must belong to a configured forge and can name a repository
 outside your monitoring scope. Numbers are checked against every configured forge's
 `repositories` list, including owner wildcards, regardless of the current queue view
-or all-PR monitoring switch. Only accessible, open PRs qualify. If several repositories
+or all-PR monitoring switch. Wildcards enumerate accessible repositories and check
+the number directly in each, avoiding GitHub's PR search limits. A full link is faster
+for owners with many repositories. Only accessible, open PRs qualify. If several repositories
 match, select the intended repository and press Enter; the account and forge are
 shown too. Lookup and validation errors appear in the dialog and allow retry;
 lookups time out after 60 seconds with guidance to retry or use the full link.

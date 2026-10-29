@@ -75,6 +75,13 @@ class FakeForge:
     async def list_review_requests(self) -> Discovery:
         return self.discovery
 
+    async def list_repositories(self, owner: str) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {f"{ref.namespace}/{ref.repository}" for ref in self.prs if ref.namespace == owner}
+            )
+        )
+
     async def get_pull_request(self, ref: PRRef) -> PullRequest:
         self.lookups.append(ref)
         if ref in self.failed:

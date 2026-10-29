@@ -82,7 +82,6 @@ class PRQuery:
     state: Literal["open", "closed", "merged", "all"] = "open"
     text: str = ""
     page_size: int = 30
-    number: int | None = None
 
     def __post_init__(self) -> None:
         if self.repository is not None:
@@ -93,8 +92,6 @@ class PRQuery:
             raise ValueError("state must be open, closed, merged, or all")
         if not 1 <= self.page_size <= 100:
             raise ValueError("page_size must be between 1 and 100")
-        if self.number is not None and self.number < 1:
-            raise ValueError("PR number must be positive")
 
 
 @dataclass(frozen=True)

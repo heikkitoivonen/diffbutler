@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from diffbutler.domain.forge import Account, PRQuery, PRRef, PullRequest, repository_matches
+from diffbutler.domain.forge import Account, PRRef, PullRequest, repository_matches
 from diffbutler.forges.base import ForgeError, ReadForge
 
 
@@ -28,7 +28,7 @@ async def open_pr(forge: ReadForge, ref: PRRef) -> PullRequest | None:
 async def numbered_prs(
     forge: ReadForge, repositories: list[str], number: int
 ) -> tuple[PullRequest, ...]:
-    """Exact repositories use direct reads; wildcard scopes require complete pagination."""
+    """Resolve exact numbers directly after expanding owner repository scopes."""
     found: dict[PRRef, PullRequest] = {}
     checked: set[PRRef] = set()
 
@@ -42,26 +42,9 @@ async def numbered_prs(
         if not repository.endswith("/*"):
             await check(forge.ref(f"{repository}#{number}"))
             continue
-        cursor: str | None = None
-        seen: set[str] = set()
-        while True:
-            page = await forge.search_pull_requests(
-                PRQuery(repository=repository, page_size=100, number=number), cursor
-            )
-            if not page.complete:
-                raise ForgeError("PR lookup is incomplete; retry before choosing a repository")
-            for pr in page.items:
-                if (
-                    pr.ref.forge == forge.id
-                    and pr.ref.number == number
-                    and pr.state == "open"
-                    and repository_matches(repository, pr.ref)
-                ):
-                    await check(pr.ref)
-            cursor = page.next_cursor
-            if cursor is None:
-                break
-            if cursor in seen:
-                raise ForgeError("Repeated pagination cursor during PR lookup")
-            seen.add(cursor)
+        for name in await forge.list_repositories(repository.removesuffix("/*")):
+            ref = forge.ref(f"{name}#{number}")
+            if ref.forge != forge.id or not repository_matches(repository, ref):
+                raise ForgeError("Forge returned a repository outside the requested owner")
+            await check(ref)
     return tuple(found.values())

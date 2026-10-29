@@ -103,13 +103,22 @@ The forge's `repositories` filter accepts exact names (`owner/repo`) and owner w
 that account and apply to direct/team requests and **Monitor all PRs** mode. DiffButler
 uses GitHub's [owner search qualifier](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests#search-within-a-users-or-organizations-repositories)
 for wildcards, so new repositories are included without updating the configuration.
-It does not enumerate repositories: each owner filter uses one paginated search per
+Monitoring does not enumerate repositories: each owner filter uses one paginated search per
 request type (direct requests or each team), or one paginated search for all open PRs.
 Matching PRs are then fetched individually. GitHub's
 [search limits](https://docs.github.com/en/rest/search/search#search-scope-limits) apply:
 each query searches at most 4,000 matching repositories and returns at most 1,000
 results. DiffButler warns when the result count exceeds 1,000 or GitHub reports
 incomplete results; it cannot guarantee full coverage beyond the repository limit.
+
+The `R` dialog's PR-number lookup instead lists the owner's accessible repositories
+and reads that number directly in each repository, avoiding PR search limits.
+Organization listings include token-visible private repositories. For personal owners,
+DiffButler combines their public repository list with owned repositories from the
+authenticated user's accessible private repository list. All repository pages must
+succeed before a match can be selected; access failures and SSO restrictions are
+shown in the dialog. Large owners can take longer to check; a full PR link skips
+repository enumeration.
 
 For the anonymous public fallback, omit `token_env` (`None` internally):
 
