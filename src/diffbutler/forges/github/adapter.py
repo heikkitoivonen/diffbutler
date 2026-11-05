@@ -14,6 +14,7 @@ from diffbutler.domain.forge import (
     PRQuery,
     PRRef,
     PullRequest,
+    ReadBudget,
     RequestedPR,
     TeamMembership,
     identity_part,
@@ -151,6 +152,9 @@ class GitHubForge:
 
     async def list_repositories(self, owner: str) -> tuple[str, ...]:
         return await list_repositories(self.http, owner)
+
+    def read_budget(self) -> ReadBudget:
+        return self.http.read_budget()
 
     def search_ref(self, value: str) -> PRRef:
         url = self.http.checked_url(value)

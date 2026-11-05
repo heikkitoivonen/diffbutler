@@ -19,6 +19,7 @@ from diffbutler.domain.forge import (
     PRQuery,
     PRRef,
     PullRequest,
+    ReadBudget,
     RequestedPR,
 )
 from diffbutler.domain.sync import RequestEvent, ReviewActivity, ReviewEvent
@@ -81,6 +82,9 @@ class FakeForge:
                 {f"{ref.namespace}/{ref.repository}" for ref in self.prs if ref.namespace == owner}
             )
         )
+
+    def read_budget(self) -> ReadBudget:
+        return ReadBudget(None, 0.0)
 
     async def get_pull_request(self, ref: PRRef) -> PullRequest:
         self.lookups.append(ref)

@@ -90,8 +90,13 @@ async def browse_configured(
         return await service.browse_prs(query, cursor)
 
 
-async def review_targets_configured(path: Path | None, value: str) -> tuple[ReviewTarget, ...]:
-    """Resolve without following PRs or requesting any AI work."""
+async def review_targets_configured(
+    path: Path | None, value: str, *, deadline: float | None = None
+) -> tuple[ReviewTarget, ...]:
+    """Resolve without following PRs or requesting any AI work.
+
+    deadline is the event-loop time by which number lookups must finish.
+    """
     value = value.strip()
     numeric = re.fullmatch(r"#?([1-9][0-9]*)", value)
     if not numeric and not value.startswith("https://"):
@@ -108,7 +113,9 @@ async def review_targets_configured(path: Path | None, value: str) -> tuple[Revi
                 continue
             async with remote_service(store, settings, index) as service:
                 if numeric:
-                    prs = await numbered_prs(service.forge, config.repositories, int(numeric[1]))
+                    prs = await numbered_prs(
+                        service.forge, config.repositories, int(numeric[1]), deadline=deadline
+                    )
                 else:
                     try:
                         ref = service.forge.ref(value)

@@ -16,7 +16,7 @@ from diffbutler.core.sync import PullRequestRow
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
 from diffbutler.ui.tui.dashboard import Dashboard
-from diffbutler.ui.tui.review_prompt import ReviewPrompt
+from diffbutler.ui.tui.review_prompt import LOOKUP_TIMEOUT, ReviewPrompt
 
 pytestmark = [pytest.mark.serial, pytest.mark.asyncio]
 
@@ -197,8 +197,12 @@ async def test_escape_during_slow_lookup_never_starts_review(
 ) -> None:
     entered = asyncio.Event()
     cancelled = asyncio.Event()
+    deadlines: list[float | None] = []
 
-    async def lookup(path: Path | None, value: str) -> tuple[ReviewTarget, ...]:
+    async def lookup(
+        path: Path | None, value: str, *, deadline: float | None = None
+    ) -> tuple[ReviewTarget, ...]:
+        deadlines.append(deadline)
         entered.set()
         try:
             await asyncio.Event().wait()
@@ -212,6 +216,10 @@ async def test_escape_during_slow_lookup_never_starts_review(
     async with app.run_test() as pilot:
         await pilot.press("R", "1", "enter")
         await asyncio.wait_for(entered.wait(), 2)
+        (deadline,) = deadlines
+        # The dialog shares its own timeout with the lookup's request budget.
+        assert deadline is not None
+        assert 0 < deadline - asyncio.get_running_loop().time() <= LOOKUP_TIMEOUT
         await pilot.press("escape")
         await asyncio.wait_for(cancelled.wait(), 2)
         assert not isinstance(app.screen, ReviewPrompt)

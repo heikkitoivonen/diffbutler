@@ -131,6 +131,14 @@ class RateLimit:
 
 
 @dataclass(frozen=True)
+class ReadBudget:
+    """Reads a forge can spare from its quota (None if unknown) and seconds per read."""
+
+    requests: int | None
+    seconds_per_request: float
+
+
+@dataclass(frozen=True)
 class ForgeHealth:
     account: Account
     limits: tuple[RateLimit, ...]

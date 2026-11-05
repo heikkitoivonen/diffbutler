@@ -1,5 +1,6 @@
 """Offline explicit-target resolution with multiple repositories and accounts."""
 
+import asyncio
 from dataclasses import replace
 from pathlib import Path
 
@@ -15,9 +16,9 @@ from diffbutler.core.application import (
     review_targets_configured,
 )
 from diffbutler.core.dashboard import dashboard_rows
-from diffbutler.core.pr_lookup import numbered_prs
+from diffbutler.core.pr_lookup import FOLLOW_UP_READS, numbered_prs
 from diffbutler.core.sync import DiffButler
-from diffbutler.domain.forge import Discovery, PRRef, PullRequest
+from diffbutler.domain.forge import Discovery, PRRef, PullRequest, ReadBudget
 from diffbutler.domain.sync import ReviewEvent
 from diffbutler.forges.base import ForgeError
 from diffbutler.store.dashboard import SQLiteDashboardStore
@@ -179,7 +180,7 @@ async def test_invalid_target(tmp_path: Path, value: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["repositories", "pull_request", "wrong_owner"])
+@pytest.mark.parametrize("failure", ["repositories", "rate_limited", "server", "wrong_owner"])
 async def test_partial_results_never_appear_unambiguous(failure: str) -> None:
     class PartialForge(LookupForge):
         async def list_repositories(self, owner: str) -> tuple[str, ...]:
@@ -191,11 +192,100 @@ async def test_partial_results_never_appear_unambiguous(failure: str) -> None:
 
         async def get_pull_request(self, ref: PRRef) -> PullRequest:
             if ref.repository == "other":
-                raise ForgeError("PR lookup failed", status=403)
+                if failure == "rate_limited":
+                    raise ForgeError("Rate limited", status=403, retry_after=60)
+                raise ForgeError("PR lookup failed", status=500)
             return await super().get_pull_request(ref)
 
     with pytest.raises(ForgeError):
         await numbered_prs(PartialForge(), ["acme/api", "acme/*"], 1)
+
+
+class DeniedForge(LookupForge):
+    """Lists acme/api and acme/blocked; PR reads in blocked are denied."""
+
+    def __init__(self, status: int = 403) -> None:
+        super().__init__()
+        self.status = status
+        self.budget = ReadBudget(None, 0.0)
+
+    async def list_repositories(self, owner: str) -> tuple[str, ...]:
+        return ("acme/api", "acme/blocked")
+
+    def read_budget(self) -> ReadBudget:
+        return self.budget
+
+    async def get_pull_request(self, ref: PRRef) -> PullRequest:
+        self.lookups.append(ref)
+        if ref.repository == "blocked":
+            raise ForgeError("Denied", status=self.status)
+        return await super().get_pull_request(ref)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 451])
+async def test_listed_repository_denying_pr_reads_is_skipped(status: int) -> None:
+    assert await numbered_prs(DeniedForge(status), ["acme/*"], 1) == (PR,)
+
+
+@pytest.mark.asyncio
+async def test_exact_repository_denying_pr_reads_still_fails() -> None:
+    with pytest.raises(ForgeError, match="Denied"):
+        await numbered_prs(DeniedForge(), ["acme/*", "acme/blocked"], 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", ["quota", "deadline"])
+async def test_listed_reads_beyond_budget_fail_before_any_pr_read(limit: str) -> None:
+    forge = DeniedForge()
+    deadline = None
+    if limit == "quota":
+        forge.budget = ReadBudget(1, 0.0)
+        message = r"needs more requests than the forge's rate limit can spare \(1\)"
+    else:
+        forge.budget = ReadBudget(None, 20.0)
+        deadline = asyncio.get_running_loop().time() + 30
+        message = "would take about 240 seconds"
+    with pytest.raises(ForgeError, match=message):
+        await numbered_prs(forge, ["acme/*"], 1, deadline=deadline)
+    assert not forge.lookups
+
+
+@pytest.mark.asyncio
+async def test_budget_spent_during_the_scan_stops_before_the_next_read() -> None:
+    class RetryingForge(DeniedForge):
+        async def get_pull_request(self, ref: PRRef) -> PullRequest:
+            # Retries inside the first read consume quota the preflight counted on.
+            self.budget = ReadBudget(FOLLOW_UP_READS, 0.0)
+            return await super().get_pull_request(ref)
+
+    forge = RetryingForge()
+    forge.budget = ReadBudget(FOLLOW_UP_READS + 2, 0.0)
+    with pytest.raises(ForgeError, match=r"in 1 more repositories .* can spare \(10\)"):
+        await numbered_prs(forge, ["acme/*"], 1)
+    assert {ref.repository for ref in forge.lookups} == {"api"}
+
+
+@pytest.mark.asyncio
+async def test_configured_lookup_applies_deadline_to_listed_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forge = DeniedForge()
+    forge.budget = ReadBudget(None, 60.0)
+    install_forge(monkeypatch, forge)
+    path = config(tmp_path, ["acme/*"])
+    deadline = asyncio.get_running_loop().time() + 30
+    with pytest.raises(ForgeError, match="longer than the lookup allows"):
+        await review_targets_configured(path, "1", deadline=deadline)
+    assert len(await review_targets_configured(path, "1")) == 1
+
+
+@pytest.mark.asyncio
+async def test_exact_repositories_are_not_held_to_listing_budget() -> None:
+    forge = DeniedForge()
+    forge.budget = ReadBudget(0, 60.0)
+    deadline = asyncio.get_running_loop().time() + 1
+    assert await numbered_prs(forge, ["acme/api"], 1, deadline=deadline) == (PR,)
 
 
 @pytest.mark.asyncio

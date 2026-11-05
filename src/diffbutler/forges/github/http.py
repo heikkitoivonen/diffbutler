@@ -14,7 +14,7 @@ from typing import ClassVar
 
 import httpx
 
-from diffbutler.domain.forge import RateLimit
+from diffbutler.domain.forge import RateLimit, ReadBudget
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.diagnostics import (
     RateLimitSource,
@@ -53,6 +53,8 @@ class ReadResponse:
 class GitHubHTTP:
     DEFAULT_REQUEST_INTERVAL: ClassVar[float] = 1.0
     AUTHENTICATED_REQUEST_INTERVAL: ClassVar[float] = 0.1
+    # Below this share of a quota, pacing spreads the remaining requests until reset.
+    LOW_QUOTA_SHARE: ClassVar[float] = 0.2
 
     def __init__(
         self,
@@ -106,6 +108,8 @@ class GitHubHTTP:
         self.limits: dict[str, RateLimit] = {}
         self.cache: OrderedDict[str, ReadResponse] = OrderedDict()
         self.blocked_until = 0.0
+        self.responses = 0
+        self.response_seconds = 0.0
         self.lock = asyncio.Lock()
 
     async def paced_get(self, url: httpx.URL, headers: dict[str, str]) -> httpx.Response:
@@ -132,7 +136,7 @@ class GitHubHTTP:
                 interval = self.request_interval
                 if resource == "search" and not self.authenticated:
                     interval = max(interval, 6.1)
-                if limit and 0 < limit.remaining <= limit.limit * 0.2:
+                if limit and 0 < limit.remaining <= limit.limit * self.LOW_QUOTA_SHARE:
                     interval = max(
                         interval, (limit.reset_at.timestamp() - previous) / limit.remaining
                     )
@@ -161,6 +165,8 @@ class GitHubHTTP:
         except httpx.RequestError:
             logging.getLogger(__name__).exception("GitHub transport failed resource=%s", resource)
             raise
+        self.responses += 1
+        self.response_seconds += time.monotonic() - began
         self.record_limit(response.headers)
         quota = self.limits.get(resource)
         logging.getLogger(__name__).log(
@@ -176,6 +182,15 @@ class GitHubHTTP:
             self.retry_delay(response),
         )
         return response
+
+    def read_budget(self) -> ReadBudget:
+        """Core reads available before low-quota pacing starts, and observed seconds per read."""
+        limit = self.limits.get("core")
+        spare = None
+        if limit and limit.reset_at.timestamp() > self.now():
+            spare = max(0, limit.remaining - math.ceil(limit.limit * self.LOW_QUOTA_SHARE))
+        latency = self.response_seconds / self.responses if self.responses else 0.0
+        return ReadBudget(spare, max(self.request_interval, latency))
 
     def checked_url(self, value: str | httpx.URL) -> httpx.URL:
         try:

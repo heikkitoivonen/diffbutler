@@ -68,11 +68,12 @@ class ReviewPrompt(ModalScreen[PullRequestRow | None]):
 
     async def lookup(self, value: str | ReviewTarget) -> None:
         try:
-            async with asyncio.timeout(LOOKUP_TIMEOUT):
+            deadline = asyncio.get_running_loop().time() + LOOKUP_TIMEOUT
+            async with asyncio.timeout_at(deadline):
                 self.targets = (
                     (value,)
                     if isinstance(value, ReviewTarget)
-                    else await review_targets_configured(self.path, value)
+                    else await review_targets_configured(self.path, value, deadline=deadline)
                 )
                 if len(self.targets) == 1:
                     row = await follow_review_target_configured(self.path, self.targets[0])

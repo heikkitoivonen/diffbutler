@@ -114,11 +114,19 @@ incomplete results; it cannot guarantee full coverage beyond the repository limi
 The `R` dialog's PR-number lookup instead lists the owner's accessible repositories
 and reads that number directly in each repository, avoiding PR search limits.
 Organization listings include token-visible private repositories. For personal owners,
-DiffButler combines their public repository list with owned repositories from the
-authenticated user's accessible private repository list. All repository pages must
-succeed before a match can be selected; access failures and SSO restrictions are
-shown in the dialog. Large owners can take longer to check; a full PR link skips
-repository enumeration.
+DiffButler combines their public repository list with private repositories the
+authenticated user owns or collaborates on under that owner. Disabled repositories and
+those GitHub reports with no open issues or PRs are not read. All repository pages
+must succeed before a match can be selected; access failures, SSO restrictions, and
+listings under a different (for example renamed) owner are shown in the dialog. A
+configured owner that GitHub reports as missing contributes no matches, like a missing
+exact repository. Listed repositories that deny PR reads are skipped; exact
+repositories still report the error. Each remaining repository costs one core request.
+Before each of these reads, DiffButler stops with guidance to use the full PR link if
+the reads still to come, plus ten requests kept for following the chosen PR, would
+leave less than a fifth of core quota, where pacing slows requests, or are estimated
+to outlast the time left in the dialog's 60-second lookup. Anonymous access allows
+about one read per second, so a large owner usually needs a token or a full PR link.
 
 For the anonymous public fallback, omit `token_env` (`None` internally):
 

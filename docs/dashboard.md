@@ -141,8 +141,10 @@ outside your monitoring scope. Numbers are checked against every configured forg
 `repositories` list, including owner wildcards, regardless of the current queue view
 or all-PR monitoring switch. Wildcards enumerate accessible repositories and check
 the number directly in each, avoiding GitHub's PR search limits. A full link is faster
-for owners with many repositories. Only accessible, open PRs qualify. If several repositories
-match, select the intended repository and press Enter; the account and forge are
+for owners with many repositories; when checking every repository would use too much
+rate limit or take longer than the lookup allows, the dialog asks for one
+([details](github.md#configure-and-check-an-account)). Only accessible, open PRs
+qualify. If several repositories match, select the intended repository and press Enter; the account and forge are
 shown too. Lookup and validation errors appear in the dialog and allow retry;
 lookups time out after 60 seconds with guidance to retry or use the full link.
 Failed or incomplete lookups must be retried rather than treating partial results
