@@ -452,23 +452,30 @@ def waiting(pr: str, config: ConfigOption = None, login: str | None = None) -> N
     typer.echo("Waiting for author changes.")
 
 
+@app.command()
+def ready(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
+    """Choose ready to approve after your own checks; never submit approval."""
+    from diffbutler.core.dashboard import state_configured
+
+    run(state_configured(config, pr, login, waiting=False))
+    typer.echo("Ready to approve.")
+
+
 @app.command(name="open")
 def open_pr(pr: str, config: ConfigOption = None, login: str | None = None) -> None:
-    """Choose manual review and open the browser; never submit approval."""
+    """Open the PR in the browser without changing its state."""
     from diffbutler.config.settings import load_settings
-    from diffbutler.core.dashboard import state_configured
+    from diffbutler.core.dashboard import url_configured
     from diffbutler.ui.tui.browser import open_browser
 
     async def open_selected() -> None:
-        url = await state_configured(config, pr, login, waiting=False)
+        url = await url_configured(config, pr, login)
         settings = await asyncio.to_thread(load_settings, config)
         try:
             opened = await open_browser(url, settings.ui.browser_command)
         except OSError, TimeoutError:
             opened = False
-        typer.echo(
-            "Manual review chosen. " + ("Browser opened." if opened else "Open: " + safe(url))
-        )
+        typer.echo("Browser opened." if opened else "Open: " + safe(url))
 
     run(open_selected())
 

@@ -13,10 +13,12 @@ import httpx
 import pytest
 import pytest_asyncio
 from rich.text import Text
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from tests.test_github import adapter
 from tests.test_sync import ACCOUNT, NOW, PR, REF, FakeForge
+from textual.pilot import Pilot
 from textual.widgets import Button, DataTable, Input, Static
+from typer.testing import CliRunner
 
 from diffbutler.config.settings import load_settings
 from diffbutler.core.application import local_queue
@@ -47,9 +49,10 @@ from diffbutler.domain.sync import (
 from diffbutler.store.base import SyncConflict
 from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.database import Database
-from diffbutler.store.models import AIRun, ObservedActivity
+from diffbutler.store.models import AIRun, ObservedActivity, ReviewTask
 from diffbutler.store.queue import SQLiteQueueStore
 from diffbutler.store.review import SQLiteReviewStore
+from diffbutler.ui.cli import app as cli
 from diffbutler.ui.tui.dashboard import Dashboard
 
 
@@ -636,6 +639,174 @@ async def test_author_actions_resume_findings_without_changing_state(
         assert str(app.query_one(Button).label) == "Discuss findings"
 
 
+def test_cli_open_only_opens_and_ready_chooses_approve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "dashboard.toml"
+    path.write_text(f'[db]\nurl = "sqlite+aiosqlite:///{tmp_path}/dashboard.db"\n')
+
+    async def state(setup: bool = False) -> str:
+        database = Database(load_settings(path).db.url)
+        await database.initialize()
+        try:
+            queue = SQLiteQueueStore(database)
+            if setup:
+                await DiffButler(queue, FakeForge()).sync()
+            return (await queue.snapshot(ACCOUNT)).items[0].state
+        finally:
+            await database.close()
+
+    opened: list[str] = []
+
+    async def browser(url: str, command: list[str] | None = None) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr("diffbutler.ui.tui.browser.open_browser", browser)
+    assert asyncio.run(state(setup=True)) == "PENDING_AI_REVIEW"
+    result = CliRunner().invoke(cli, ["open", "acme/api#1", "--config", str(path)])
+    assert result.exit_code == 0, result.output
+    assert result.output == "Browser opened.\n" and opened == [PR.url]
+    assert asyncio.run(state()) == "PENDING_AI_REVIEW"
+    result = CliRunner().invoke(cli, ["ready", "acme/api#1", "--config", str(path)])
+    assert result.exit_code == 0, result.output
+    assert result.output == "Ready to approve.\n" and opened == [PR.url]
+    assert asyncio.run(state()) == "PENDING_HUMAN_REVIEW"
+
+
+async def three_prs(
+    database: Database, queue: SQLiteQueueStore, forge: FakeForge
+) -> dict[str, TrackedPR]:
+    """A and B in check; C pending, with enough lines to sort between check and approve."""
+    prs = [
+        replace(
+            PR,
+            ref=replace(REF, number=number),
+            title=title,
+            url=f"https://github.com/acme/api/pull/{number}",
+            additions=additions,
+        )
+        for number, title, additions in ((1, "A", None), (2, "B", None), (3, "C", 1250))
+    ]
+    forge.prs = {pr.ref: pr for pr in prs}
+    forge.discovery = Discovery(tuple(RequestedPR(pr, ("user:reader",)) for pr in prs), True)
+    await DiffButler(queue, forge).sync()
+    tasks = {item.pull_request.title: item for item in (await queue.snapshot(ACCOUNT)).items}
+    await set_state(database, tasks["A"], "FINDINGS_TRIAGE")
+    await set_state(database, tasks["B"], "FINDINGS_TRIAGE")
+    return tasks
+
+
+async def set_state(database: Database, task: TrackedPR, state: str) -> None:
+    async with database.sessions() as db:
+        await db.execute(
+            update(ReviewTask).where(ReviewTask.id == task.task_id).values(state=state)
+        )
+        await db.commit()
+
+
+async def states(queue: SQLiteQueueStore) -> dict[str, str]:
+    return {item.pull_request.title: item.state for item in (await queue.snapshot(ACCOUNT)).items}
+
+
+def selected_title(app: Dashboard) -> str:
+    row = app.selected()
+    assert row is not None
+    return row.row.tracked.pull_request.title
+
+
+def titles(app: Dashboard) -> list[str]:
+    return [row.row.tracked.pull_request.title for row in app.rows.values()]
+
+
+async def press(app: Dashboard, pilot: Pilot[None], *keys: str) -> None:
+    await pilot.press(*keys)
+    await asyncio.wait_for(asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5)
+    await pilot.pause()
+
+
+@pytest.mark.serial
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform not in {"linux", "darwin"}, reason="Native cleanup requires host/boot identity"
+)
+@pytest.mark.parametrize("reorder_during_browser", [False, True])
+async def test_open_keeps_state_and_selection_so_later_keys_act_on_the_opened_pr(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    reorder_during_browser: bool,
+) -> None:
+    database, queue, forge, path = ledger
+    tasks = await three_prs(database, queue, forge)
+    app = Dashboard(path, load_settings(path), offline=True)
+    opened: list[str] = []
+
+    async def browser(url: str, command: list[str] | None = None) -> bool:
+        opened.append(url)
+        if reorder_during_browser:
+            # A refresh landing during the launch moves C (now 75) above the opened row.
+            await set_state(database, tasks["C"], "FINDINGS_TRIAGE")
+            await app.reload()
+        return True
+
+    monkeypatch.setattr("diffbutler.ui.tui.dashboard.open_browser", browser)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        first = selected_title(app)
+        other = "A" if first == "B" else "B"
+        assert titles(app) == [first, other, "C"]
+        await press(app, pilot, "o")
+        assert opened == [tasks[first].pull_request.url]
+        assert (await states(queue))[first] == "FINDINGS_TRIAGE"
+        assert titles(app) == (
+            ["C", first, other] if reorder_during_browser else [first, other, "C"]
+        )
+        assert selected_title(app) == first
+        # The approval workflow's next key completes the PR that was opened.
+        await press(app, pilot, "m")
+        assert (await states(queue))[first] == "DONE"
+        assert (await states(queue))[other] == "FINDINGS_TRIAGE"
+        # Removing the row moved the cursor; the next state key only reports that.
+        assert selected_title(app) == other
+        await press(app, pilot, "a")
+        assert (await states(queue))[other] == "FINDINGS_TRIAGE"
+        assert "left the queue; now on PR #" in str(app.query_one("#status", Static).content)
+        await press(app, pilot, "a")
+        assert (await states(queue))[other] == "PENDING_HUMAN_REVIEW"
+        # Ready to approve (20) sorts below C; the selection follows the PR.
+        assert titles(app) == ["C", other]
+        assert selected_title(app) == other
+
+
+@pytest.mark.serial
+@pytest.mark.asyncio
+async def test_navigation_after_refresh_removed_selected_pr_confirms_the_new_row(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+) -> None:
+    database, queue, forge, path = ledger
+    tasks = await three_prs(database, queue, forge)
+    app = Dashboard(path, load_settings(path), offline=True)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        first = selected_title(app)
+        other = "A" if first == "B" else "B"
+        # Polling detects the approval made in the browser; the row disappears.
+        task_id = tasks[first].task_id
+        assert task_id is not None
+        await SQLiteReviewStore(database).mark_approved(task_id)
+        await app.reload()
+        await pilot.pause()
+        assert selected_title(app) == other and app.moved_selection is not None
+        # Moving the cursor yourself confirms the selection: no extra press needed.
+        await press(app, pilot, "down", "up")
+        assert selected_title(app) == other
+        await press(app, pilot, "w")
+        assert (await states(queue))[other] == "PENDING_AUTHOR_CHANGES"
+        # Switching views is an explicit change of list, not a removed selection.
+        await press(app, pilot, "f", "f", "f", "f", "f", "f")
+        assert app.view == "active" and app.moved_selection is None
+
+
 @pytest.mark.serial
 @pytest.mark.asyncio
 @pytest.mark.skipif(
@@ -682,7 +853,18 @@ async def test_dashboard_state_actions_history_and_browser_failure(
         )
         await pilot.pause()
         assert opened == [PR.url]
-        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_HUMAN_REVIEW"
+        # Opening the PR only reads it; the browser failure still offers the URL.
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AUTHOR_CHANGES"
+        assert PR.url in str(app.query_one("#status", Static).content)
+        await pilot.press("a")
+        await asyncio.wait_for(
+            asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
+        )
+        await pilot.pause()
+        saved = (await queue.snapshot(ACCOUNT)).items[0]
+        assert saved.state == "PENDING_HUMAN_REVIEW" and saved.opened_at is not None
+        assert saved.notice == "Ready to approve chosen locally"
+        assert opened == [PR.url]
         await pilot.press("s", "S")
         await pilot.pause()
         prefs = await SQLiteDashboardStore(database).preferences()
@@ -915,7 +1097,7 @@ async def test_monitoring_switch_persists_and_drives_sync(
     monkeypatch.setattr("diffbutler.core.application.open_forge", open_fake)
     app = Dashboard(path, load_settings(path), offline=True)
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("a")
+        await pilot.press("A")
         await asyncio.wait_for(
             asyncio.gather(*(worker.wait() for worker in app.workers)), timeout=5
         )
@@ -928,7 +1110,7 @@ async def test_monitoring_switch_persists_and_drives_sync(
     restarted = Dashboard(path, load_settings(path), offline=True)
     async with restarted.run_test(size=(120, 40)) as pilot:
         assert "Monitoring: all open PRs" in restarted.sub_title
-        await pilot.press("a")
+        await pilot.press("A")
         await asyncio.wait_for(
             asyncio.gather(*(worker.wait() for worker in restarted.workers)), timeout=5
         )

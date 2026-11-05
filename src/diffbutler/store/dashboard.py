@@ -95,7 +95,9 @@ class SQLiteDashboardStore:
             if not waiting:
                 task.opened_at = now
             monitor.notice = (
-                "Waiting for author chosen locally" if waiting else "Manual review chosen locally"
+                "Waiting for author chosen locally"
+                if waiting
+                else "Ready to approve chosen locally"
             )
             runs = await db.scalars(
                 select(AIRun).where(

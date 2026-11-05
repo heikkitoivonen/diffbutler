@@ -274,6 +274,12 @@ async def state_configured(
         return row.tracked.pull_request.url
 
 
+async def url_configured(path: Path | None, value: str, login: str | None) -> str:
+    """Resolve a tracked PR's URL without changing its state."""
+    async with local_store(path) as (queue, _):
+        return (await resolve_local(queue, value, login)).tracked.pull_request.url
+
+
 async def refresh_configured(path: Path | None, value: str, login: str | None) -> PullRequestRow:
     """Refresh one PR, preserving a durable pending indication on any failure."""
     async with local_store(path) as (queue, settings):

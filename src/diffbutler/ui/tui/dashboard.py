@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Literal
 from uuid import UUID
 
 from rich.cells import cell_len
@@ -205,7 +205,7 @@ def preview_summary(detail: CycleDetail) -> str:
         if session:
             lines.append("Session: " + session.display_name)
     if cycle.opened_at:
-        lines.append("Opened for manual review · " + cycle.opened_at.isoformat())
+        lines.append("Ready to approve chosen · " + cycle.opened_at.isoformat())
     lines.append("Enter for full orientation, findings, receipts and cleanup status.")
     return safe("\n".join(lines))
 
@@ -229,6 +229,7 @@ class Dashboard(TerminalApp):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("o", "open_in_browser", "Open PR"),
         ("w", "mark_waiting_for_author", "Wait for author"),
+        ("a", "mark_ready_to_approve", "Ready to approve"),
         ("r", "run_review", "Review"),
         ("n", "next_reviewer", "Next reviewer"),
         ("c", "resume_session", "Check findings"),
@@ -236,7 +237,7 @@ class Dashboard(TerminalApp):
         ("k", "reset_pr", "Reset PR"),
         ("h", "view_history", "History"),
         ("b", "browse_prs", "Browse all PRs"),
-        ("a", "toggle_monitoring", "Monitor all PRs"),
+        ("A", "toggle_monitoring", "Monitor all PRs"),
         ("ctrl+r", "refresh", "Refresh"),
         ("R", "review_pr", "Review PR…"),
         ("space", "primary_action", "Next action"),
@@ -289,6 +290,9 @@ class Dashboard(TerminalApp):
         self.ready = False
         self.closing = False
         self.preview_content = ""
+        # Set when a reload removed the selected PR and moved the cursor to another row.
+        self.moved_selection: str | None = None
+        self.loaded_scope: tuple[str, str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -473,12 +477,21 @@ class Dashboard(TerminalApp):
                     if selected in keys
                     else min(old_cursor, max(0, len(keys) - 1))
                 )
+                # Only a refresh of the same view and filter moves the cursor unasked.
+                if (
+                    selected is not None
+                    and selected not in keys
+                    and keys
+                    and self.loaded_scope == (view, text)
+                ):
+                    self.moved_selection = self.selected_key()
             else:
                 for index, (_, cells) in enumerate(data):
                     for col, value in enumerate(cells):
                         content = queue_cell(value, column_ids[col], widths[col])
                         if table.get_cell_at(Coordinate(index, col)) != content:
                             table.update_cell_at(Coordinate(index, col), content)
+            self.loaded_scope = (view, text)
             mode = "offline" if self.offline else "paused" if self.poller.paused else "live"
             scope = "all open PRs" if self.monitor_all_prs else "review requests"
             self.sub_title = f"{self.view} · {len(keys)} PRs · {mode} · Monitoring: {scope}" + (
@@ -520,7 +533,7 @@ class Dashboard(TerminalApp):
                 "PENDING_AUTHOR_CHANGES": "Discuss findings",
                 "QUEUED": "Review queued · Ctrl+C to cancel",
                 "AI_RUNNING": "Review running · Ctrl+C to cancel",
-            }.get(row.row.tracked.state if row else "", "Open PR for human review")
+            }.get(row.row.tracked.state if row else "", "Open PR in browser")
         )
         self.query_one(Button).label = label
         if self.selected_key() != key or self.attached:
@@ -545,6 +558,10 @@ class Dashboard(TerminalApp):
             self.action_open_detail()
 
     async def on_data_table_row_highlighted(self, _: DataTable.RowHighlighted) -> None:
+        # Compare the current selection, not the event: a rebuild's highlights arrive
+        # after the reload that moved the cursor.
+        if self.selected_key() != self.moved_selection:
+            self.moved_selection = None
         if not self.reload_lock.locked() and not self.attached and len(self.screen_stack) == 1:
             self.run_worker(
                 self.preview(), group="selection-preview", exclusive=True, exit_on_error=False
@@ -615,15 +632,8 @@ class Dashboard(TerminalApp):
     def action_refresh(self) -> None:
         self.start(self.sync(), message="Refreshing GitHub…")
 
-    async def open_selected(self, row: DashboardRow | None, cycle: CycleRecord | None) -> None:
-        if cycle is not None:
-            url = cycle.pull_request.url
-        else:
-            if row is None:
-                return
-            url = await state_configured(
-                self.path, row.row.tracked.pull_request.url, row.row.account.login, waiting=False
-            )
+    async def open_pr_url(self, url: str) -> None:
+        """Only open the PR: no state change and no cursor movement."""
         try:
             opened = await open_browser(url, self.settings.ui.browser_command)
         except OSError, TimeoutError:
@@ -631,15 +641,14 @@ class Dashboard(TerminalApp):
         if not opened:
             self.copy_to_clipboard(url)
             self.status(f"Open this URL (copied if supported): {url}")
-        if row is not None and self.selected_key() == str(row.row.tracked.task_id):
-            table = self.query_one(DataTable[Text])
-            table.move_cursor(row=min(table.cursor_row + 1, table.row_count - 1))
 
     def action_open_in_browser(self) -> None:
-        cycle = self.history.get(self.selected_key() or "") if self.view == "history" else None
+        key = self.selected_key() or ""
+        cycle = self.history.get(key) if self.view == "history" else None
         row = self.selected() if self.view != "history" else None
-        if row is not None or cycle is not None:
-            self.start(self.open_selected(row, cycle), message="Opening PR…")
+        url = cycle.pull_request.url if cycle else row.row.tracked.pull_request.url if row else ""
+        if url:
+            self.start(self.open_pr_url(url), message="Opening PR…")
 
     def action_copy_url(self) -> None:
         key = self.selected_key()
@@ -650,23 +659,43 @@ class Dashboard(TerminalApp):
             self.copy_to_clipboard(url)
             self.status(url)
 
-    async def state_action(self, row: DashboardRow, *, approve: bool = False) -> None:
+    async def state_action(
+        self, row: DashboardRow, choice: Literal["waiting", "ready", "approved"]
+    ) -> None:
         pr = row.row.tracked.pull_request
-        if approve:
+        if choice == "approved":
             status = await approved_configured(self.path, pr.url, row.row.account.login)
             self.status(f"Completion recorded locally · cleanup: {status}")
         else:
-            await state_configured(self.path, pr.url, row.row.account.login, waiting=True)
+            await state_configured(
+                self.path, pr.url, row.row.account.login, waiting=choice == "waiting"
+            )
+
+    def selection_confirmed(self) -> bool:
+        """Hold the first state key after a refresh moved the cursor off a removed PR."""
+        key = self.selected_key()
+        if key is None or key != self.moved_selection:
+            return True
+        self.moved_selection = None
+        row = self.rows.get(key)
+        number = f" #{row.row.tracked.pull_request.ref.number}" if row else ""
+        self.status(f"The selected PR left the queue; now on PR{number}. Press again to act on it.")
+        return False
 
     def action_mark_waiting_for_author(self) -> None:
         row = self.selected()
-        if row is not None and self.view != "history":
-            self.start(self.state_action(row), message="Recording waiting for author…")
+        if row is not None and self.view != "history" and self.selection_confirmed():
+            self.start(self.state_action(row, "waiting"), message="Recording waiting for author…")
+
+    def action_mark_ready_to_approve(self) -> None:
+        row = self.selected()
+        if row is not None and self.view != "history" and self.selection_confirmed():
+            self.start(self.state_action(row, "ready"), message="Recording ready to approve…")
 
     def action_mark_approved(self) -> None:
         row = self.selected()
-        if row is not None and self.view != "history":
-            self.start(self.state_action(row, approve=True), message="Recording completion…")
+        if row is not None and self.view != "history" and self.selection_confirmed():
+            self.start(self.state_action(row, "approved"), message="Recording completion…")
 
     def action_next_reviewer(self) -> None:
         self.next_reviewer()
@@ -693,7 +722,7 @@ class Dashboard(TerminalApp):
 
     def action_run_review(self) -> None:
         row = self.selected()
-        if row is not None and self.view != "history":
+        if row is not None and self.view != "history" and self.selection_confirmed():
             self.start_review(row.row)
 
     def action_review_pr(self) -> None:
@@ -787,6 +816,8 @@ class Dashboard(TerminalApp):
     def action_reset_pr(self) -> None:
         key = self.selected_key()
         if key is None or self.view == "history" or self.attached or key in self.resetting_tasks:
+            return
+        if not self.selection_confirmed():
             return
         self.resetting_tasks.add(key)
 
@@ -998,10 +1029,11 @@ class Dashboard(TerminalApp):
                 "n chooses the next configured reviewer for this PR; r starts that reviewer.\n"
                 "Tell the agent explicitly which feedback to post.\n"
                 "Opening the session grants no posting permission.\n"
-                "o chooses manual review and opens the browser. w chooses waiting for author.\n"
+                "o opens the PR in the browser without changing its state.\n"
+                "a chooses ready to approve. w chooses waiting for author.\n"
                 "m records your completed approval locally and schedules cleanup.\n"
                 "It does not submit approval.\n"
-                "a toggles monitoring all open PRs in configured repositories.\n"
+                "A toggles monitoring all open PRs in configured repositories.\n"
                 "h browses offline history. C retries due cleanup.\n"
                 "Ctrl+R refreshes forge evidence.\n"
                 "R asks for a PR link or number to review, then a repository if ambiguous.\n"

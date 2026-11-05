@@ -100,7 +100,8 @@ Select a PR with the arrow keys, then work through the review:
    starts a new run with the current reviewer and replaces the current review details.
    Ask questions and explicitly tell the agent which comments to post, if any.
 3. Exit the agent to return to the dashboard, which refreshes activity from GitHub.
-   Press `w` if you are waiting for author changes, or `o` to review in your browser.
+   Press `o` to open the PR in your browser at any time; it does not change the state.
+   Press `w` if you are waiting for author changes, or `a` once you are ready to approve.
 4. After approving on GitHub, press `m` to mark the task complete locally. DiffButler
    also detects your approval, closure, or merge and cleans up owned session resources
    while retaining review history.
@@ -112,7 +113,7 @@ uses the agent's [native permission controls](docs/native-reviews.md#native-perm
 and read-only review instructions; source sent to the agent may go to its model provider.
 
 - `/`: Filter the queue.
-- `a`: Toggle monitoring all open PRs in configured repositories.
+- `A`: Toggle monitoring all open PRs in configured repositories.
 - `b`: Browse accessible PRs and follow one.
 - `R`: Find and add a PR by link or number, then review it; choose a repository if
   the number is ambiguous. Explicitly selected PRs bypass queue visibility filters.

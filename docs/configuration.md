@@ -281,7 +281,7 @@ persists interactive sort and AI-dispatch pause choices in SQLite. It supports a
 requested, following, triage, posted/waiting, and history presets; `all` opens accessible
 PR search. The future snoozed preset is not yet a separate dashboard view.
 
-The dashboard's `a` switch enables monitoring all open PRs in configured repositories.
+The dashboard's `A` switch enables monitoring all open PRs in configured repositories.
 This preference is stored in the local database, not the TOML file, and survives restarts.
 Every forge needs a nonempty `repositories` list to enable it. The default is review-request
 discovery only. Existing followed PRs continue to be monitored when it is disabled.

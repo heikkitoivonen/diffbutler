@@ -129,7 +129,7 @@ async def test_public_queue_switch_uses_review_requests_not_assignments(
         # Enable live actions without starting the periodic poller in this test.
         app.offline = False
         before = len(calls)
-        await pilot.press("a")
+        await pilot.press("A")
         # No periodic poller is running, so wait for the action worker and
         # its final reload rather than only the Textual message queue.
         await asyncio.wait_for(

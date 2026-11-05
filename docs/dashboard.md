@@ -74,8 +74,9 @@ When an approved, still-open PR receives new commits, it reappears as `done+`.
 These rows sort after all other visible PRs, regardless of sort column or direction,
 and stay `done+` across further pushes and refreshes. The completed approval cycle
 remains in history. No AI run starts automatically; press `r` to review the new
-changes or `o` to continue in the browser. A renewed review request returns any
-open PR to `pending`, including when new commits arrive in the same refresh.
+changes, `o` to read it in the browser, or `a` to choose `approve`. A renewed review
+request returns any open PR to `pending`, including when new commits arrive in the
+same refresh.
 A new approval, closure, or merge completes it.
 
 At widths of 80 terminal columns or more, the PR table fits the available width
@@ -92,7 +93,8 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `R` | Enter a PR link or number to review; choose a repository if ambiguous |
 | `n` | Change the current AI reviewer globally for subsequent runs |
 | `c` | Resume the exact saved conversation in the same terminal |
-| `o` / `ctrl+o` | Choose pending human review and open the browser |
+| `o` / `ctrl+o` | Open the PR in the browser without changing its state |
+| `a` | Choose ready to approve (`approve`) |
 | `w` | Choose pending author changes |
 | `m` | Record your completed approval locally and dispatch cleanup |
 | `k` | Stop the selected PR's review, reset its local tracking, and dispatch cleanup |
@@ -101,7 +103,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `L` | Inspect captured run output, or its deleted/unavailable indication |
 | `h` | Toggle offline completed-cycle history |
 | `C` | Retry due cleanup jobs, respecting persisted backoff |
-| `a` | Toggle monitoring all open PRs in configured repositories; saved across restarts |
+| `A` | Toggle monitoring all open PRs in configured repositories; saved across restarts |
 | `b` | Search accessible open PRs; select one with Enter to follow it |
 | `ctrl+r` | Refresh forge evidence now |
 | `/` | Filter the local queue by repository, number, title, or author |
@@ -171,20 +173,27 @@ inconclusive reviews, and missing or unrecognized outcomes. If the agent exits
 normally but DiffButler cannot parse its output, the task also moves to `check`.
 The attempt retains its failed status and diagnostic; inspect the saved conversation
 with `c` when available, or captured output with `L`. Nonzero exits and execution
-failures return to `pending`. Press `o` after checking the review to choose `approve`
-and open the PR, or `w` to wait for author changes. Existing saved review states are unchanged. Severity
+failures return to `pending`. Press `a` after checking the review to choose `approve`,
+or `w` to wait for author changes. Existing saved review states are unchanged. Severity
 and confidence thresholds filter only legacy structured findings; any reported finding
 keeps a newly completed structured review in `check`. Full details
 retain all findings. Analyzed and current SHAs are shown separately. Table cell updates preserve
 selection; changed ordering preserves selection by task identity where possible.
 Forge and model text is displayed literally, with terminal control characters removed.
 
-`o` records `opened_at` and pending human review before browser dispatch, then advances
-the cursor. A browser failure retains that choice and shows a copyable URL. SSH or a
-missing graphical browser environment uses the same URL/clipboard fallback. Local macOS
-sessions use the default browser without requiring Linux display variables. The optional
-`ui.browser_command` is an **argv list**; the URL is appended as one argument, with no
-shell interpolation. History browser actions only open URLs and never change task state.
+`o` only opens the PR: it changes neither the task state nor the selected row. If a
+refresh of the same view removes the selected PR, for example after your approval on
+GitHub is detected, the cursor moves to a neighbouring row; the next `a`, `w`, `m`,
+`k`, or `r` then only reports the move, and pressing it again acts on the new row.
+Moving the cursor yourself first skips that extra press. A browser failure shows a
+copyable URL. SSH or a missing graphical browser environment uses the same
+URL/clipboard fallback. Local macOS sessions use the default browser without requiring
+Linux display variables. The optional `ui.browser_command` is an **argv list**; the URL
+is appended as one argument, with no shell interpolation.
+
+`a` records your choice of `approve` and its time, and marks any queued or running AI
+review of the PR cancelled, as `w` does when choosing `author`. Neither submits
+anything to the forge.
 
 `m` is a local completion record, not a forge approval submission. Approval on GitHub
 remains the human's browser action. Completed rows disappear immediately; cleanup
@@ -232,7 +241,7 @@ Successful agent exits show no status message; nonzero exits remain visible.
   transitions. A failed return refresh leaves a visible refresh-pending indication.
 
 Stable event IDs deduplicate receipts across polling and cycles. Receipts retain author,
-body, head association where available, and timestamps. A local `o`/`w` choice increments
+body, head association where available, and timestamps. A local `a`/`w` choice increments
 the account's sync generation and saves an event/time watermark. In-flight refreshes
 must retry; older feedback cannot repeatedly undo that choice. Nothing attempts to map
 similar comment text onto finding agreement or rejection.
@@ -283,6 +292,7 @@ cancellation propagates, including when quitting just after returning from an ag
 
 ```sh
 diffbutler open 'acme/api#1841'
+diffbutler ready 'acme/api#1841'
 diffbutler waiting 'acme/api#1841'
 diffbutler history --repo acme/api --number 1841
 diffbutler history --reason local_approval --since 2026-09-01 --json
@@ -323,7 +333,7 @@ splitting remain outside this supported scope. Optional structured finding dispo
 and dashboard posting, snooze/dismiss conveniences, finding deep links, and CI hydration
 are not implemented; this guide lists the supported actions.
 
-The title bar shows the monitoring scope. Press `a` to switch between your review
+The title bar shows the monitoring scope. Press `A` to switch between your review
 requests and all open PRs in every configured forge's `repositories` list. Each forge
 must have a nonempty repository list before enabling this. The switch is saved in the
 local database, alongside other dashboard preferences, and also applies to CLI sync.
