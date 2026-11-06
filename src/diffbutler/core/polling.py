@@ -78,17 +78,15 @@ class Poller:
                     if previous != (budget.interval, budget.wait_for_reset):
                         logging.getLogger(__name__).info(
                             "Polling adjusted host=%s login=%s resource=%s interval_s=%.1f "
-                            "remaining=%d limit=%d reset_in_s=%.1f cost=%.1f "
-                            "external_calls_per_s=%.3f wait_for_reset=%s",
+                            "remaining=%d limit=%d reset_in_s=%.1f cost=%.1f wait_for_reset=%s",
                             sample.host,
-                            sample.login,
+                            sample.login or "(anonymous)",
                             sample.quota.resource,
                             budget.interval,
                             sample.quota.remaining,
                             sample.quota.limit,
                             sample.quota.reset_at.timestamp() - self.now(),
                             budget.cost,
-                            budget.external_rate,
                             budget.wait_for_reset,
                         )
                 self.changed.set()

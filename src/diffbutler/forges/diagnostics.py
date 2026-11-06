@@ -3,7 +3,7 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from diffbutler.domain.forge import RateLimit
 from diffbutler.domain.polling import PollQuota
@@ -34,25 +34,24 @@ class RateLimitObservations:
     cooldown_until: float = 0
 
     def quotas(self) -> tuple[PollQuota, ...]:
-        result: dict[tuple[str, str, str], PollQuota] = {}
-        for (source, _), observed in self.resources.items():
-            if not source.authenticated or source.login is None or observed.latest is None:
+        latest: dict[tuple[str, str, str], PollQuota] = {}
+        requests: dict[tuple[str, str, str], int] = {}
+        for (source, resource), observed in self.resources.items():
+            # Anonymous clients on one host share its per-IP quota.
+            login = source.login if source.authenticated else ""
+            if login is None:
+                continue
+            key = source.host, login.casefold(), resource
+            requests[key] = requests.get(key, 0) + observed.requests
+            if observed.latest is None:
                 continue
             sample = PollQuota(
-                source.host, source.login, observed.latest, observed.requests, observed.observed_at
+                source.host, login, observed.latest, observed.requests, observed.observed_at
             )
-            previous = result.get(sample.key)
-            if previous is not None:
-                latest = sample if sample.observed_at >= previous.observed_at else previous
-                sample = PollQuota(
-                    latest.host,
-                    latest.login,
-                    latest.quota,
-                    sample.requests + previous.requests,
-                    latest.observed_at,
-                )
-            result[sample.key] = sample
-        return tuple(result.values())
+            previous = latest.get(key)
+            if previous is None or sample.observed_at >= previous.observed_at:
+                latest[key] = sample
+        return tuple(replace(sample, requests=requests[key]) for key, sample in latest.items())
 
 
 _observations: ContextVar[RateLimitObservations | None] = ContextVar(

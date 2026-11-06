@@ -124,7 +124,7 @@ exact repository. Listed repositories that deny PR reads are skipped; exact
 repositories still report the error. Each remaining repository costs one core request.
 Before each of these reads, DiffButler stops with guidance to use the full PR link if
 the reads still to come, plus ten requests kept for following the chosen PR, would
-leave less than a fifth of core quota, where pacing slows requests, or are estimated
+leave less than a tenth of core quota, where pacing slows requests, or are estimated
 to outlast the time left in the dialog's 60-second lookup. Anonymous access allows
 about one read per second, so a large owner usually needs a token or a full PR link.
 
@@ -240,7 +240,7 @@ Requests are serialized within each adapter, with at least 0.1 seconds between r
 starts for authenticated access, including search. Anonymous access retains a
 one-second gap, or 6.1 seconds between search requests. Redirects and retry attempts
 use the same pacing.
-When a response reports 20% or less of its quota remaining, remaining requests are
+When a response reports 10% or less of its quota remaining, remaining requests are
 spread toward the reported reset time. These waits are asynchronous and cancellable;
 refreshes can take substantially longer when the anonymous quota is nearly exhausted.
 Pacing cannot restore an already-exhausted quota, and separate application processes

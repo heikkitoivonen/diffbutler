@@ -15,6 +15,7 @@ from typing import ClassVar
 import httpx
 
 from diffbutler.domain.forge import RateLimit, ReadBudget
+from diffbutler.domain.polling import RESERVE_SHARE
 from diffbutler.forges.base import ForgeError
 from diffbutler.forges.diagnostics import (
     RateLimitSource,
@@ -53,8 +54,8 @@ class ReadResponse:
 class GitHubHTTP:
     DEFAULT_REQUEST_INTERVAL: ClassVar[float] = 1.0
     AUTHENTICATED_REQUEST_INTERVAL: ClassVar[float] = 0.1
-    # Below this share of a quota, pacing spreads the remaining requests until reset.
-    LOW_QUOTA_SHARE: ClassVar[float] = 0.2
+    # Below polling's reserve, pacing spreads the remaining requests until reset.
+    LOW_QUOTA_SHARE: ClassVar[float] = RESERVE_SHARE
 
     def __init__(
         self,

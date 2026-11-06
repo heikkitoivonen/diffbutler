@@ -253,21 +253,20 @@ containing both uses a 600-second minimum because each poll refreshes every acco
 An explicit `general.poll_interval_s` sets the minimum instead. Intervals are measured
 between refresh starts; time spent refreshing counts toward the interval.
 
-Authenticated polling adapts to response headers for each account, host, and rate-limit
-resource (including core and search). Refresh cost uses a moving average of request
-attempts, including pagination and retries, with a 25% safety margin; a larger observed
-refresh raises the estimate immediately. Ten percent of quota is reserved for interactive
-actions and unexpected work. The remaining quota, time until reset, and estimated
-consumption outside polling determine a sustainable interval. The longest required
-interval governs the next refresh.
-
-Crossing below 20% remaining increases the interval by 50%; staying below does not
-repeatedly multiply it. Above 80%, two successful refreshes shorten the interval by 20%,
-down to the configured minimum. Between those thresholds the interval holds steady.
-The quota budget can require a longer interval at any level. If the available budget
-cannot cover a refresh, polling waits until reset. Reset clears the old quota slowdown
-and consumption estimate while retaining the refresh-cost estimate. Missing headers
-do not authorize acceleration; expired quota observations stop delaying polling.
+Polling adapts to response headers for each account, host, and rate-limit resource
+(including core and search); anonymous accounts on a host share one per-IP budget.
+After each refresh, the next interval is the refresh cost multiplied by the time until
+reset, divided by the remaining quota above a 10% reserve, aiming to end the window
+with the reserve unspent. The reserve is left for interactive
+actions and other clients. Refresh cost counts request attempts, including pagination
+and retries, and is the larger of the latest refresh and a moving average, so a larger
+refresh raises it immediately and an incomplete refresh never lowers it. The interval is
+recomputed from the latest remaining count rather than accumulated, so quota spent by
+other clients slows the next refresh, and spare quota shortens the interval again within
+the same window, down to the configured minimum. The longest required interval governs
+the next refresh. If the quota above the reserve cannot cover a refresh, polling waits
+until reset. Missing headers do not authorize acceleration; expired quota observations
+stop delaying polling.
 
 Manual `Ctrl+R` refreshes can bypass the adaptive interval and update the next automatic
 deadline, but still respect recorded server cooldowns and request pacing. Quota and

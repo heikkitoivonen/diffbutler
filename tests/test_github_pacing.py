@@ -68,7 +68,7 @@ async def test_low_quota_spreads_remaining_requests_until_reset(token: str | Non
             json={},
             headers={
                 "X-RateLimit-Resource": "core",
-                "X-RateLimit-Limit": "10",
+                "X-RateLimit-Limit": "20",
                 "X-RateLimit-Remaining": str(3 - len(starts)),
                 "X-RateLimit-Reset": "1100",
             },
@@ -87,6 +87,41 @@ async def test_low_quota_spreads_remaining_requests_until_reset(token: str | Non
         await http.get("repos/acme/api/pulls/1")
         await http.get("repos/acme/api/pulls/2")
         assert starts == [1000, 1050, 1100]
+    finally:
+        await http.close()
+
+
+@pytest.mark.asyncio
+async def test_quota_above_the_polling_reserve_keeps_the_normal_gap() -> None:
+    clock = Clock()
+    starts: list[float] = []
+
+    def handle(_: httpx.Request) -> httpx.Response:
+        starts.append(clock.now())
+        return httpx.Response(
+            200,
+            json={},
+            headers={
+                "X-RateLimit-Resource": "core",
+                "X-RateLimit-Limit": "20",
+                "X-RateLimit-Remaining": str(5 - len(starts)),  # 20% and 15%.
+                "X-RateLimit-Reset": "1100",
+            },
+        )
+
+    http = GitHubHTTP(
+        "https://api.github.com",
+        "synthetic",
+        transport=httpx.MockTransport(handle),
+        sleep=clock.sleep,
+        now=clock.now,
+        request_interval=1,
+    )
+    try:
+        await http.get("users/reader")
+        await http.get("repos/acme/api/pulls/1")
+        await http.get("repos/acme/api/pulls/2")
+        assert starts == [1000, 1001, 1002]
     finally:
         await http.close()
 

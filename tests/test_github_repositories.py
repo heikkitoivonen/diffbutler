@@ -233,7 +233,7 @@ async def test_owner_listing_with_another_owner_reports_the_configured_owner(kin
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("listed", "allowed"), [(27, True), (28, False)])
+@pytest.mark.parametrize(("listed", "allowed"), [(33, True), (34, False)])
 async def test_anonymous_lookup_refuses_reads_that_would_drain_core_quota(
     listed: int, allowed: bool
 ) -> None:
@@ -272,7 +272,7 @@ async def test_anonymous_lookup_refuses_reads_that_would_drain_core_quota(
         )
     )
     try:
-        # After listing, 49 remain; the 12-request low-quota reserve leaves 37 spare,
+        # After listing, 49 remain; the 6-request low-quota reserve leaves 43 spare,
         # and 10 of those stay reserved for following the chosen PR.
         if allowed:
             assert len(await numbered_prs(forge, ["acme/*"], 1)) == listed
@@ -280,10 +280,10 @@ async def test_anonymous_lookup_refuses_reads_that_would_drain_core_quota(
             # The scan ends with exactly the follow-up reserve above the pacing threshold.
             assert forge.read_budget().requests == 10
         else:
-            with pytest.raises(ForgeError, match=r"28 more repositories .* can spare \(37\)"):
+            with pytest.raises(ForgeError, match=r"34 more repositories .* can spare \(43\)"):
                 await numbered_prs(forge, ["acme/*"], 1)
             assert not lookups
-            assert forge.read_budget().requests == 37
+            assert forge.read_budget().requests == 43
     finally:
         await forge.close()
 

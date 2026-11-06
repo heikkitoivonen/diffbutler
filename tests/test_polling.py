@@ -48,42 +48,34 @@ def observe(value: PollQuota, *, authenticated: bool = True) -> None:
     observe_rate_limit(value.quota, source, observed_at=value.observed_at)
 
 
-@pytest.mark.parametrize("reset,expected", [(4000, 750), (1120, 90)])
-def test_budget_accounts_for_time_until_reset(reset: float, expected: float) -> None:
+@pytest.mark.parametrize(
+    "remaining,reset,expected",
+    [(900, 4000, 600), (900, 1120, 60), (4500, 4300, 66)],
+)
+def test_budget_spreads_quota_above_the_reserve_until_reset(
+    remaining: int, reset: float, expected: float
+) -> None:
     budget = QuotaBudget(60)
-    budget.update(sample(reset=reset), successful=True, now=1000)
-    assert budget.cost == 100  # 25% above the measured 80 calls.
-    assert budget.interval == expected
-    assert budget.next_start(1000, 1000) == 1000 + expected
+    budget.update(sample(remaining, reset=reset), successful=True, now=1000)
+    # 80 calls per refresh over the quota above a 500-call reserve.
+    assert budget.cost == 80
+    assert budget.interval == pytest.approx(expected)
+    assert budget.next_start(1000, 1000) == pytest.approx(1000 + expected)
 
 
-def test_large_queue_slows_even_above_eighty_percent() -> None:
+def test_interval_follows_latest_remaining_count_in_both_directions() -> None:
     budget = QuotaBudget(60)
-    budget.update(sample(4500, reset=4300), successful=True, now=1000)
-    assert budget.interval == 82.5
-
-
-def test_low_threshold_does_not_compound_and_high_threshold_needs_two_successes() -> None:
-    budget = QuotaBudget(60)
-    budget.update(sample(requests=1), successful=True, now=1000)
-    assert budget.interval == 90
-    budget.update(sample(requests=1, now=1060), successful=True, now=1060)
-    assert budget.interval == 90
-    budget.update(sample(3000, requests=1, now=1120), successful=True, now=1120)
-    assert budget.interval == 90
-    budget.update(sample(4500, requests=1, now=1180), successful=True, now=1180)
-    assert budget.interval == 90
-    budget.update(sample(4500, requests=1, now=1240), successful=False, now=1240)
-    assert budget.interval == 90
-    for now in (1300, 1360):
-        budget.update(sample(4500, requests=1, now=now), successful=True, now=now)
-    assert budget.interval == 72
-    for now in (1420, 1480):
-        budget.update(sample(4500, requests=1, now=now), successful=True, now=now)
+    budget.update(sample(4000, requests=100), successful=True, now=1000)
+    assert budget.interval == pytest.approx(100 * 3000 / 3500)
+    # Another client spent quota; the next refresh sees it without estimating it.
+    budget.update(sample(1000, requests=100, now=1100), successful=True, now=1100)
+    assert budget.interval == pytest.approx(100 * 2900 / 500)
+    # Spare quota within the same window shortens the interval again.
+    budget.update(sample(4500, requests=100, now=1700), successful=True, now=1700)
     assert budget.interval == 60
 
 
-@pytest.mark.parametrize("remaining", [0, 450, 550])
+@pytest.mark.parametrize("remaining", [0, 450, 579])
 def test_insufficient_budget_waits_for_reset_then_reassesses(remaining: int) -> None:
     budget = QuotaBudget(60)
     budget.update(sample(remaining), successful=True, now=1000)
@@ -92,29 +84,27 @@ def test_insufficient_budget_waits_for_reset_then_reassesses(remaining: int) -> 
     assert budget.next_start(1000, 4001) <= 4001
     budget.update(sample(4999, now=4001, reset=7600), successful=True, now=4001)
     assert not budget.wait_for_reset
-    assert budget.interval == pytest.approx(100 * 3599 / 4499)
+    assert budget.interval == pytest.approx(80 * 3599 / 4499)
+
+
+def test_budget_covering_one_refresh_does_not_wait_for_reset() -> None:
+    budget = QuotaBudget(60)
+    budget.update(sample(580), successful=True, now=1000)
+    assert not budget.wait_for_reset
+    assert budget.next_start(1000, 1000) == 4000
 
 
 def test_cost_surges_are_immediate_and_incomplete_refreshes_cannot_lower_estimate() -> None:
     budget = QuotaBudget(60)
     budget.update(sample(4000, requests=10), successful=True, now=1000)
+    assert budget.cost == 10
     budget.update(sample(3500, requests=500, now=1060), successful=True, now=1060)
-    assert budget.cost == 625
-    before = budget.average_cost
+    assert budget.cost == 500
     budget.update(sample(3499, requests=1, now=1120), successful=False, now=1120)
-    assert budget.average_cost == before
-    assert budget.cost == 625
-
-
-def test_other_consumers_are_estimated_only_within_a_reset_window() -> None:
-    budget = QuotaBudget(60)
-    budget.update(sample(4000, requests=10), successful=True, now=1000)
-    budget.update(sample(3000, requests=100, now=1100), successful=True, now=1100)
-    assert budget.external_rate == pytest.approx(2.7)
-    assert budget.wait_for_reset
-    budget.update(sample(4900, now=4001, reset=7600), successful=True, now=4001)
-    assert budget.external_rate == 0
-    assert not budget.wait_for_reset
+    assert budget.average_cost == 255
+    assert budget.cost == 500
+    budget.update(sample(3489, requests=10, now=1180), successful=True, now=1180)
+    assert budget.cost == 132.5
 
 
 def test_collection_groups_clients_by_account_and_keeps_latest_window() -> None:
@@ -124,9 +114,16 @@ def test_collection_groups_clients_by_account_and_keeps_latest_window() -> None:
         observe(sample(100, login="other"))
         observe(replace(sample(100), host="https://enterprise.example/api/v3"))
         observe(sample(10, limit=30, resource="search", reset=1060))
-        observe(sample(), authenticated=False)
+        observe(sample(30, limit=60), authenticated=False)
+        observe(sample(29, limit=60, now=1001), authenticated=False)
+        # A client sharing the anonymous quota whose requests returned no headers.
+        headerless = RateLimitSource("https://api.github.com", False)
+        for _ in range(5):
+            observe_request(headerless, "core")
     quotas = {quota.key: quota for quota in observations.quotas()}
-    assert len(quotas) == 4
+    assert len(quotas) == 5
+    anonymous = quotas[("https://api.github.com", "", "core")]
+    assert anonymous.quota.remaining == 29 and anonymous.requests == 165
     combined = quotas[("https://api.github.com", "reader", "core")]
     assert combined.quota.remaining == 4999
     assert combined.quota.reset_at.timestamp() == 7600
@@ -141,7 +138,7 @@ async def test_poll_deadline_combines_accounts_resources_duration_and_cooldowns(
 
     async def refresh() -> None:
         nonlocal now
-        observe(sample())  # Needs 750 seconds between starts.
+        observe(sample())  # Needs 600 seconds between starts.
         observe(sample(4999, login="other"))
         observe(sample(0, limit=30, resource="search", reset=1060, requests=1))
         now += 30
@@ -149,7 +146,7 @@ async def test_poll_deadline_combines_accounts_resources_duration_and_cooldowns(
     poller = Poller(refresh, 60, now=lambda: now)
     await poller.refresh_observed(refresh)
     # Budget is computed at completion, using the remaining reset time.
-    assert poller.delay() == pytest.approx(100 * 2970 / 400 - 30)
+    assert poller.delay() == pytest.approx(80 * 2970 / 400 - 30)
     poller.cooldown_until = 2000
     assert poller.delay() == 970
     with pytest.raises(ForgeError, match="cooldown"):
@@ -171,11 +168,22 @@ async def test_failed_sync_retains_quota_and_swallowed_server_cooldown() -> None
 
 
 @pytest.mark.asyncio
-async def test_anonymous_and_missing_headers_keep_minimum_and_manual_refresh_reschedules() -> None:
+async def test_anonymous_quota_paces_polling_above_the_minimum() -> None:
+    async def refresh() -> None:
+        observe(sample(30, limit=60, requests=12), authenticated=False)
+
+    poller = Poller(refresh, 600, now=lambda: 1000)
+    await poller.refresh_observed(refresh)
+    assert list(poller.budgets) == [("https://api.github.com", "", "core")]
+    assert poller.delay() == pytest.approx(12 * 3000 / 24)
+
+
+@pytest.mark.asyncio
+async def test_missing_headers_keep_minimum_and_manual_refresh_reschedules() -> None:
     now = 1000.0
 
     async def refresh() -> None:
-        observe(sample(0), authenticated=False)
+        observe_request(RateLimitSource("https://api.github.com", False), "core")
 
     poller = Poller(refresh, 600, now=lambda: now)
     await poller.refresh_observed(refresh)

@@ -299,8 +299,9 @@ async def test_dashboard_sync_adapts_polling_to_authenticated_quota(
     async with app.run_test():
         assert app.poller.interval == 60
         await app.sync()
-        assert 740 < app.poller.interval <= 750
-        assert 730 < app.poller.delay() <= 750
+        # 80 calls per refresh over 3,000 seconds and the 400 calls above the reserve.
+        assert 590 < app.poller.interval <= 600
+        assert 580 < app.poller.delay() <= 600
 
 
 @pytest.mark.serial
