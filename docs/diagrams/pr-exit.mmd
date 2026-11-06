@@ -1,0 +1,8 @@
+flowchart LR
+    board["On the board"]
+    board -->|"m"| done
+    board -.->|"you approved, or PR<br/>closed or merged"| done
+    done["done: listed in<br/>history (h)"]
+    board -->|"k"| reset["Removed,<br/>history kept"]
+    reset -.->|"next refresh, if still<br/>requested or A is on"| back["Back as pending"]
+    board -.->|"you are assigned,<br/>unless selected with R<br/>or include_assigned_prs<br/>is set"| hidden["Hidden"]

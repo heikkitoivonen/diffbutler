@@ -73,6 +73,15 @@ content; `website/` contains its HTML template, CSS, and `icon.svg`, shared by t
 header and favicon. Relative documentation and license links point to the
 corresponding files on GitHub.
 
+README images use absolute `raw.githubusercontent.com/.../main/` URLs so they also
+display on PyPI, which cannot resolve relative paths; an image change therefore shows
+there only after it reaches `main`. The site build serves those images from its own
+copy instead. The flow diagrams are Mermaid sources in `docs/diagrams/*.mmd`, committed
+with their rendered SVGs. After editing a source, run `make diagrams` to re-render;
+it requires Node and runs a pinned `@mermaid-js/mermaid-cli` with `npx`, which
+downloads a headless browser. Pass `MMDC_ARGS="-p puppeteer.json"` to point Puppeteer
+at a local browser where its bundled one is unavailable, such as Linux on ARM64.
+
 Run `make site` to generate `.cache/site/`. To preview it locally, run
 `uv run --locked python -m http.server 8000 --directory .cache/site` and open
 `http://localhost:8000`. Generated files are ignored by Git and separate from the

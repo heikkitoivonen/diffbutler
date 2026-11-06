@@ -1,0 +1,20 @@
+flowchart TD
+    github{{"GitHub activity<br/>on an active PR"}}
+    pending -->|"r"| queued
+    queued -.->|"worker starts"| running
+    running -.->|"findings, or output<br/>could not be parsed"| check
+    running -.->|"no findings"| approve
+    check -->|"w"| author
+    check -->|"a"| approve
+    author -->|"a"| approve
+    approve -->|"w"| author
+    approve -->|"m"| done
+    queued -->|"Ctrl+C"| pending
+    running -->|"Ctrl+C"| pending
+    running -.->|"agent failed"| pending
+    github -.->|"new commits or<br/>review requested again"| pending
+    github -.->|"your review with<br/>comments or<br/>requested changes"| author
+    github -.->|"you approved, or PR<br/>closed or merged"| done
+    done -.->|"new commits after<br/>you approved"| doneplus["done+"]
+    done -.->|"review requested again"| pending
+    doneplus -->|"r"| queued

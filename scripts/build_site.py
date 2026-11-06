@@ -8,10 +8,14 @@ from urllib.parse import urljoin, urlsplit
 from markdown_it import MarkdownIt
 
 REPOSITORY = "https://github.com/heikkitoivonen/diffbutler"
+RAW = "https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/"
 
 
-def render_readme(markdown: str) -> str:
-    """Keep README content, with section anchors and repository-relative links."""
+def render_readme(markdown: str, assets: set[str] | None = None) -> str:
+    """Keep README content, with section anchors and repository-relative links.
+
+    Images on `main` are served from the site; their paths are added to `assets`.
+    """
     parser = MarkdownIt("js-default")
     tokens = parser.parse(markdown)
     anchors: set[str] = set()
@@ -28,6 +32,11 @@ def render_readme(markdown: str) -> str:
             anchors.add(anchor)
             token.attrSet("id", anchor)
         for child in token.children or []:
+            src = child.attrGet("src")
+            if isinstance(src, str) and src.startswith(RAW):
+                child.attrSet("src", src.removeprefix(RAW))
+                if assets is not None:
+                    assets.add(src.removeprefix(RAW))
             href = child.attrGet("href")
             if (
                 isinstance(href, str)
@@ -41,7 +50,8 @@ def render_readme(markdown: str) -> str:
 
 def build_site(root: Path, output: Path) -> None:
     """Write only the public page and its assets to the deployment directory."""
-    content = render_readme((root / "README.md").read_text(encoding="utf-8"))
+    assets: set[str] = set()
+    content = render_readme((root / "README.md").read_text(encoding="utf-8"), assets)
     template = (root / "website" / "index.html").read_text(encoding="utf-8")
     output.mkdir(parents=True, exist_ok=True)
     (output / "index.html").write_text(
@@ -49,7 +59,11 @@ def build_site(root: Path, output: Path) -> None:
     )
     shutil.copyfile(root / "website" / "style.css", output / "style.css")
     shutil.copyfile(root / "website" / "icon.svg", output / "icon.svg")
+    # The social preview image is published even if the README stops using it.
     shutil.copyfile(root / "diffbutler.png", output / "diffbutler.png")
+    for asset in sorted(assets):
+        (output / asset).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / asset, output / asset)
 
 
 if __name__ == "__main__":

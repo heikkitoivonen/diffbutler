@@ -1,0 +1,7 @@
+{
+  "theme": "neutral",
+  "look": "classic",
+  "htmlLabels": false,
+  "themeVariables": { "lineColor": "#333333" },
+  "flowchart": { "htmlLabels": false, "wrappingWidth": 400 }
+}

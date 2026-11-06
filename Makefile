@@ -2,7 +2,7 @@
 UV ?= uv
 RUN := $(UV) run --locked
 
-.PHONY: help setup run handoff format lint typecheck architecture test coverage check build smoke site audit licenses lock upgrade
+.PHONY: help setup run handoff format lint typecheck architecture test coverage check build smoke site diagrams audit licenses lock upgrade
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "DiffButler development commands\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -47,6 +47,13 @@ smoke: build ## Install the wheel in a fresh environment and check both entry po
 
 site: ## Build the README website in .cache/site
 	$(RUN) python scripts/build_site.py
+
+MMDC ?= npx --yes @mermaid-js/mermaid-cli@12.0.0
+
+diagrams: ## Render docs/diagrams/*.mmd to SVG (requires Node; pass MMDC_ARGS for mmdc options)
+	@for source in docs/diagrams/*.mmd; do \
+		$(MMDC) --quiet -c docs/diagrams/mermaid.json -b white $(MMDC_ARGS) -i "$$source" -o "$${source%.mmd}.svg" || exit 1; \
+	done
 
 audit: ## Audit locked runtime and development dependencies (requires network)
 	@mkdir -p .cache

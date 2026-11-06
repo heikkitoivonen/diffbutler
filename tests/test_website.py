@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from scripts.build_site import REPOSITORY, build_site, render_readme
+from scripts.build_site import RAW, REPOSITORY, build_site, render_readme
 
 
 def test_readme_links_work_on_the_custom_domain() -> None:
@@ -18,6 +18,19 @@ def test_readme_links_work_on_the_custom_domain() -> None:
     assert 'href="#install"' in rendered
     assert 'href="https://example.com/"' in rendered
     assert 'href="mailto:hello@example.com"' in rendered
+
+
+def test_main_branch_images_are_served_from_the_site() -> None:
+    assets: set[str] = set()
+    rendered = render_readme(
+        f"![Shot]({RAW}diffbutler.png) ![Flow]({RAW}docs/diagrams/flow.svg) "
+        "![Badge](https://example.com/badge.svg)",
+        assets,
+    )
+    assert 'src="diffbutler.png"' in rendered
+    assert 'src="docs/diagrams/flow.svg"' in rendered
+    assert 'src="https://example.com/badge.svg"' in rendered
+    assert assets == {"diffbutler.png", "docs/diagrams/flow.svg"}
 
 
 def test_headings_get_unique_anchors_and_code_stays_literal() -> None:
@@ -46,11 +59,20 @@ def test_build_publishes_readme_and_only_public_assets(tmp_path: Path) -> None:
     assert '<img src="icon.svg" width="44" height="44" alt="">' in page
     assert '<link rel="canonical" href="https://diffbutler.com/">' in page
     assert "<!-- README -->" not in page
+    diagrams = sorted(path.name for path in (root / "docs" / "diagrams").glob("*.svg"))
+    assert diagrams
+    for name in diagrams:
+        assert f'src="docs/diagrams/{name}"' in page
     assert {path.name for path in output.iterdir()} == {
         "index.html",
         "style.css",
         "diffbutler.png",
         "icon.svg",
+        "docs",
     }
+    assert sorted(path.name for path in (output / "docs" / "diagrams").iterdir()) == diagrams
+    for name in diagrams:
+        published = (output / "docs" / "diagrams" / name).read_bytes()
+        assert published == (root / "docs" / "diagrams" / name).read_bytes()
     assert (output / "diffbutler.png").read_bytes() == (root / "diffbutler.png").read_bytes()
     assert (output / "icon.svg").read_bytes() == (root / "website" / "icon.svg").read_bytes()
