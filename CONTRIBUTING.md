@@ -92,6 +92,10 @@ checks and installation smoke tests on Linux and macOS, plus a dependency audit
 on Linux. Once all checks pass, it publishes the tested Linux-built wheel and
 source distribution to PyPI. Only the separate publishing job can request a PyPI
 identity token; it downloads those artifacts without checking out or running project code.
+After PyPI publication succeeds, a final job with write access to repository contents
+creates a GitHub Release for the tag, without checking out project code. It
+attaches the same distributions and uses GitHub-generated notes; alpha, beta,
+release-candidate, and development tags are marked as pre-releases.
 
 ### One-time setup
 
@@ -130,9 +134,9 @@ git tag -a v0.5.0 -m "Release 0.5.0"
 git push origin v0.5.0
 ```
 
-Monitor **Actions → Publish to PyPI** for the result. A GitHub Release is optional;
-the tag push triggers publishing. Ordinary branch pushes and pull requests only
-run CI. After publication, users can install with:
+Monitor **Actions → Publish to PyPI** for the result. Do not create the GitHub
+Release by hand; the workflow creates it. If one already exists for the tag, the
+workflow leaves it unchanged. Ordinary branch pushes and pull requests only run CI. After publication, users can install with:
 
 ```sh
 uv tool install --python 3.14 diffbutler
