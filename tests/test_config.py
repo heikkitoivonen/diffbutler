@@ -13,6 +13,8 @@ def test_defaults_do_not_need_a_config_or_forge(tmp_path: Path) -> None:
     assert settings.review.mode == "source_only"
     assert settings.ui.include_own_prs is False
     assert settings.ui.include_assigned_prs is False
+    assert settings.ui.columns[3] == settings.ui.sort_by == "state"
+    assert settings.ui.sort_desc is True
     assert settings.db.url == f"sqlite+aiosqlite:///{tmp_path}/data/diffbutler/diffbutler.db"
     assert not (tmp_path / "data").exists()
 

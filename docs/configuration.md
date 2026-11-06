@@ -275,8 +275,9 @@ on forge refresh; older cached PRs need a successful refresh before this filter 
 History, accessible-PR search, monitoring, and saved review state are preserved.
 
 `ui.columns` and `ui.sort_by` accept the registered IDs listed in SPEC §10.2;
-unknown IDs fail validation. `ui.browser_command` accepts an argv list, for example
-`["firefox", "--new-tab"]`; the UI appends the PR URL without a shell. The dashboard
+unknown IDs fail validation. `ui.sort_by` defaults to `state`, the fourth default
+column. `ui.browser_command` accepts an argv list, for example `["firefox", "--new-tab"]`;
+the UI appends the PR URL without a shell. The dashboard
 persists interactive sort and AI-dispatch pause choices in SQLite. It supports active,
 requested, following, triage, posted/waiting, and history presets; `all` opens accessible
 PR search. The future snoozed preset is not yet a separate dashboard view.

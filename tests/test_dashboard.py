@@ -20,7 +20,7 @@ from textual.pilot import Pilot
 from textual.widgets import Button, DataTable, Input, Static
 from typer.testing import CliRunner
 
-from diffbutler.config.settings import load_settings
+from diffbutler.config.settings import Settings, load_settings
 from diffbutler.core.application import local_queue
 from diffbutler.core.dashboard import (
     CycleDetail,
@@ -698,6 +698,13 @@ async def three_prs(
     return tasks
 
 
+def attention_sorted(path: Path) -> Settings:
+    """Settings ordering the queue by the attention score that three_prs is built around."""
+    settings = load_settings(path)
+    ui = settings.ui.model_copy(update={"sort_by": "attention"})
+    return settings.model_copy(update={"ui": ui})
+
+
 async def set_state(database: Database, task: TrackedPR, state: str) -> None:
     async with database.sessions() as db:
         await db.execute(
@@ -739,7 +746,7 @@ async def test_open_keeps_state_and_selection_so_later_keys_act_on_the_opened_pr
 ) -> None:
     database, queue, forge, path = ledger
     tasks = await three_prs(database, queue, forge)
-    app = Dashboard(path, load_settings(path), offline=True)
+    app = Dashboard(path, attention_sorted(path), offline=True)
     opened: list[str] = []
 
     async def browser(url: str, command: list[str] | None = None) -> bool:
@@ -786,7 +793,7 @@ async def test_navigation_after_refresh_removed_selected_pr_confirms_the_new_row
 ) -> None:
     database, queue, forge, path = ledger
     tasks = await three_prs(database, queue, forge)
-    app = Dashboard(path, load_settings(path), offline=True)
+    app = Dashboard(path, attention_sorted(path), offline=True)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         first = selected_title(app)
@@ -833,7 +840,7 @@ async def test_dashboard_state_actions_history_and_browser_failure(
             "PR",
             "Title",
             "Author",
-            "State",
+            "State ▼",
         ]
         assert "Repository: acme/api" in str(app.query_one("#preview", Static).content)
         preview = str(app.query_one("#preview", Static).content)

@@ -54,7 +54,7 @@ class DashboardRow(BaseModel):
 
 
 class SortSpec(BaseModel):
-    column: str = "attention"
+    column: str = "state"
     descending: bool = True
 
 

@@ -125,7 +125,7 @@ class UI(Section):
             "state",
         ]
     )
-    sort_by: str = "attention"
+    sort_by: str = "state"
     sort_desc: bool = True
     preview_pane: bool = True
     default_filter: Literal[
