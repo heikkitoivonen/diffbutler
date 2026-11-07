@@ -12,6 +12,9 @@ a usable color, it uses `ansi-dark`. Use the command palette's Theme command to
 select a different theme for the current session. The palette's Keys
 command opens keyboard help; press Escape to close that panel.
 
+Press `,` to view and edit all settings while the dashboard runs. Saved changes apply
+without restarting; see [editing settings](configuration.md#editing-settings-in-the-dashboard).
+
 The managed native presets support **Codex CLI or Claude Code on Linux and macOS**
 without version checks.
 [Native review setup and limitations](native-reviews.md) apply unchanged. Every AI

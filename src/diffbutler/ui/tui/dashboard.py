@@ -11,14 +11,15 @@ from uuid import UUID
 from rich.cells import cell_len
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import BindingType
+from textual.binding import BindingsMap, BindingType
 from textual.containers import VerticalScroll
 from textual.coordinate import Coordinate
 from textual.events import Resize
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
-from diffbutler.config.settings import ConfigError, Settings
+from diffbutler.config.editor import ConfigEditor
+from diffbutler.config.settings import ConfigError, Settings, load_settings
 from diffbutler.core.dashboard import (
     CycleDetail,
     DashboardRow,
@@ -60,6 +61,7 @@ from diffbutler.ui.tui.browse import BrowseScreen
 from diffbutler.ui.tui.browser import open_browser
 from diffbutler.ui.tui.foreground import run_foreground
 from diffbutler.ui.tui.review_prompt import ReviewPrompt
+from diffbutler.ui.tui.settings import SettingsScreen
 
 
 def safe(value: object) -> str:
@@ -252,6 +254,7 @@ class Dashboard(TerminalApp):
         ("ctrl+c", "cancel_review", "Cancel review"),
         ("P", "toggle_pause", "Pause AI dispatch"),
         ("y", "copy_url", "Copy URL"),
+        ("comma", "settings", "Settings"),
         ("?", "help", "Help"),
         ("q", "quit", "Quit"),
     ]
@@ -293,6 +296,8 @@ class Dashboard(TerminalApp):
         # Set when a reload removed the selected PR and moved the cursor to another row.
         self.moved_selection: str | None = None
         self.loaded_scope: tuple[str, str] | None = None
+        # Includes bindings Textual adds while constructing the app, such as the palette.
+        self.default_bindings: BindingsMap = self._bindings.copy()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -306,16 +311,25 @@ class Dashboard(TerminalApp):
         yield Button("Select a PR", id="primary")
         yield Footer()
 
-    async def on_mount(self) -> None:
+    def apply_key_bindings(self) -> None:
+        """Start from the constructed bindings so saved settings replace earlier choices."""
+        self._bindings: BindingsMap = self.default_bindings.copy()
         for index in range(1, min(9, len(self.settings.ui.columns)) + 1):
             self._bindings.bind(str(index), f"sort_column({index - 1})", "Sort column", show=False)
         for action, keys in self.settings.keys.items():
-            if any(action == binding[1] for binding in self.BINDINGS if isinstance(binding, tuple)):
+            if action in self.actions():
                 for key, bindings in list(self._bindings.key_to_bindings.items()):
                     self._bindings.key_to_bindings[key] = [
                         binding for binding in bindings if binding.action != action
                     ]
                 self._bindings.bind(",".join(keys), action, action.replace("_", " "))
+        self.refresh_bindings()
+
+    def actions(self) -> list[str]:
+        return [binding[1] for binding in self.BINDINGS if isinstance(binding, tuple)]
+
+    async def on_mount(self) -> None:
+        self.apply_key_bindings()
         choices, default = await reviewer_choices_configured(self.path)
         self.current_reviewer = default if default in choices else next(iter(choices), None)
         self.status(
@@ -1022,6 +1036,42 @@ class Dashboard(TerminalApp):
 
         self.start(save())
 
+    def action_settings(self) -> None:
+        if len(self.screen_stack) > 1 or self.attached:
+            return
+
+        async def show() -> None:
+            editor = await asyncio.to_thread(ConfigEditor.open, self.path)
+
+            def closed(saved: bool | None) -> None:
+                if saved:
+                    self.start(self.apply_settings(), message="Applying settings…")
+                else:
+                    self.status("Settings unchanged.")
+
+            self.push_screen(SettingsScreen(editor, self.actions()), closed)
+
+        self.start(show(), message="Opening settings…")
+
+    async def apply_settings(self) -> None:
+        """Most operations read the file themselves; refresh what the dashboard keeps."""
+        settings = await asyncio.to_thread(load_settings, self.path)
+        self.settings = settings
+        self.poller.set_minimum(settings.effective_poll_interval_s)
+        self.apply_key_bindings()
+        if self.sort.column not in settings.ui.columns and self.sort.column != "attention":
+            self.sort = SortSpec(column=settings.ui.sort_by, descending=settings.ui.sort_desc)
+        if not settings.ui.preview_pane:
+            self.preview_content = ""
+            self.query_one("#preview", Static).update("Select a PR")
+        choices, default = await reviewer_choices_configured(self.path)
+        if self.current_reviewer not in choices:
+            self.current_reviewer = default if default in choices else next(iter(choices), None)
+        self.status(
+            f"Settings saved and applied. Current AI reviewer: "
+            f"{self.current_reviewer or 'not configured'}."
+        )
+
     def action_help(self) -> None:
         self.push_screen(
             DetailScreen(
@@ -1040,6 +1090,7 @@ class Dashboard(TerminalApp):
                 "s cycles sort columns; S reverses; 1-9 or a column header selects a sort.\n"
                 "/ filters; f cycles views. Ctrl+C cancels the selected run launched here.\n"
                 "P pauses AI dispatch; forge polling continues.\n"
+                ", edits settings; saving applies them without restarting.\n"
                 "q quits and cancels reviews launched in this dashboard."
             )
         )

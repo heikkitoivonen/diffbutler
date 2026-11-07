@@ -1,7 +1,5 @@
 """Persist first-run choices while preserving unrelated TOML and comments."""
 
-import os
-import tempfile
 from collections.abc import MutableMapping, Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -9,6 +7,7 @@ from typing import Any, cast
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
 
+from diffbutler.config.file import publish_config
 from diffbutler.config.settings import NATIVE_PRESETS, ConfigError, Forge, Reviewer, config_path
 
 
@@ -69,24 +68,8 @@ def save_setup(
                     + "\n"
                 )
         selected.parent.mkdir(parents=True, exist_ok=True)
-        temporary: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=selected.parent, delete=False
-            ) as stream:
-                temporary = Path(stream.name)
-                stream.write(content)
-            if original is not None:
-                if selected.read_text(encoding="utf-8") != original:
-                    raise ConfigError("Configuration changed during setup; restart DiffButler")
-                temporary.chmod(selected.stat().st_mode & 0o777)
-                os.replace(temporary, selected)
-            else:
-                # Atomic publication without overwriting a concurrently created file.
-                os.link(temporary, selected)
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+        if not publish_config(selected, original, content):
+            raise ConfigError("Configuration changed during setup; restart DiffButler")
     except OSError, UnicodeError, TOMLKitError:
         raise ConfigError(f"Could not save startup configuration: {selected}") from None
     return selected

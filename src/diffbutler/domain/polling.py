@@ -31,6 +31,7 @@ class QuotaBudget:
     def __init__(self, minimum: float) -> None:
         self.minimum = minimum
         self.interval = minimum
+        self.quota_interval = 0.0
         self.sample: PollQuota | None = None
         self.average_cost = 0.0
         self.cost = 0.0
@@ -53,8 +54,12 @@ class QuotaBudget:
         remaining_time = max(0, quota.reset_at.timestamp() - now)
         usable = quota.remaining - RESERVE_SHARE * quota.limit
         self.wait_for_reset = usable < self.cost and remaining_time > 0
-        budget_interval = self.cost * remaining_time / usable if usable > 0 else 0
-        self.interval = max(self.minimum, budget_interval)
+        self.quota_interval = self.cost * remaining_time / usable if usable > 0 else 0
+        self.interval = max(self.minimum, self.quota_interval)
+
+    def set_minimum(self, minimum: float) -> None:
+        self.minimum = minimum
+        self.interval = max(minimum, self.quota_interval)
 
     def next_start(self, started: float, now: float) -> float:
         assert self.sample is not None

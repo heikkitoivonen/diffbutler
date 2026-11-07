@@ -27,6 +27,45 @@ editor command, such as `vim` or `code --wait`; quoted arguments are supported a
 the command runs without a shell. An unset/empty `EDITOR`, launch failure, or
 unsuccessful editor exit is reported as an error.
 
+## Editing settings in the dashboard
+
+Press `,` in the dashboard to open **Settings**. Its tabs cover every section of
+the configuration file, including forges, reviewers, repositories, and key bindings.
+Legacy settings that are accepted but ignored are not shown and stay unchanged.
+Fields show what the file contains; an empty field shows its built-in default as a
+placeholder. Clearing a field removes the value from the file so the default applies.
+List values such as `ui.columns` or a reviewer's `command` are space-separated and use
+shell-style quoting for items containing spaces; no shell runs. Enter `[]` for an empty
+list, such as `review.exclude_globs = []` to exclude nothing. Checkboxes, and choice lists
+without a "not set" option, always hold a value; to remove one from the file so its
+default applies, use `diffbutler config --edit`. Use **Add** and
+**Remove** for entries. A new forge starts with `kind = "github"` and the public
+GitHub API URL. The Keys tab lists the dashboard actions that can be rebound.
+
+`Ctrl+S` validates and saves, then returns to the dashboard. Invalid values are
+reported without writing the file. `Escape` closes Settings; with unsaved changes,
+it asks you to press `Escape` again to discard them. Saving writes only the values you
+changed, preserving comments and unrelated settings. It uses the same lock as the
+remembered [Git transport](#repository-git-transport) and re-reads the file first, so
+changes saved elsewhere in the meantime are kept. If a value you edited also changed
+in the file since Settings opened, nothing is saved; close Settings and reopen it to
+see the current values. For forges and reviewers, any change to that list in the file
+counts as a conflict with your edits to it. If the file cannot be loaded, fix it with `diffbutler config --edit`.
+
+Saved settings apply without restarting. The dashboard immediately uses new columns,
+preview pane, browser command, key bindings, reviewer choices, and poll interval. Other operations read the configuration when they start, so the next sync,
+review, or cleanup uses the new values; a review already running keeps its settings.
+`ui.default_filter` selects the view at the next start. `ui.sort_by` and `ui.sort_desc`
+set the sort used at the next start when no sort was chosen in the dashboard; removing
+the current sort column from `ui.columns` returns to them immediately. Changing `db.url` or a managed
+storage root does not move existing data, and the next operation uses the new location.
+Change these while no review is running.
+
+Settings edits the file, not the effective configuration. A field or tab overridden by a
+`DIFFBUTLER_*` environment variable is marked; saving it changes only the file, and
+the environment value still applies. Opening or saving Settings never starts a review
+or contacts a forge.
+
 ## Single instance
 
 DiffButler permits one running command or dashboard per `XDG_DATA_HOME`, including

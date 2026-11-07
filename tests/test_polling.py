@@ -318,3 +318,20 @@ async def test_poller_wait_is_interruptible_after_manual_observation() -> None:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_changed_minimum_applies_to_existing_budgets_and_wakes_the_loop() -> None:
+    async def refresh() -> None:
+        observe(sample(4500, reset=4300))
+
+    poller = Poller(refresh, 60, now=lambda: 1000)
+    await poller.refresh_observed(refresh)
+    assert poller.interval == pytest.approx(66)
+    poller.changed.clear()
+    poller.set_minimum(300)
+    assert poller.changed.is_set()
+    assert poller.interval == 300 and poller.delay() == 300
+    poller.set_minimum(30)
+    # The quota-derived pace still applies below the old configured floor.
+    assert poller.interval == pytest.approx(66)

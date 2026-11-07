@@ -200,6 +200,34 @@ class Settings(BaseSettings):
         return self
 
 
+def validation_message(exc: ValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(map(str, error['loc'])) or 'config'}: {error['msg']}"
+        for error in exc.errors(include_input=False)
+    )
+
+
+def validate_document(document: dict[str, Any]) -> None:
+    """Validate file contents alone, ignoring environment overrides."""
+
+    class FileSettings(Settings):
+        @classmethod
+        def settings_customise_sources(
+            cls,
+            settings_cls: type[BaseSettings],
+            init_settings: PydanticBaseSettingsSource,
+            env_settings: PydanticBaseSettingsSource,
+            dotenv_settings: PydanticBaseSettingsSource,
+            file_secret_settings: PydanticBaseSettingsSource,
+        ) -> tuple[PydanticBaseSettingsSource, ...]:
+            return (InitSettingsSource(settings_cls, document),)
+
+    try:
+        FileSettings()
+    except ValidationError as exc:
+        raise ConfigError(validation_message(exc)) from None
+
+
 def config_path() -> Path:
     return (
         Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))).expanduser()
@@ -269,11 +297,7 @@ def load_settings(
         result = LoadedSettings(**(overrides or {}))
         result.config_file = selected
     except ValidationError as exc:
-        errors = [
-            f"{'.'.join(map(str, error['loc'])) or 'config'}: {error['msg']}"
-            for error in exc.errors(include_input=False)
-        ]
-        raise ConfigError("; ".join(errors)) from None
+        raise ConfigError(validation_message(exc)) from None
     except SettingsError:
         raise ConfigError(
             "environment: invalid DIFFBUTLER_* value; use JSON for lists and objects"

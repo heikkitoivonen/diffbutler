@@ -47,6 +47,13 @@ class Poller:
             next_start = max(next_start, self.started + self.minimum * 2**self.failures)
         return max(0, next_start - now, self.cooldown_until - now)
 
+    def set_minimum(self, interval: float) -> None:
+        """Apply a changed configured interval; quota pacing stays in effect."""
+        self.minimum = interval
+        for budget in self.budgets.values():
+            budget.set_minimum(interval)
+        self.changed.set()
+
     async def refresh_observed(
         self, operation: Callable[[], Awaitable[None]]
     ) -> RateLimitObservations:
