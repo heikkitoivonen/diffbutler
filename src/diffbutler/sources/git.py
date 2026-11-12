@@ -40,9 +40,12 @@ async def _terminate_group(pid: int) -> None:
 @dataclass(frozen=True)
 class SourceLimits:
     timeout_s: float = 30
+    # A few hundred bytes of deduplicated PR trees can list millions of paths in
+    # seconds; bound what one Git read may buffer (about 1.3M tree entries).
+    max_output_bytes: int = 128 * 1024 * 1024
 
     def __post_init__(self) -> None:
-        if self.timeout_s <= 0 or not math.isfinite(self.timeout_s):
+        if self.timeout_s <= 0 or not math.isfinite(self.timeout_s) or self.max_output_bytes <= 0:
             raise ValueError("source limits must be positive")
 
 
@@ -50,6 +53,45 @@ class SourceLimits:
 class _Entry:
     mode: str
     oid: str
+
+
+_TREE_ENTRY_KINDS = {
+    ("100644", "blob"),
+    ("100755", "blob"),
+    ("120000", "blob"),
+    ("160000", "commit"),
+}
+
+
+def _parse_tree(raw: bytes, side: Side) -> dict[str, _Entry]:
+    entries: dict[str, _Entry] = {}
+    try:
+        for record in raw.split(b"\0"):
+            if not record:
+                continue
+            metadata, name = record.split(b"\t", 1)
+            mode, kind, oid = metadata.decode("ascii").split(" ")
+            path = name.decode("utf-8")
+            SourceFile(path, side)
+            if (
+                (mode, kind) not in _TREE_ENTRY_KINDS
+                or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", oid) is None
+                or path in entries
+            ):
+                raise ValueError("invalid tree entry")
+            entries[path] = _Entry(mode, oid)
+    except ValueError, UnicodeError:
+        raise SourceError("Source tree contains unsupported paths or entries") from None
+    return entries
+
+
+def _changed_files(trees: Mapping[Side, Mapping[str, _Entry]]) -> tuple[ChangedFile, ...]:
+    base, head = trees[Side.BASE], trees[Side.HEAD]
+    return tuple(
+        ChangedFile(path)
+        for path in sorted(base.keys() | head.keys())
+        if base.get(path) != head.get(path)
+    )
 
 
 class GitSourceReader:
@@ -71,6 +113,7 @@ class GitSourceReader:
         self._executable = executable
         self._limits = limits
         self._trees = trees
+        self._changed: tuple[ChangedFile, ...] | None = None
         self._base_sha = ""
         self._head_sha = ""
         self._comparison_base_sha = ""
@@ -120,32 +163,11 @@ class GitSourceReader:
                 "--full-tree",
                 revision,
             )
-            entries: dict[str, _Entry] = {}
-            try:
-                for record in raw.split(b"\0"):
-                    if not record:
-                        continue
-                    metadata, name = record.split(b"\t", 1)
-                    mode, kind, oid = metadata.decode("ascii").split(" ")
-                    path = name.decode("utf-8")
-                    SourceFile(path, side)
-                    if (
-                        (mode, kind)
-                        not in {
-                            ("100644", "blob"),
-                            ("100755", "blob"),
-                            ("120000", "blob"),
-                            ("160000", "commit"),
-                        }
-                        or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", oid) is None
-                        or path in entries
-                    ):
-                        raise ValueError("invalid tree entry")
-                    entries[path] = _Entry(mode, oid)
-            except ValueError, UnicodeError:
-                raise SourceError("Source tree contains unsupported paths or entries") from None
+            # Parsing is CPU-bound on PR-controlled trees; keep the caller's loop responsive.
+            entries = await asyncio.to_thread(_parse_tree, raw, side)
             trees[side] = MappingProxyType(entries)
         reader._trees = MappingProxyType(trees)
+        reader._changed = await asyncio.to_thread(_changed_files, reader._trees)
         reader._base_sha = base_sha
         reader._head_sha = head_sha
         return reader
@@ -239,12 +261,9 @@ class GitSourceReader:
     @property
     def changed_files(self) -> tuple[ChangedFile, ...]:
         """Renames are represented as deletion plus addition; mode changes count."""
-        base, head = self._trees[Side.BASE], self._trees[Side.HEAD]
-        return tuple(
-            ChangedFile(path)
-            for path in sorted(base.keys() | head.keys())
-            if base.get(path) != head.get(path)
-        )
+        if self._changed is None:
+            self._changed = _changed_files(self._trees)
+        return self._changed
 
     async def read_file(self, source: SourceFile) -> bytes | None:
         entry = self._trees[source.side].get(source.path)
@@ -347,6 +366,11 @@ class GitSourceReader:
                         raise SourceError(
                             "Git batch could not read the requested local source objects"
                         )
+                    if int(fields[2]) > self._limits.max_output_bytes:
+                        raise SourceError(
+                            "Git source object exceeds the "
+                            f"{self._limits.max_output_bytes // 2**20} MiB review limit"
+                        )
                     content = await process.stdout.readexactly(int(fields[2]))
                     if await process.stdout.readexactly(1) != b"\n":
                         raise SourceError("Git batch returned an invalid source object boundary")
@@ -425,9 +449,15 @@ class GitSourceReader:
         async def collect(stream: asyncio.StreamReader, *, diagnostic: bool = False) -> bytes:
             result = bytearray()
             while chunk := await stream.read(65536):
-                result.extend(chunk)
                 if diagnostic:
                     trace.capture(chunk)
+                    continue  # GitTrace keeps its own bounded copy.
+                result.extend(chunk)
+                if len(result) > self._limits.max_output_bytes:
+                    raise SourceError(
+                        "Git source output exceeds the "
+                        f"{self._limits.max_output_bytes // 2**20} MiB review limit"
+                    )
             return bytes(result)
 
         stdout = asyncio.create_task(collect(process.stdout))

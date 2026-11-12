@@ -1,6 +1,7 @@
 """Reconstructible snapshots; persistent native homes retain their identities."""
 
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -72,6 +73,11 @@ class SnapshotWorkspaces:
             await directories.delete(self.resource(directories, home))
 
 
+async def _discard(temporary: Path) -> None:
+    # Fd-based rmtree does not follow symlinks committed in the PR.
+    await settled_io(lambda: shutil.rmtree(temporary, ignore_errors=True))
+
+
 async def materialize(
     reader: GitSourceReader,
     destination: Path,
@@ -81,8 +87,12 @@ async def materialize(
     """Publish only complete snapshots; an interrupted preparation is reconstructible."""
     temporary = destination.with_name(f".{destination.name}-{uuid4().hex}.tmp")
     await settled_io(lambda: destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True))
-    await write_snapshot(reader, temporary, progress=progress)
-    await settled_io(lambda: temporary.rename(destination))
+    try:
+        await write_snapshot(reader, temporary, progress=progress)
+        await settled_io(lambda: temporary.rename(destination))
+    except BaseException:
+        await _discard(temporary)
+        raise
 
 
 async def materialize_checkout(
@@ -97,43 +107,48 @@ async def materialize_checkout(
     if progress is not None:
         progress("Checking out PR sources…")
     await settled_io(lambda: temporary.mkdir(mode=0o700, parents=True))
-    await git_fetch_command(
-        temporary,
-        "init",
-        "--template=",
-        f"--object-format={'sha256' if len(reader.head_sha) == 64 else 'sha1'}",
-        local=True,
-    )
-
-    def configure() -> None:
-        gitdir = temporary / ".git"
-        # Quote the alternate path using Git's C-style path syntax.
-        (gitdir / "objects/info/alternates").write_text(
-            json.dumps(str(common / "objects"), ensure_ascii=False) + "\n"
+    try:
+        await git_fetch_command(
+            temporary,
+            "init",
+            "--template=",
+            f"--object-format={'sha256' if len(reader.head_sha) == 64 else 'sha1'}",
+            local=True,
         )
-        with (gitdir / "config").open("a") as config:
-            config.write(
-                "\n[core]\n\thooksPath = /dev/null\n\tfsmonitor = false\n\tautocrlf = false\n"
-            )
 
-    await settled_io(configure)
-    await git_fetch_command(
-        temporary, "update-ref", "refs/heads/diffbutler-base", reader.base_sha, local=True
-    )
-    await git_fetch_command(
-        temporary,
-        "update-ref",
-        "refs/heads/diffbutler-merge-base",
-        reader.comparison_base_sha,
-        local=True,
-    )
-    await git_fetch_command(
-        temporary,
-        "checkout",
-        "--no-recurse-submodules",
-        "-b",
-        "diffbutler-pr",
-        reader.head_sha,
-        local=True,
-    )
-    await settled_io(lambda: temporary.rename(destination))
+        def configure() -> None:
+            gitdir = temporary / ".git"
+            # Quote the alternate path using Git's C-style path syntax.
+            (gitdir / "objects/info/alternates").write_text(
+                json.dumps(str(common / "objects"), ensure_ascii=False) + "\n"
+            )
+            with (gitdir / "config").open("a") as config:
+                config.write(
+                    "\n[core]\n\thooksPath = /dev/null\n\tfsmonitor = false\n\tautocrlf = false\n"
+                )
+
+        await settled_io(configure)
+        await git_fetch_command(
+            temporary, "update-ref", "refs/heads/diffbutler-base", reader.base_sha, local=True
+        )
+        await git_fetch_command(
+            temporary,
+            "update-ref",
+            "refs/heads/diffbutler-merge-base",
+            reader.comparison_base_sha,
+            local=True,
+        )
+        await git_fetch_command(
+            temporary,
+            "checkout",
+            "--no-recurse-submodules",
+            "-b",
+            "diffbutler-pr",
+            reader.head_sha,
+            local=True,
+        )
+        await settled_io(lambda: temporary.rename(destination))
+    except BaseException:
+        # Partial checkouts can be large; do not leave them in the session directory.
+        await _discard(temporary)
+        raise

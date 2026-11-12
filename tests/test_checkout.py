@@ -1,12 +1,14 @@
 """Native Git preparation uses pinned objects, without local working-tree state."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
-from tests.test_sources import git
+from tests.test_sources import git, repository_at_two_commits
 
+from diffbutler.core import workspaces
 from diffbutler.core.workspaces import materialize_checkout
-from diffbutler.sources.git import GitSourceReader
+from diffbutler.sources.git import GitSourceReader, SourceError
 
 
 @pytest.mark.asyncio
@@ -96,3 +98,23 @@ async def test_diverged_review_context_snapshots_and_checkout_agree(tmp_path: Pa
     snapshot = tmp_path / "snapshot"
     await write_snapshot(reader, snapshot)
     assert (snapshot / "base/template.html").read_text() == "original template\n"
+
+
+@pytest.mark.asyncio
+async def test_failed_checkout_removes_its_partial_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, base, head = await repository_at_two_commits(tmp_path)
+    reader = await GitSourceReader.open(repository, base_sha=base, head_sha=head)
+    original = workspaces.git_fetch_command
+
+    async def checkout_fails(directory: Path, *args: str, **kwargs: Any) -> None:
+        await original(directory, *args, **kwargs)
+        if args[0] == "checkout":
+            raise SourceError("Synthetic checkout failure")
+
+    monkeypatch.setattr(workspaces, "git_fetch_command", checkout_fails)
+    destination = tmp_path / "sessions" / "checkout"
+    with pytest.raises(SourceError, match="Synthetic"):
+        await materialize_checkout(reader, destination)
+    assert list(destination.parent.iterdir()) == []

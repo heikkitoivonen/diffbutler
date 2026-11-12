@@ -339,7 +339,10 @@ This preference is stored in the local database, not the TOML file, and survives
 Every forge needs a nonempty `repositories` list to enable it. The default is review-request
 discovery only. Existing followed PRs continue to be monitored when it is disabled.
 
-DiffButler does not impose byte limits on source files, tree listings, diffs,
-snapshots, prompts, or captured reviewer output. Legacy `review.max_diff_bytes`
-and `reviewers.max_output_bytes` settings are accepted but ignored. Reviewer
-timeouts still apply; the selected agent and model retain their own context limits.
+Each Git read that prepares a review (tree listing, diff, or source object) is limited
+to 128 MiB of output, about 1.3 million tree entries, so a compact PR tree that expands
+to millions of paths fails the review instead of exhausting memory. There are no other
+byte limits on snapshots, prompts, or captured reviewer output, and the limit is not
+configurable: legacy `review.max_diff_bytes` and `reviewers.max_output_bytes` settings
+are accepted but ignored. Reviewer timeouts still apply; the selected agent and model
+retain their own context limits.

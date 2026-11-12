@@ -49,7 +49,7 @@ async def test_macos_group_cleanup_retries_zombie_race_but_not_permanent_denial(
     assert calls > 1
 
 
-async def git(repository: Path, *args: str) -> bytes:
+async def git(repository: Path, *args: str, stdin: bytes | None = None) -> bytes:
     executable = shutil.which("git")
     assert executable is not None
     process = await asyncio.create_subprocess_exec(
@@ -67,11 +67,11 @@ async def git(repository: Path, *args: str) -> bytes:
             "GIT_COMMITTER_NAME": "Test",
             "GIT_COMMITTER_EMAIL": "test@example.invalid",
         },
-        stdin=asyncio.subprocess.DEVNULL,
+        stdin=asyncio.subprocess.DEVNULL if stdin is None else asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    output, error = await process.communicate()
+    output, error = await process.communicate(stdin)
     assert process.returncode == 0, error.decode()
     return output
 
@@ -498,3 +498,38 @@ async def test_unrelated_and_ambiguous_histories_fail_closed(tmp_path: Path) -> 
     )
     with pytest.raises(SourceError, match="unique PR merge base"):
         await GitSourceReader.open(repo, base_sha=left, head_sha=right)
+
+
+async def nested_duplicate_commit(repository: Path, parent: str, depth: int) -> str:
+    """A tiny commit whose tree reuses one subtree ten times per level."""
+    tree = (await git(repository, "hash-object", "-w", "--stdin", stdin=b"x\n")).strip()
+    kind = b"100644 blob"
+    for _ in range(depth + 1):
+        listing = b"".join(kind + b" " + tree + b"\t" + b"e%d\n" % index for index in range(10))
+        tree = (await git(repository, "mktree", stdin=listing)).strip()
+        kind = b"040000 tree"
+    commit = await git(repository, "commit-tree", tree.decode(), "-p", parent, "-m", "expanded")
+    return commit.decode().strip()
+
+
+@pytest.mark.asyncio
+async def test_expanded_tree_listing_is_bounded(tmp_path: Path) -> None:
+    repository, base, _ = await repository_at_two_commits(tmp_path)
+    head = await nested_duplicate_commit(repository, base, depth=4)  # 100,000 paths.
+    with pytest.raises(SourceError, match="exceeds the 1 MiB review limit"):
+        await GitSourceReader.open(
+            repository, base_sha=base, head_sha=head, limits=SourceLimits(max_output_bytes=2**20)
+        )
+    reader = await GitSourceReader.open(repository, base_sha=base, head_sha=head)
+    assert len(reader.paths(Side.HEAD)) == 100_000
+
+
+@pytest.mark.asyncio
+async def test_batched_blob_reads_respect_the_output_limit(tmp_path: Path) -> None:
+    repository, base, head = await repository_at_two_commits(tmp_path)
+    reader = await GitSourceReader.open(repository, base_sha=base, head_sha=head)
+    reader._limits = SourceLimits(max_output_bytes=8)  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(SourceError, match="object exceeds"):
+        async with aclosing(reader.read_blobs()) as blobs:
+            async for _ in blobs:
+                pass
