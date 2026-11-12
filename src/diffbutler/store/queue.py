@@ -4,7 +4,7 @@ from datetime import UTC
 from typing import cast
 
 from pydantic import TypeAdapter
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from diffbutler.domain.forge import Account as ForgeIdentity
@@ -277,15 +277,35 @@ class SQLiteQueueStore:
         monitor.notice = item.notice
         if item.activity is not None:
             monitor.activity_json = ACTIVITY_ADAPTER.dump_json(item.activity).decode()
+            # One query per PR, not per event: this runs inside the poll's write lock,
+            # and commenters control how many events a PR has.
+            rows = await session.execute(
+                select(ObservedActivity.event_id, ObservedActivity.payload_json).where(
+                    ObservedActivity.account_id == identity.account_id,
+                    ObservedActivity.pull_request_id == pr.id,
+                )
+            )
+            stored = dict(rows.all())
             for event in (*item.activity.reviews, *item.activity.comments):
-                key = (identity.account_id, pr.id, event.id)
-                receipt = await session.get(ObservedActivity, key)
-                if receipt is None:
-                    receipt = ObservedActivity(
-                        account_id=identity.account_id,
-                        pull_request_id=pr.id,
-                        event_id=event.id,
-                        review_task_id=task.id,
+                payload = EVENT_ADAPTER.dump_json(event).decode()
+                if event.id not in stored:
+                    session.add(
+                        ObservedActivity(
+                            account_id=identity.account_id,
+                            pull_request_id=pr.id,
+                            event_id=event.id,
+                            review_task_id=task.id,
+                            payload_json=payload,
+                        )
                     )
-                    session.add(receipt)
-                receipt.payload_json = EVENT_ADAPTER.dump_json(event).decode()
+                elif stored[event.id] != payload:
+                    await session.execute(
+                        update(ObservedActivity)
+                        .where(
+                            ObservedActivity.account_id == identity.account_id,
+                            ObservedActivity.pull_request_id == pr.id,
+                            ObservedActivity.event_id == event.id,
+                        )
+                        .values(payload_json=payload)
+                    )
+                stored[event.id] = payload

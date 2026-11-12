@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from diffbutler.core.sync import DiffButler, list_queue
 from diffbutler.domain.forge import (
@@ -22,11 +22,11 @@ from diffbutler.domain.forge import (
     ReadBudget,
     RequestedPR,
 )
-from diffbutler.domain.sync import RequestEvent, ReviewActivity, ReviewEvent
+from diffbutler.domain.sync import CommentEvent, RequestEvent, ReviewActivity, ReviewEvent
 from diffbutler.forges.base import ForgeError
 from diffbutler.store.base import SyncConflict
 from diffbutler.store.database import Database
-from diffbutler.store.models import AIRun, CleanupJob, ReviewTask
+from diffbutler.store.models import AIRun, CleanupJob, ObservedActivity, ReviewTask
 from diffbutler.store.queue import SQLiteQueueStore
 from diffbutler.store.review import SQLiteReviewStore
 
@@ -578,3 +578,40 @@ async def test_post_approval_changes_stay_visible_last_without_starting_ai(
     )
     assert final.state == ("PENDING_AI_REVIEW" if finish == "requested" else "DONE")
     assert final.task_id == changed.task_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [10, 500])
+async def test_poll_receipt_writes_do_not_scale_with_discussion_volume(
+    database: Database, count: int
+) -> None:
+    # Receipts are written inside the poll's write lock; commenters control their count.
+    statements: list[str] = []
+
+    def record(_conn: object, _cursor: object, statement: str, *_args: object) -> None:
+        statements.append(statement)
+
+    forge = FakeForge()
+    comments = tuple(
+        CommentEvent(f"comment:{index}", NOW, "commenter", f"body {index}")
+        for index in range(count)
+    )
+    forge.activity = ReviewActivity(ACCOUNT, comments=comments)
+    store = SQLiteQueueStore(database)
+    await DiffButler(store, forge).sync()
+    event.listen(database.engine.sync_engine, "before_cursor_execute", record)
+    try:
+        await DiffButler(store, forge).sync()
+        unchanged = len(statements)
+        edited = (replace(comments[0], body="edited"), *comments[1:])
+        forge.activity = ReviewActivity(ACCOUNT, comments=edited)
+        statements.clear()
+        await DiffButler(store, forge).sync()
+        changed = len(statements)
+    finally:
+        event.remove(database.engine.sync_engine, "before_cursor_execute", record)
+    assert unchanged <= 30 and changed <= unchanged + 2
+    async with database.sessions() as session:
+        payloads = (await session.scalars(select(ObservedActivity.payload_json))).all()
+    assert len(payloads) == count
+    assert sum('"edited"' in payload for payload in payloads) == 1
