@@ -1,5 +1,6 @@
 """Shared dashboard projections, ordering, history, and explicit state actions."""
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -370,7 +371,8 @@ async def diff_configured(path: Path | None, task_id: UUID) -> str:
             repository_path, base_sha=run.base_sha, head_sha=run.head_sha
         )
         diff = await source.read_diff()
-        return redact_and_report(diff.encode()).decode()
+        # Redaction is CPU-bound on PR-controlled text; keep the UI loop responsive.
+        return (await asyncio.to_thread(redact_and_report, diff.encode())).decode()
 
 
 async def log_configured(path: Path | None, task_id: UUID) -> str:

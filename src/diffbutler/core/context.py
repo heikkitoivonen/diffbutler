@@ -31,6 +31,8 @@ async def assemble_context(
         raise ReviewConflict("Review context revisions do not match the requested analysis")
     async with asyncio.timeout(budget.timeout_s):
         diff = await sources.read_diff()
+    # Redaction is CPU-bound on PR-controlled text; keep the caller's loop responsive.
+    redacted = await asyncio.to_thread(redact_and_report, diff.encode("utf-8"))
     return ReviewContext(
         pr=pr,
         session_id=run.session_id,
@@ -39,7 +41,7 @@ async def assemble_context(
         # Anchor identity records the requested PR pair; hunks and BASE reads
         # both come from its resolved merge base, not the target branch tip.
         diff_index=DiffIndex.parse(diff, base_sha=run.base_sha, head_sha=run.head_sha),
-        diff=redact_and_report(diff.encode("utf-8")).decode("utf-8"),
+        diff=redacted.decode("utf-8"),
         changed_files=sources.changed_files,
         sources=RedactingSourceReader(sources),
         instructions=instructions,

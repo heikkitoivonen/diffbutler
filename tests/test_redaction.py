@@ -1,6 +1,11 @@
 """Synthetic credentials only; redaction never consults environment or network."""
 
 import logging
+import math
+import random
+import re
+import time
+from collections import Counter
 
 import pytest
 from tests.test_context import FakeSources, records
@@ -54,6 +59,79 @@ def test_private_key_and_binary_bytes_preserve_line_positions() -> None:
     assert [(i, c) for i, c in enumerate(original) if c in (10, 13)] == [
         (i, c) for i, c in enumerate(result.content) if c in (10, 13)
     ]
+
+
+@pytest.mark.parametrize(
+    ("line", "name"),
+    [
+        (b"x: api_key=", b"api_key"),
+        (b"foo=bar_token=", b"bar_token"),
+        (b"my_access-key_id: ", b"my_access-key_id"),
+        (b"config-api-key = ", b"config-api-key"),
+        (b"--token ", None),
+        (b"apikey-foo=", None),
+        (b"token-: ", None),
+    ],
+)
+def test_assignment_names_including_hyphens_and_nested_values(
+    line: bytes, name: bytes | None
+) -> None:
+    secret = b"aB3dE5gH7jK9mN2pQ4sT6vW8"
+    result = redact_source(line + secret)
+    assert (secret not in result.content) == (name is not None)
+
+
+# The original single-regex rules, kept as the reference for linear rewrites.
+_REFERENCE_ASSIGNMENT = re.compile(
+    rb"(?i)(?<![A-Za-z0-9_])"
+    rb"[A-Za-z0-9_]*(?:token|password|passwd|secret|api[_-]?key|access[_-]?key)"
+    rb"[A-Za-z0-9_]*[\"']?[ \t]*[:=][ \t]*[\"']?"
+    rb"(?P<value>[A-Za-z0-9_./+=~-]{16,})"
+)
+_REFERENCE_PRIVATE_KEY = re.compile(
+    rb"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----"
+    rb"[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----"
+)
+
+
+def reference_spans(content: bytes) -> list[tuple[int, int]]:
+    spans = [match.span() for match in _REFERENCE_PRIVATE_KEY.finditer(content)]
+    for match in _REFERENCE_ASSIGNMENT.finditer(content):
+        value = match["value"]
+        counts = Counter(value).values()
+        if -sum(c / len(value) * math.log2(c / len(value)) for c in counts) >= 3.5:
+            spans.append(match.span("value"))
+    return spans
+
+
+def test_linear_matching_masks_exactly_what_the_reference_rules_mask() -> None:
+    pieces = [
+        b"token", b"TOKEN", b"api", b"-key", b"key", b"access", b"_", b"-", b"x", b"password",
+        b"secret", b":", b"=", b" ", b"\t", b'"', b"'", b"A9b8C7d6E5f4G3h2", b"Zq/+.~=-_xY",
+        b"\n", b"api_key", b"-----BEGIN PRIVATE KEY-----", b"-----END PRIVATE KEY-----",
+    ]  # fmt: skip
+    generator = random.Random(0)
+    for _ in range(20_000):
+        content = b"".join(generator.choice(pieces) for _ in range(generator.randint(1, 14)))
+        expected = bytearray(content)
+        for start, end in reference_spans(content):
+            expected[start:end] = bytes(b if b in (10, 13) else 42 for b in content[start:end])
+        assert redact_source(content).content == bytes(expected), content
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"+" + b"token" * 40_000 + b"\n",
+        b"-----BEGIN PRIVATE KEY-----\n" * 20_000,
+        b"a-" * 100_000 + b": value",
+    ],
+)
+def test_adversarial_lines_redact_in_linear_time(content: bytes) -> None:
+    # The former backtracking rules took minutes on these 200 KB inputs.
+    started = time.perf_counter()
+    redact_source(content)
+    assert time.perf_counter() - started < 2
 
 
 class SecretSources(FakeSources):
