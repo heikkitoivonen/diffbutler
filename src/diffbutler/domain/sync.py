@@ -1,7 +1,7 @@
 """Durable monitoring values and pure review-cycle reconciliation."""
 
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from diffbutler.domain.forge import Account, PullRequest
@@ -73,12 +73,33 @@ class TrackedPR:
     posted_at: datetime | None = None
     review_requested_at: datetime | None = None
     explicit_review: bool = False
+    # (started, finished or None, last foreground resume of its session or None)
+    # for this task's background AI runs.
+    background_runs: tuple[tuple[datetime, datetime | None, datetime | None], ...] = ()
 
 
 @dataclass(frozen=True)
 class QueueSnapshot:
     version: int
     items: tuple[TrackedPR, ...]
+
+
+# Allow for clock skew between the forge and this host around run boundaries.
+BACKGROUND_SKEW = timedelta(minutes=1)
+
+
+def during_background(event: ReviewEvent, tracked: TrackedPR) -> bool:
+    """Whether a review was submitted while only a background run could act for the user.
+
+    A foreground session can start only after the run ends; once resumed, the human
+    may instruct the agent to post, so later reviews are attended.
+    """
+    return any(
+        started - BACKGROUND_SKEW <= event.created_at
+        and (finished is None or event.created_at <= finished + BACKGROUND_SKEW)
+        and not (resumed is not None and started <= resumed <= event.created_at)
+        for started, finished, resumed in tracked.background_runs
+    )
 
 
 def reconcile(
@@ -90,15 +111,23 @@ def reconcile(
     """Observe only complete activity; never dispatch AI or trust posting claims."""
     current = previous or TrackedPR(pr)
     request = max(activity.requests, key=lambda event: event.key, default=None)
-    own_reviews = [
+    by_account = [
         event
         for event in activity.reviews
         if event.author.lower() == activity.account.login.lower()
         and event.state in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED"}
     ]
+    # The background agent holds the user's forge credentials and only its prompt
+    # forbids posting. Reviews submitted while a background run was active are
+    # never taken as the human's approval or feedback, though they are consumed.
+    unattended: list[ReviewEvent] = []
+    own_reviews: list[ReviewEvent] = []
+    for event in by_account:
+        (unattended if during_background(event, current) else own_reviews).append(event)
     review = max(own_reviews, key=lambda event: event.key, default=None)
+    latest = max(by_account, key=lambda event: event.key, default=None)
     request_key = request.key if request and activity.complete else current.request_key
-    review_key = review.key if review and activity.complete else current.review_key
+    review_key = latest.key if latest and activity.complete else current.review_key
     # Watermarks never move backwards when access or remote history changes.
     request_key = max(current.request_key, request_key)
     review_key = max(current.review_key, review_key)
@@ -174,6 +203,16 @@ def reconcile(
             new_reviews = sum(event.id not in known_reviews for event in activity.reviews)
             if new_reviews:
                 result = replace(result, notice=f"New review activity · {new_reviews} reviews")
+    if (
+        activity.complete
+        and pr.state == "open"
+        and any(event.key > current.review_key for event in unattended)
+    ):
+        result = replace(
+            result,
+            notice="Your account posted a review during a background AI run; it was not "
+            "counted. Check the PR, then mark it approved if the review is yours",
+        )
     decisive = max(
         (event for event in own_reviews if event.state != "COMMENTED"),
         key=lambda event: event.key,

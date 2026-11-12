@@ -454,6 +454,10 @@ class SQLiteReviewStore:
                 assert task is not None
                 if task.completed_at is None and task.state == "AI_RUNNING":
                     await transition(db, task, "PENDING_AI_REVIEW")
+            else:
+                # Invalidated earlier, but the agent could act until its exit was
+                # established now; review provenance relies on this end time.
+                run.finished_at = utc_now()
             if failure is not None and await db.get(ReviewResult, run.id) is None:
                 run.exit_code = failure.exit_code
                 run.stdout_blob = failure.stdout

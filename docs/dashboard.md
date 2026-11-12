@@ -238,6 +238,13 @@ Successful agent exits show no status message; nonzero exits remain visible.
   Feedback on an older head cannot hide that work.
 - A newly observed own submitted COMMENTED/CHANGES_REQUESTED review on the current head
   defaults to waiting for author changes and shows the observed inline-comment count.
+- Own reviews submitted while a background AI run for the cycle was active (allowing a
+  minute of clock skew either side, but not past a later foreground resume) count as
+  neither approval nor feedback: the agent holds your forge credentials and only its
+  prompt forbids posting. The run continues and the PR shows a notice; if the review is
+  yours, mark the PR approved manually. Attribution assumes the forge and host clocks
+  agree within that minute and uses each cycle's latest foreground resume; a review posted
+  just after a run, before a later repeated resume, may need manual approval.
 - Standalone comments and other people's reviews are retained and surfaced as activity;
   they do not establish waiting or completion. No new feedback preserves the prior state.
 - Incomplete activity reads preserve previous activity evidence and defer feedback

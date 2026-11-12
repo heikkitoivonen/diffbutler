@@ -232,6 +232,21 @@ async def test_approval_completion_suppression_new_cycles_and_cleanup(database: 
         assert old is not None and old.completion_reason == "own_approval"
 
 
+def test_foreground_resume_attends_reviews_after_every_earlier_background_run() -> None:
+    from diffbutler.domain.sync import TrackedPR, during_background
+
+    finished = NOW + timedelta(minutes=10)
+    review = ReviewEvent("review:1", finished + timedelta(seconds=30), "reader", "APPROVED", "head")
+    runs = ((NOW, finished), (NOW + timedelta(minutes=1), finished + timedelta(seconds=20)))
+    resumed = finished + timedelta(seconds=25)  # Of either reviewer's session.
+    unresumed = TrackedPR(PR, background_runs=tuple((*run, None) for run in runs))
+    attended = TrackedPR(PR, background_runs=tuple((*run, resumed) for run in runs))
+    assert during_background(review, unresumed)
+    assert not during_background(review, attended)
+    inside = replace(review, created_at=NOW + timedelta(minutes=5))
+    assert during_background(inside, attended)
+
+
 @pytest.mark.asyncio
 async def test_partial_activity_does_not_consume_events_or_approve(database: Database) -> None:
     forge = FakeForge()

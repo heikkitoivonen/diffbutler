@@ -1,10 +1,11 @@
 """SQLite queue repository. Network reads happen before short atomic commits."""
 
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import cast
+from uuid import UUID
 
 from pydantic import TypeAdapter
-from sqlalchemy import func, select, text, update
+from sqlalchemy import case, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from diffbutler.domain.forge import Account as ForgeIdentity
@@ -28,10 +29,13 @@ from diffbutler.store.models import (
     PRMonitor,
     PullRequest,
     Repository,
+    ReviewSession,
     ReviewTask,
+    RunClaim,
     utc_now,
 )
 
+BackgroundRun = tuple[datetime, datetime | None, datetime | None]
 PR_ADAPTER = TypeAdapter(ForgePR)
 ACTIVITY_ADAPTER = TypeAdapter(ReviewActivity)
 EVENT_ADAPTER: TypeAdapter[ReviewEvent | CommentEvent] = TypeAdapter(ReviewEvent | CommentEvent)
@@ -72,6 +76,38 @@ class SQLiteQueueStore:
                 .join(ReviewTask, PRMonitor.task_id == ReviewTask.id)
                 .where(PRMonitor.account_id == identity.account_id)
             )
+            rows = rows.all()
+            windows: dict[UUID, list[tuple[datetime, datetime | None]]] = {}
+            runs = await session.execute(
+                select(
+                    AIRun.review_task_id,
+                    AIRun.started_at,
+                    # A held claim means the agent may still be running after its run
+                    # was invalidated, so the window stays open until exit is established.
+                    case((RunClaim.token.is_(None), AIRun.finished_at)),
+                    ReviewSession.resumed_at,
+                )
+                .join(ReviewSession, AIRun.review_session_id == ReviewSession.id)
+                .outerjoin(RunClaim, RunClaim.run_id == AIRun.id)
+                .where(
+                    AIRun.review_task_id.in_([task.id for _, task, _ in rows]),
+                    AIRun.started_at.is_not(None),
+                )
+            )
+            resumes: dict[UUID, datetime] = {}
+            for task_id, started, finished, resumed in runs:
+                assert started is not None
+                end = finished.replace(tzinfo=UTC) if finished else None
+                windows.setdefault(task_id, []).append((started.replace(tzinfo=UTC), end))
+                if resumed is not None:
+                    resumes[task_id] = max(resumes.get(task_id, resumed), resumed)
+            # Foreground requires background ownership of the whole task to have ended,
+            # so a resume in any of its sessions closes every earlier background window.
+            background: dict[UUID, tuple[BackgroundRun, ...]] = {}
+            for task_id, task_windows in windows.items():
+                resume = resumes.get(task_id)
+                resumed = resume.replace(tzinfo=UTC) if resume else None
+                background[task_id] = tuple((start, end, resumed) for start, end in task_windows)
             return QueueSnapshot(
                 identity.version,
                 tuple(
@@ -96,6 +132,7 @@ class SQLiteQueueStore:
                         task.posted_at,
                         requested_at.replace(tzinfo=UTC) if requested_at else None,
                         monitor.explicit_review,
+                        background.get(task.id, ()),
                     )
                     for monitor, task, requested_at in rows
                 ),

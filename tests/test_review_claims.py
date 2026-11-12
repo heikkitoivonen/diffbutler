@@ -19,7 +19,7 @@ from diffbutler.domain.review import AnalysisIdentity, ReviewConflict, ReviewPol
 from diffbutler.domain.sync import RequestEvent, ReviewActivity
 from diffbutler.store.base import SyncConflict
 from diffbutler.store.database import Database, migration_config
-from diffbutler.store.models import AIRun, CleanupJob, ReviewSession, RunClaim
+from diffbutler.store.models import AIRun, CleanupJob, ReviewSession, RunClaim, utc_now
 from diffbutler.store.queue import SQLiteQueueStore
 from diffbutler.store.review import SQLiteReviewStore
 
@@ -248,3 +248,64 @@ async def test_explicit_review_can_start_for_changes_after_approval(database: Da
     assert (await queue.snapshot(ACCOUNT)).items[0].state == "QUEUED"
     assert await reviews.claim_review(run.id) is not None
     assert (await queue.snapshot(ACCOUNT)).items[0].state == "AI_RUNNING"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["APPROVED", "COMMENTED"])
+@pytest.mark.parametrize(
+    "observed", ["during", "after", "after_incomplete", "orphan_held", "orphan_released"]
+)
+async def test_own_review_posted_during_background_run_is_not_counted(
+    database: Database, state: str, observed: str
+) -> None:
+    # The background agent holds the user's forge credentials; its post is not the human's.
+    from tests.test_review_results import captured
+
+    from diffbutler.domain.sync import ReviewEvent
+
+    forge, identity = await seed(database)
+    reviews = service(database)
+    run = await reviews.request_review(identity)
+    claim = await reviews.claim_review(run.id)
+    assert claim is not None
+    queue = SQLiteQueueStore(database)
+    # A long run: the review lands well inside it, far from either boundary.
+    started = utc_now() - timedelta(minutes=10)
+    async with database.sessions() as session:
+        record = await session.get(AIRun, run.id)
+        assert record is not None
+        record.started_at = started
+        if observed.startswith("orphan"):
+            # Invalidated while its worker still holds the claim, so the agent may be alive.
+            record.status, record.finished_at = "cancelled", started + timedelta(minutes=1)
+        await session.commit()
+    posted = ReviewEvent("review:1", started + timedelta(minutes=5), "reader", state, "head")
+    if observed.startswith("orphan"):
+        if observed == "orphan_released":
+            await reviews.release_review(claim.token)  # Exit is established only now.
+        forge.activity = ReviewActivity(ACCOUNT, reviews=(posted,))
+        await DiffButler(queue, forge).sync()
+        item = (await queue.snapshot(ACCOUNT)).items[0]
+        assert item.state != "DONE" and "not counted" in item.notice
+        return
+    if observed != "after":  # Otherwise the run ends before the next poll.
+        forge.activity = ReviewActivity(ACCOUNT, reviews=(posted,), complete=observed == "during")
+        await DiffButler(queue, forge).sync()
+    if observed == "during":
+        item = (await queue.snapshot(ACCOUNT)).items[0]
+        assert item.state == "AI_RUNNING" and "not counted" in item.notice
+        assert await reviews.claim_is_current(claim.token)
+    await reviews.finalize_review(claim.token, captured())
+    forge.activity = ReviewActivity(ACCOUNT, reviews=(posted,))
+    await DiffButler(queue, forge).sync()
+    item = (await queue.snapshot(ACCOUNT)).items[0]
+    assert item.state in {"PENDING_HUMAN_REVIEW", "FINDINGS_TRIAGE"}
+    assert "not counted" in item.notice
+    async with database.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(CleanupJob)) == 0
+    # A review submitted after the run ended is the human's.
+    human = replace(posted, id="review:2", created_at=utc_now() + timedelta(minutes=5))
+    forge.activity = ReviewActivity(ACCOUNT, reviews=(posted, human))
+    await DiffButler(queue, forge).sync()
+    item = (await queue.snapshot(ACCOUNT)).items[0]
+    assert item.state == ("DONE" if state == "APPROVED" else "PENDING_AUTHOR_CHANGES")
