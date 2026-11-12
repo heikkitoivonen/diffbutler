@@ -1,6 +1,7 @@
 """Offline migration, backup, and relational ledger tests."""
 
 import asyncio
+import os
 import sqlite3
 import threading
 from contextlib import closing
@@ -200,6 +201,113 @@ def test_backup_includes_committed_wal(tmp_path: Path) -> None:
         assert path.with_name("wal.db-wal").exists()
         with closing(sqlite3.connect(backup_sqlite(path))) as backup:
             assert backup.execute("SELECT value FROM marker").fetchone() == ("committed",)
+
+
+def freed_marker_database(path: Path, marker: bytes) -> None:
+    """A database whose free pages still hold deleted content (secure_delete off)."""
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA secure_delete=OFF")
+        connection.execute("CREATE TABLE junk (value BLOB)")
+        connection.execute("INSERT INTO junk VALUES (?)", (marker * 2_000,))
+        connection.commit()
+        connection.execute("DROP TABLE junk")
+        connection.commit()
+    assert marker in path.read_bytes()
+
+
+def test_backup_is_private_and_omits_free_pages(tmp_path: Path) -> None:
+    path = tmp_path / "residue.db"
+    freed_marker_database(path, b"DELETED-OUTPUT")
+    backup = backup_sqlite(path)
+    assert backup.stat().st_mode & 0o777 == 0o600
+    assert b"DELETED-OUTPUT" not in backup.read_bytes()
+    with closing(sqlite3.connect(backup)) as copy:
+        assert copy.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+
+
+@pytest.mark.asyncio
+async def test_new_database_files_are_private_and_existing_ones_are_tightened(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path}/data/new/ledger.db")
+    try:
+        await database.initialize()
+        assert database.path.parent.stat().st_mode & 0o777 == 0o700
+        async with database.engine.connect() as connection:
+            await connection.exec_driver_sql("SELECT 1")  # Opens the WAL files.
+            for suffix in ("", "-wal", "-shm"):
+                sidecar = database.path.with_name(database.path.name + suffix)
+                assert sidecar.stat().st_mode & 0o777 == 0o600, suffix
+    finally:
+        await database.close()
+    database.path.chmod(0o644)
+    database = Database(f"sqlite+aiosqlite:///{database.path}")
+    try:
+        await database.initialize(auto_migrate=False)
+        assert database.path.stat().st_mode & 0o777 == 0o600
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_symlinked_database_target_is_tightened(tmp_path: Path) -> None:
+    target = tmp_path / "real" / "ledger.db"
+    database = Database(f"sqlite+aiosqlite:///{target}")
+    try:
+        await database.initialize()
+    finally:
+        await database.close()
+    target.chmod(0o644)
+    link = tmp_path / "ledger.db"
+    link.symlink_to(target)
+    database = Database(f"sqlite+aiosqlite:///{link}")
+    try:
+        await database.initialize()
+    finally:
+        await database.close()
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.asyncio
+async def test_database_created_through_a_dangling_symlink_is_private(tmp_path: Path) -> None:
+    target = tmp_path / "real" / "ledger.db"
+    link = tmp_path / "ledger.db"
+    link.symlink_to(target)
+    previous = os.umask(0o022)
+    try:
+        database = Database(f"sqlite+aiosqlite:///{link}")
+        try:
+            await database.initialize()
+        finally:
+            await database.close()
+    finally:
+        os.umask(previous)
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.asyncio
+async def test_existing_database_free_pages_are_scrubbed_once(tmp_path: Path) -> None:
+    path = tmp_path / "ledger.db"
+    database = Database(f"sqlite+aiosqlite:///{path}")
+    try:
+        await database.initialize()
+    finally:
+        await database.close()
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA user_version=0")  # As created before scrubbing existed.
+    freed_marker_database(path, b"DELETED-BEFORE-UPGRADE")
+    database = Database(f"sqlite+aiosqlite:///{path}")
+    try:
+        await database.initialize()
+        # Checked while connections stay open: the rewrite must be checkpointed.
+        async with database.engine.connect() as connection:
+            await connection.exec_driver_sql("SELECT 1")
+            assert b"DELETED-BEFORE-UPGRADE" not in path.read_bytes()
+    finally:
+        await database.close()
+    assert b"DELETED-BEFORE-UPGRADE" not in path.read_bytes()
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
 
 
 @pytest.mark.asyncio

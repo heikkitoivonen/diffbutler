@@ -245,3 +245,5 @@ class SQLiteLifecycleStore:
                 )
             await db.delete(claim)
             await db.commit()
+        if succeeded:
+            await self.database.truncate_wal()

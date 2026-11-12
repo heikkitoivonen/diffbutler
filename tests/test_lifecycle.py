@@ -326,3 +326,27 @@ async def test_pr_reset_retains_history_and_ownership_until_exit(
         assert await reviews.store.latest_run(fresh.task_id) is None
         await dashboard.reset_task(fresh.task_id)
     assert len(await dashboard.cycles()) == 3
+
+
+async def test_cleaned_raw_output_is_not_recoverable_from_database_files(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path}/residue.db")
+    await database.initialize()
+    marker = b"RAW-AGENT-OUTPUT-MARKER"
+    try:
+        forge, identity = await seed(database)
+        reviews = service(database)
+        run = await reviews.request_review(identity)
+        claim = await reviews.claim_review(run.id)
+        assert claim is not None
+        output = replace(captured(), stderr=b"\n".join([marker] * 2_000))  # Overflow pages.
+        await reviews.finalize_review(claim.token, output)
+        forge.prs[REF] = replace(PR, state="closed")
+        await DiffButler(SQLiteQueueStore(database), forge).sync()
+        assert await LifecycleService(SQLiteLifecycleStore(database), Cleaner()).cleanup_once()
+        result = await reviews.get_result(run.id)
+        assert result is not None and result.stderr is None
+        wal = database.path.with_name(database.path.name + "-wal")
+        assert not wal.exists() or marker not in wal.read_bytes()
+    finally:
+        await database.close()
+    assert marker not in database.path.read_bytes()

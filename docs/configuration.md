@@ -270,12 +270,23 @@ selection; raw output remains on `ai_run`. Native execution, foreground ownershi
 HTTP response validators remain in memory; restart reads are unconditional.
 
 Existing databases receive a consistent SQLite backup before a pending migration.
-Backups include committed WAL contents and live beside the database as
+Backups are written with `VACUUM INTO`: they include committed WAL contents but not
+free pages, are owner-only (`0600`), and live beside the database as
 `DATABASE.TIMESTAMP.UNIQUE_ID.bak`. Backup failure stops migration. An already-current
 database is not backed up again. Startup migrations serialize with a SQLite write lock;
 unknown revisions and unversioned tables are rejected rather than adopted or overwritten.
 Backups are retained for the user to manage; they may contain the same private data as
 the database and must not be committed.
+
+The database holds private PR content and captured agent output, so DiffButler creates
+its directory owner-only (`0700`) and the database file owner-only (`0600`); SQLite gives
+its WAL sidecars the same mode. Existing database files owned by the user are tightened to
+owner-only when opened. Connections enable `secure_delete`, so content removed by cleanup
+is overwritten rather than left in free pages. After each successful cleanup DiffButler
+also asks SQLite to truncate the WAL; another open reader can delay that until a later
+checkpoint. Databases created before this behavior are rewritten once with `VACUUM` and
+checkpointed on the first auto-migrating start that is not blocked by another reader,
+then marked with `PRAGMA user_version`.
 
 With `db.auto_migrate = false` or `doctor --no-migrate`, a missing database or stale
 schema fails without applying migrations. This is a schema check, not a filesystem

@@ -1,8 +1,10 @@
 """Async SQLite startup and packaged migrations, with consistent pre-upgrade backups."""
 
 import asyncio
+import os
 import sqlite3
-from contextlib import closing
+import stat
+from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -16,8 +18,12 @@ from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, event, inspect
 from sqlalchemy.engine import URL, AdaptedConnection, make_url
-from sqlalchemy.exc import ArgumentError
+from sqlalchemy.exc import ArgumentError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+
+# PRAGMA user_version once content freed before secure_delete has been rewritten.
+SCRUBBED_VERSION = 1
+_NEW_PRIVATE_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 class DatabaseError(ValueError):
@@ -86,6 +92,8 @@ async def configure_sqlite(connection: aiosqlite.Connection) -> None:
         async with connection.cursor() as cursor:
             await cursor.execute("PRAGMA busy_timeout=5000")
             await cursor.execute("PRAGMA foreign_keys=ON")
+            # Cleanup deletes raw agent output; overwrite freed pages so it is gone.
+            await cursor.execute("PRAGMA secure_delete=ON")
             deadline = asyncio.get_running_loop().time() + 5
             while True:
                 try:
@@ -110,17 +118,37 @@ def _configure_sqlite(connection: AdaptedConnection, _record: object) -> None:
     connection.run_async(configure_sqlite)
 
 
+def private_files(path: Path, *, create: bool) -> None:
+    """Keep the database and its WAL owner-only; it holds private PR content."""
+    # A configured path may be a symlink; SQLite opens, and names sidecars after, its target.
+    target = path.resolve()
+    if create:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with suppress(FileExistsError):
+            os.close(os.open(target, _NEW_PRIVATE_FILE, 0o600))
+    for name in {path, target}:
+        for suffix in ("", "-wal", "-shm"):
+            candidate = name.with_name(name.name + suffix)
+            try:
+                status = os.lstat(candidate)
+            except FileNotFoundError:
+                continue
+            mode = stat.S_IMODE(status.st_mode)
+            if stat.S_ISREG(status.st_mode) and status.st_uid == os.getuid() and mode & 0o077:
+                os.chmod(candidate, mode & 0o700)
+
+
 def backup_sqlite(path: Path) -> Path:
-    """Save a consistent snapshot beside the database before changing its schema."""
+    """Save a consistent, owner-only snapshot beside the database before changing its schema."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = path.with_name(f"{path.name}.{stamp}.{uuid4().hex}.bak")
-    # SQLite's backup API includes committed WAL contents, unlike copying the file.
+    # VACUUM INTO reads committed WAL contents and, unlike the backup API, leaves
+    # out free pages that may still hold deleted raw output.
     try:
-        with (
-            closing(sqlite3.connect(path)) as source,
-            closing(sqlite3.connect(destination)) as target,
-        ):
-            source.backup(target)
+        os.close(os.open(destination, _NEW_PRIVATE_FILE, 0o600))
+        with closing(sqlite3.connect(path)) as source:
+            source.execute("VACUUM INTO ?", (str(destination),))
     except sqlite3.Error:
         destination.unlink(missing_ok=True)
         raise DatabaseError(
@@ -149,8 +177,13 @@ class Database:
         existed = self.path.exists()
         if not auto_migrate and not existed:
             raise DatabaseError("database is missing; enable db.auto_migrate to initialize it")
+        await asyncio.to_thread(private_files, self.path, create=auto_migrate)
+        status = await self._migrate(auto_migrate=auto_migrate, existed=existed)
         if auto_migrate:
-            await asyncio.to_thread(self.path.parent.mkdir, parents=True, exist_ok=True)
+            await self._scrub_freed_pages()
+        return status
+
+    async def _migrate(self, *, auto_migrate: bool, existed: bool) -> DatabaseStatus:
         async with self.engine.connect() as connection:
             # Serialize startup migrations across processes. No tables are changed
             # until a consistent backup has completed successfully.
@@ -181,6 +214,29 @@ class Database:
             await connection.run_sync(lambda conn: command.upgrade(migration_config(conn), "head"))
             await connection.commit()
             return DatabaseStatus(head, True, backup)
+
+    async def _scrub_freed_pages(self) -> None:
+        """Rewrite the file once so content deleted before secure_delete is not recoverable."""
+        async with self.engine.connect() as connection:
+            result = await connection.exec_driver_sql("PRAGMA user_version")
+            if result.scalar_one() >= SCRUBBED_VERSION:
+                return
+            try:
+                await connection.exec_driver_sql("VACUUM")
+                # In WAL mode the rewrite reaches the main file only at checkpoint.
+                result = await connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                busy, *_ = result.one()
+            except OperationalError:
+                return  # Another process holds the database; retry on a later start.
+            if busy:
+                return  # A reader blocked the checkpoint; retry on a later start.
+            await connection.exec_driver_sql(f"PRAGMA user_version={SCRUBBED_VERSION}")
+            await connection.commit()
+
+    async def truncate_wal(self) -> None:
+        """Best effort: drop WAL frames that may still hold overwritten content."""
+        async with self.engine.connect() as connection:
+            await connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
 
     async def close(self) -> None:
         # Cancellation during disposal can interrupt aiosqlite.close after the
