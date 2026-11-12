@@ -359,3 +359,53 @@ def test_full_screen_child_resizes_and_returns(tmp_path: Path) -> None:
         terminal.quit()
     finally:
         terminal.close()
+
+
+@pytest.mark.parametrize(
+    ("pythonpath", "relative"),
+    [(None, False), (".", False), ("/nonexistent:", False), (None, True)],
+)
+def test_handoff_launcher_ignores_modules_in_untrusted_cwd(
+    tmp_path: Path, pythonpath: str | None, relative: bool
+) -> None:
+    # The handoff cwd is a PR checkout; a committed diffbutler package must not
+    # shadow the installed one in DiffButler's own launcher process.
+    checkout = tmp_path / "checkout"
+    shadow = checkout / "diffbutler"
+    shadow.mkdir(parents=True)
+    hijacked = tmp_path / "hijacked.txt"
+    launched = tmp_path / "launched.txt"
+    for module in (shadow / "__init__.py", checkout / "diffbutler.py"):
+        module.write_text(f"open({str(hijacked)!r}, 'a').write('ran')\n")
+    agent = f"import os; open({str(launched)!r}, 'w').write(os.getcwd())"
+    script = (
+        "import asyncio, fcntl, os, sys, termios\n"
+        "os.setsid()\n"
+        "fcntl.ioctl(0, termios.TIOCSCTTY, 0)\n"
+        "from diffbutler.ui.tui.foreground import run_foreground\n"
+        f"argv = [sys.executable, '-c', {agent!r}]\n"
+        f"os.chdir({str(tmp_path)!r})\n"
+        "from pathlib import Path\n"
+        f"cwd = Path({'checkout' if relative else str(checkout)!r})\n"
+        "code = asyncio.run(run_foreground(argv, cwd=cwd, env=dict(os.environ)))\n"
+        "raise SystemExit(code)\n"
+    )
+    master, slave = pty.openpty()
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONSAFEPATH"}
+    if pythonpath is not None:
+        env["PYTHONPATH"] = pythonpath  # Relative and empty entries name the cwd.
+    try:
+        process = subprocess.run(
+            [sys.executable, "-c", script],
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            env=env,
+            timeout=30,
+        )
+    finally:
+        os.close(slave)
+        os.close(master)
+    assert process.returncode == 0
+    assert launched.read_text() == str(checkout)
+    assert not hijacked.exists()

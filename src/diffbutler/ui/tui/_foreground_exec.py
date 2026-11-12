@@ -13,7 +13,8 @@ def main() -> None:
     if not granted:
         raise SystemExit(125)
     try:
-        os.execvp(sys.argv[2], sys.argv[2:])
+        os.chdir(sys.argv[2])
+        os.execvp(sys.argv[3], sys.argv[3:])
     except OSError as error:
         print(f"Could not launch agent: {error}", file=sys.stderr)
         raise SystemExit(127) from error

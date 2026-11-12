@@ -46,16 +46,21 @@ async def run_foreground(
         spawn = asyncio.create_task(
             asyncio.create_subprocess_exec(
                 sys.executable,
+                # The agent's cwd is often an untrusted PR checkout. Start Python
+                # elsewhere so neither sys.path[0] nor relative PYTHONPATH entries
+                # reach it; the helper enters the cwd just before exec.
+                "-P",
                 "-m",
                 "diffbutler.ui.tui._foreground_exec",
                 str(read_gate),
+                str(Path.cwd() if cwd is None else cwd.absolute()),
                 *argv,
                 stdin=fd,
                 stdout=sys.stdout.fileno(),
                 stderr=sys.stderr.fileno(),
                 pass_fds=(read_gate,),
                 process_group=0,
-                cwd=cwd,
+                cwd="/",
                 env=env,
             )
         )
