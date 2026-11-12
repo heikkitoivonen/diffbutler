@@ -16,8 +16,9 @@ make smoke
 ```
 
 Python 3.14 is the minimum supported version. Ruff handles lint and formatting;
-Pyright runs in strict mode. `make` lists individual checks, and
-`make test ARGS="-k name"` runs selected tests. No shell activation is required.
+zizmor audits GitHub Actions configuration; Pyright runs in strict mode. `make`
+lists individual checks, and `make test ARGS="-k name"` runs selected tests. No
+shell activation is required.
 
 `make test`, `make check`, and `make coverage` run two tracks in sequence:
 ordinary tests use pytest-xdist with CPU-based workers, then tests marked `serial`

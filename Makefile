@@ -21,9 +21,10 @@ format: ## Apply safe Ruff fixes and format Python code
 	$(RUN) ruff check --fix .
 	$(RUN) ruff format .
 
-lint: ## Check lint and formatting without changing files
+lint: ## Check lint, formatting, and GitHub Actions security without changing files
 	$(RUN) ruff check .
 	$(RUN) ruff format --check .
+	$(RUN) zizmor --offline --quiet .github
 
 typecheck: ## Run strict Pyright checks
 	$(RUN) pyright

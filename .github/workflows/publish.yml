@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   check:
-    uses: ./.github/workflows/ci.yml
+    uses: $/.github/workflows/ci.yml
     with:
       release: true
 
