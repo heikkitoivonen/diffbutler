@@ -10,12 +10,13 @@ from pydantic import BaseModel, ConfigDict
 
 from diffbutler.core.application import local_store, remote_service, sync_configured
 from diffbutler.core.managed import resolve_local
+from diffbutler.core.polling import PartialRefresh
 from diffbutler.core.polling import Poller as Poller
 from diffbutler.core.review import ReviewResult, ReviewService
 from diffbutler.core.sync import PullRequestRow, list_queue
 from diffbutler.domain.dashboard import COLUMN_IDS, STATE_LABELS, CycleRecord
 from diffbutler.domain.review import ReviewConflict, ReviewPolicy
-from diffbutler.forges.base import ForgeError
+from diffbutler.forges.base import LASTING_INCOMPLETENESS, ForgeError
 from diffbutler.store.base import ReviewStore
 from diffbutler.store.dashboard import SQLiteDashboardStore
 from diffbutler.store.review import SQLiteReviewStore
@@ -302,10 +303,15 @@ async def refresh_configured(path: Path | None, value: str, login: str | None) -
 
 async def poll_configured(path: Path | None) -> None:
     reports = await sync_configured(path)
-    if any(not report.complete for report in reports):
-        raise ForgeError(
-            "Refresh pending: " + "; ".join(w for report in reports for w in report.warnings)
+    incomplete = [report for report in reports if not report.complete]
+    if incomplete:
+        message = "Refresh pending: " + "; ".join(w for report in reports for w in report.warnings)
+        # Lasting forge limits recur on every poll; failed requests keep retry backoff.
+        lasting = all(
+            report.warnings and set(report.warnings) <= LASTING_INCOMPLETENESS
+            for report in incomplete
         )
+        raise PartialRefresh(message) if lasting else ForgeError(message)
 
 
 async def preferences_configured(path: Path | None) -> dict[str, str]:

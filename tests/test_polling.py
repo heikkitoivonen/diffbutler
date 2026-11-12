@@ -7,10 +7,12 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from diffbutler.core.polling import Poller
-from diffbutler.domain.forge import RateLimit
+from diffbutler.core.dashboard import poll_configured
+from diffbutler.core.polling import PartialRefresh, Poller
+from diffbutler.core.sync import SyncReport
+from diffbutler.domain.forge import Account, RateLimit
 from diffbutler.domain.polling import PollQuota, QuotaBudget
-from diffbutler.forges.base import ForgeError
+from diffbutler.forges.base import TEAM_ANONYMOUS, ForgeError
 from diffbutler.forges.diagnostics import (
     RateLimitSource,
     collect_rate_limits,
@@ -165,6 +167,73 @@ async def test_failed_sync_retains_quota_and_swallowed_server_cooldown() -> None
         await poller.refresh_observed(refresh)
     assert poller.delay() == 4000
     assert poller.budgets and poller.failures == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_refresh_reports_without_backing_off_every_pr() -> None:
+    # One PR past a pagination cap stays incomplete on every poll.
+    async def refresh() -> None:
+        observe(sample(4900, requests=10))
+        raise PartialRefresh("Refresh pending: Review activity pagination limit reached")
+
+    poller = Poller(refresh, 60, now=lambda: 1000)
+    for _ in range(3):
+        with pytest.raises(PartialRefresh, match="pagination limit"):
+            await poller.refresh_observed(refresh)
+    assert poller.failures == 0 and poller.delay() == 60
+
+
+@pytest.mark.asyncio
+async def test_incomplete_configured_poll_is_a_partial_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = SyncReport(
+        account=Account("github:https://api.github.com", "reader", "Reader"),
+        discovered=1,
+        refreshed=1,
+        active=1,
+        complete=False,
+        warnings=("Review activity pagination limit reached",),
+    )
+
+    async def reports(path: object) -> list[SyncReport]:
+        return [report]
+
+    monkeypatch.setattr("diffbutler.core.dashboard.sync_configured", reports)
+    with pytest.raises(PartialRefresh, match="pagination limit"):
+        await poll_configured(None)
+    report = report.model_copy(update={"warnings": (TEAM_ANONYMOUS,)})  # Anonymous forge.
+    with pytest.raises(PartialRefresh):
+        await poll_configured(None)
+    # A failed request reported as incomplete evidence keeps failure backoff.
+    report = report.model_copy(update={"warnings": ("Could not refresh acme/api#1: timed out",)})
+    with pytest.raises(ForgeError) as error:
+        await poll_configured(None)
+    assert not isinstance(error.value, PartialRefresh)
+
+
+@pytest.mark.asyncio
+async def test_poll_loop_does_not_back_off_after_partial_refresh() -> None:
+    calls = 0
+
+    async def refresh() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            poller.paused = True
+        raise PartialRefresh("Refresh pending: Review activity pagination limit reached")
+
+    poller = Poller(refresh, 0.01)
+    poller.failures = 3
+    task = asyncio.create_task(poller.run())
+    try:
+        async with asyncio.timeout(5):
+            while calls < 2:
+                await asyncio.sleep(0.01)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert poller.failures == 0
 
 
 @pytest.mark.asyncio

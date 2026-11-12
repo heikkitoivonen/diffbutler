@@ -22,7 +22,17 @@ from diffbutler.domain.forge import (
     repository_parts,
 )
 from diffbutler.domain.sync import CommentEvent, RequestEvent, ReviewActivity, ReviewEvent
-from diffbutler.forges.base import ForgeError
+from diffbutler.forges.base import (
+    ACTIVITY_PAGINATION_LIMIT,
+    ACTIVITY_SSO,
+    SEARCH_RESULT_LIMIT,
+    SEARCH_SSO,
+    TEAM_ANONYMOUS,
+    TEAM_PAGINATION_LIMIT,
+    TEAM_SCOPE_UNVERIFIED,
+    TEAM_SSO,
+    ForgeError,
+)
 from diffbutler.forges.github.http import GitHubHTTP
 from diffbutler.forges.github.mapping import (
     Comment,
@@ -105,7 +115,7 @@ class GitHubForge:
             return TeamMembership(
                 (),
                 False,
-                ("Team review requests require authentication; only direct requests are visible",),
+                (TEAM_ANONYMOUS,),
             )
         teams: set[str] = set()
         warnings: list[str] = []
@@ -116,12 +126,9 @@ class GitHubForge:
                     scope.strip() for scope in response.headers.get("x-oauth-scopes", "").split(",")
                 }
                 if not scopes.intersection({"read:org", "user", "repo", "admin:org", "write:org"}):
-                    warnings.append(
-                        "Team visibility is token-scoped; "
-                        "cross-organization coverage cannot be verified"
-                    )
+                    warnings.append(TEAM_SCOPE_UNVERIFIED)
                 if response.headers.get("x-github-sso"):
-                    warnings.append("Organization SSO restricts team visibility")
+                    warnings.append(TEAM_SSO)
                 for item in objects(response.body):
                     team = parse(Team, item)
                     if team.organization is None:
@@ -138,7 +145,7 @@ class GitHubForge:
                 warnings.append(f"Team membership is incomplete: {exc}")
                 break
         else:
-            warnings.append("Team pagination limit reached")
+            warnings.append(TEAM_PAGINATION_LIMIT)
         return TeamMembership(tuple(sorted(teams)), not warnings, tuple(dict.fromkeys(warnings)))
 
     async def get_pull_request(self, ref: PRRef) -> PullRequest:
@@ -180,9 +187,9 @@ class GitHubForge:
         if result.incomplete_results:
             warnings.append("GitHub search reported incomplete results")
         if result.total_count > 1000:
-            warnings.append("GitHub search is limited to 1,000 results; narrow the filters")
+            warnings.append(SEARCH_RESULT_LIMIT)
         if response.headers.get("x-github-sso"):
-            warnings.append("Organization SSO restricts search visibility")
+            warnings.append(SEARCH_SSO)
         items: dict[PRRef, PullRequest] = {}
         for hit in result.items:
             try:
@@ -299,7 +306,7 @@ class GitHubForge:
                 try:
                     response = await self.http.get(endpoint, {"per_page": 100, "page": page})
                     if response.headers.get("x-github-sso"):
-                        warnings.append("Organization SSO restricts review activity visibility")
+                        warnings.append(ACTIVITY_SSO)
                     for value in objects(response.body):
                         if endpoint.endswith("/events"):
                             event = parse(IssueEvent, value)
@@ -354,7 +361,7 @@ class GitHubForge:
                     warnings.append("Review activity is incomplete; activity transitions deferred")
                     break
             else:
-                warnings.append("Review activity pagination limit reached")
+                warnings.append(ACTIVITY_PAGINATION_LIMIT)
         return ReviewActivity(
             account,
             tuple(requests.values()),

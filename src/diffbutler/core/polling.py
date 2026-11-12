@@ -10,6 +10,14 @@ from diffbutler.forges.base import ForgeError
 from diffbutler.forges.diagnostics import RateLimitObservations, collect_rate_limits
 
 
+class PartialRefresh(ForgeError):
+    """The refresh finished and saved what it saw, but some evidence is incomplete.
+
+    Incompleteness is often lasting (pagination caps, SSO visibility), so it is
+    reported without the failure backoff that would delay every other PR.
+    """
+
+
 class Poller:
     """No reviewer capability; manual refreshes also update the next automatic deadline."""
 
@@ -71,6 +79,10 @@ class Poller:
                 await operation()
                 successful = True
                 self.failures = 0
+            except PartialRefresh:
+                # Not a failure, but its request count may not lower the cost estimate.
+                self.failures = 0
+                raise
             except Exception:
                 self.failures = min(self.failures + 1, 5)
                 raise
@@ -107,6 +119,9 @@ class Poller:
                 try:
                     await self.refresh()
                     self.failures = 0
+                except PartialRefresh:
+                    if generation == self.generation:
+                        self.failures = 0
                 except Exception:
                     if generation == self.generation:
                         self.failures = min(self.failures + 1, 5)

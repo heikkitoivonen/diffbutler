@@ -15,6 +15,31 @@ from diffbutler.domain.forge import (
 )
 from diffbutler.domain.sync import ReviewActivity
 
+# Incompleteness that recurs on every refresh (forge limits or visibility), as
+# opposed to a failed request; polling reports it without failure backoff.
+TEAM_ANONYMOUS = "Team review requests require authentication; only direct requests are visible"
+TEAM_SCOPE_UNVERIFIED = (
+    "Team visibility is token-scoped; cross-organization coverage cannot be verified"
+)
+TEAM_SSO = "Organization SSO restricts team visibility"
+TEAM_PAGINATION_LIMIT = "Team pagination limit reached"
+SEARCH_RESULT_LIMIT = "GitHub search is limited to 1,000 results; narrow the filters"
+SEARCH_SSO = "Organization SSO restricts search visibility"
+ACTIVITY_SSO = "Organization SSO restricts review activity visibility"
+ACTIVITY_PAGINATION_LIMIT = "Review activity pagination limit reached"
+LASTING_INCOMPLETENESS = frozenset(
+    {
+        TEAM_ANONYMOUS,
+        TEAM_SCOPE_UNVERIFIED,
+        TEAM_SSO,
+        TEAM_PAGINATION_LIMIT,
+        SEARCH_RESULT_LIMIT,
+        SEARCH_SSO,
+        ACTIVITY_SSO,
+        ACTIVITY_PAGINATION_LIMIT,
+    }
+)
+
 
 class ForgeError(Exception):
     """Safe diagnostic, never an HTTP body, URL with credentials, or auth output."""

@@ -274,7 +274,11 @@ stop delaying polling.
 Manual `Ctrl+R` refreshes can bypass the adaptive interval and update the next automatic
 deadline, but still respect recorded server cooldowns and request pacing. Quota and
 cooldowns observed during incomplete refreshes also affect scheduling. Errors retain
-exponential retry backoff. Interval changes are logged with account, resource, remaining
+exponential retry backoff, including requests that fail inside an otherwise finished
+refresh. A refresh that is incomplete only because of a lasting forge condition (a PR
+past the activity pagination limit, SSO-restricted or token-scoped visibility, or the
+search and team pagination limits) is reported as pending without that backoff, so one
+PR's lasting condition does not delay the others. Interval changes are logged with account, resource, remaining
 quota, time until reset, and estimated refresh cost. These estimates cannot guarantee
 quota availability when other applications consume it unexpectedly; the adapter's
 request-level rate-limit handling remains in force. The app remains
