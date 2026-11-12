@@ -19,6 +19,8 @@ from diffbutler.core.workspaces import SnapshotWorkspaces, materialize, material
 from diffbutler.domain.lifecycle import CleanupSession
 from diffbutler.domain.resources import OwnedDirectory
 from diffbutler.domain.review import RunClaim
+from diffbutler.forges.base import ForgeError
+from diffbutler.forges.github.http import api_url
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
 from diffbutler.reviewers.native import CapturedProcess, NativeError, native_preset
 from diffbutler.reviewers.prompt import render_git_prompt
@@ -27,11 +29,30 @@ from diffbutler.sources.git import GitSourceReader
 from diffbutler.store.base import LifecycleStore, ProcessStore, ReviewStore
 
 
-def background_environment(agent_home: Path, preset_name: str = "codex") -> dict[str, str]:
+def gh_host(forge: str) -> str | None:
+    """The gh hostname for a PR's forge identity, such as github:https://api.github.com."""
+    kind, _, base_url = forge.partition(":")
+    if kind != "github":
+        return None
+    try:
+        host = api_url(base_url).host
+    except ForgeError:
+        return None
+    return "github.com" if host == "api.github.com" else host or None
+
+
+def background_environment(
+    agent_home: Path, preset_name: str = "codex", forge: str | None = None
+) -> dict[str, str]:
     # Provider selection, authentication, proxies, and user customizations belong
-    # to the native CLI. Keep its normal environment, pinning only the session home.
+    # to the native CLI. Keep its normal environment, pinning only the session home
+    # and, for the agent's gh reads, the host of the forge that owns the session.
     home_key = "CLAUDE_CONFIG_DIR" if preset_name == "claude" else "CODEX_HOME"
-    return {**os.environ, home_key: str(agent_home)}
+    env = {**os.environ, home_key: str(agent_home)}
+    host = gh_host(forge) if forge is not None else None
+    if host is not None:
+        env["GH_HOST"] = host
+    return env
 
 
 async def native_agent_home(root: Path, preset_name: str) -> Path:
@@ -141,7 +162,7 @@ class NativeExecution:
         prompt = render_git_prompt(context)
 
         await save_json(root / "current.json", {"run_id": str(context.run_id)})
-        env = background_environment(agent_home, self.preset_name)
+        env = background_environment(agent_home, self.preset_name, context.pr.ref.forge)
         preset = native_preset(self.preset_name)
         if not await self.is_current():
             raise NativeError("Review became stale during source preparation")
@@ -239,6 +260,7 @@ class SessionLaunch(BaseModel):
     cwd: Path
     agent_home: Path
     preset_name: Literal["codex", "claude"] = "codex"
+    forge: str | None = None
 
 
 async def prepare_native_handoff(
@@ -250,6 +272,7 @@ async def prepare_native_handoff(
     preset_name: Literal["codex", "claude"] = "codex",
     *,
     pr_number: int,
+    forge: str | None = None,
     workspaces: SnapshotWorkspaces | None = None,
 ) -> SessionLaunch:
     lease = await lifecycle.acquire_foreground(session_id)
@@ -291,6 +314,7 @@ async def prepare_native_handoff(
             cwd=cwd,
             agent_home=await native_agent_home(root, preset_name),
             preset_name=preset_name,
+            forge=forge,
         )
     except BaseException:
         await lifecycle.release_foreground(lease.token)
@@ -298,4 +322,4 @@ async def prepare_native_handoff(
 
 
 def foreground_environment(launch: SessionLaunch) -> Mapping[str, str]:
-    return background_environment(launch.agent_home, launch.preset_name)
+    return background_environment(launch.agent_home, launch.preset_name, launch.forge)

@@ -343,6 +343,7 @@ class ManagedReviews:
             self.reviewer_command(run.reviewer_id),
             self.reviewer_preset(run.reviewer_id),
             pr_number=row.tracked.pull_request.ref.number,
+            forge=row.tracked.pull_request.ref.forge,
             workspaces=self.workspaces,
         )
 

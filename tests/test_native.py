@@ -8,7 +8,7 @@ import sys
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from tests.test_sources import git
@@ -17,7 +17,7 @@ from tests.test_sync import ACCOUNT, PR, REF, FakeForge
 from diffbutler.config.settings import Settings
 from diffbutler.core.dashboard import DashboardService
 from diffbutler.core.managed import ManagedReviews, owned_directories, resolve_local
-from diffbutler.core.native import background_environment, foreground_environment
+from diffbutler.core.native import SessionLaunch, background_environment, foreground_environment
 from diffbutler.core.sync import DiffButler
 from diffbutler.domain.review import AnalysisIdentity
 from diffbutler.reviewers.base import ReviewOutput
@@ -1105,6 +1105,29 @@ async def test_native_session_names_preserve_exact_resume_identity(
             assert identity in arguments
 
 
+@pytest.mark.parametrize(
+    ("forge", "host"),
+    [
+        ("github:https://api.github.com", "github.com"),
+        ("github:https://ghe.example/api/v3", "ghe.example"),
+        ("github:not a url", None),
+        ("gitlab:https://gitlab.example", None),
+    ],
+)
+async def test_agent_gh_reads_are_pinned_to_the_session_forge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forge: str, host: str | None
+) -> None:
+    # Without a pin, gh would pick its own default host for an Enterprise PR.
+    monkeypatch.setenv("GH_HOST", "ambient.example")
+    env = background_environment(tmp_path, "codex", forge)
+    assert env["GH_HOST"] == (host or "ambient.example")
+    launch = SessionLaunch(
+        token=uuid4(), session_id=uuid4(), argv=("codex",), cwd=tmp_path, agent_home=tmp_path,
+        forge=forge,
+    )  # fmt: skip
+    assert foreground_environment(launch)["GH_HOST"] == (host or "ambient.example")
+
+
 async def test_claude_environment_and_resume_permissions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1133,6 +1156,10 @@ async def test_claude_environment_and_resume_permissions(
     assert not {"--restricted", "--safe-mode", "--strict-mcp-config", "--mcp-config"}.intersection(
         resumed
     )
+    # Background analysis ignores settings committed in the untrusted checkout.
+    for background in (preset.argv(("claude",), None), resumed):
+        assert background[background.index("--setting-sources") + 1] == "user"
+    assert "--setting-sources" not in foreground
     assert resumed[resumed.index("--tools") + 1] == "Read,Glob,Grep,Bash"
     assert resumed[resumed.index("--allowedTools") + 1] == "Read,Glob,Grep"
     with pytest.raises(NativeError, match="identity"):

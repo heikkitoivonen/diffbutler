@@ -258,13 +258,20 @@ not copy or filter user configuration and does not override model, reasoning eff
 provider, or speed. Settings, authentication, plugins, hooks, and MCP configuration
 are loaded by the installed CLI as usual. Shell aliases are not expanded; put extra
 CLI arguments in the reviewer's `command` array when needed. Project settings are
-resolved from the pinned review checkout, not your original working tree.
+resolved from the pinned review checkout, not your original working tree; Claude
+background runs load only user settings (see below). Both modes set `GH_HOST` to the
+host of the forge that owns the session, so the agent's `gh` reads and any posting go
+to that GitHub instance rather than `gh`'s default host.
 
 Claude background launches retain `Read,Glob,Grep,Bash`, `auto` permissions,
 and `--permission-prompts none`. Only `Read,Glob,Grep` are explicitly allowed;
 Bash uses native auto permission checks, including the user's configured rules.
 Requests that still need permission are denied without prompting in background runs.
-DiffButler no longer passes `--restricted`, `--safe-mode`, or empty MCP configuration.
+Background launches also pass `--setting-sources user`: the checkout is the PR author's
+content, so project and local settings committed in it (`.claude/settings*.json`, including
+hooks and permission rules) are not loaded. Your user settings, plugins and MCP servers
+still apply. DiffButler no longer passes `--restricted`, `--safe-mode`, or empty MCP
+configuration.
 Foreground resume selects `auto` permissions and the default tool set so it can
 accept human instructions. See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
 

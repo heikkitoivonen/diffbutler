@@ -20,6 +20,7 @@ if "--print" not in sys.argv:
     assert "--permission-prompts" not in sys.argv
     assert "--restricted" not in sys.argv and "--strict-mcp-config" not in sys.argv
     assert sys.argv[sys.argv.index("--tools") + 1] == "default"
+    assert "--setting-sources" not in sys.argv  # Foreground keeps project settings.
     assert json.loads(saved.read_text())["marker"] == "remembered orientation"
     print("remembered orientation")
     raise SystemExit
@@ -32,6 +33,10 @@ assert sys.argv[sys.argv.index("--tools") + 1] == "Read,Glob,Grep,Bash"
 assert sys.argv[sys.argv.index("--allowedTools") + 1] == "Read,Glob,Grep"
 assert sys.argv[sys.argv.index("--permission-mode") + 1] == "auto"
 assert sys.argv[sys.argv.index("--permission-prompts") + 1] == "none"
+# Settings committed in the PR checkout must not configure background analysis.
+assert sys.argv[sys.argv.index("--setting-sources") + 1] == "user"
+# The agent's gh reads use the forge that owns the session.
+assert os.environ["GH_HOST"] == "github.com"
 payload = sys.stdin.read()
 assert "source-only review of PR" in payload
 assert "readable Markdown, not JSON" in payload

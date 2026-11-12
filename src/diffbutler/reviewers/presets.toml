@@ -6,7 +6,9 @@ foreground = ["-a", "on-request", "resume", "{session_id}"]
 
 # Bash uses native auto permission checks; do not blanket-allow it.
 # Keep normal user configuration; override tools and permissions per launch mode.
+# Background runs analyse untrusted checkouts, so project and local settings
+# committed in the PR (.claude/settings*.json) are not loaded there.
 [claude]
-background = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "auto", "--permission-prompts", "none"]
-background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "auto", "--permission-prompts", "none", "--resume", "{session_id}"]
+background = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "auto", "--permission-prompts", "none", "--setting-sources", "user"]
+background_resume = ["--print", "--output-format", "stream-json", "--verbose", "--tools", "Read,Glob,Grep,Bash", "--allowedTools", "Read,Glob,Grep", "--permission-mode", "auto", "--permission-prompts", "none", "--setting-sources", "user", "--resume", "{session_id}"]
 foreground = ["--tools", "default", "--permission-mode", "auto", "--resume", "{session_id}"]

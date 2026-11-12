@@ -23,6 +23,8 @@ if "exec" not in sys.argv:
     raise SystemExit
 
 assert "read-only" in sys.argv and "never" in sys.argv
+# The agent's gh reads use the forge that owns the session.
+assert os.environ["GH_HOST"] == "github.com"
 payload = sys.stdin.read()
 assert "source-only review of PR" in payload
 assert "readable Markdown, not JSON" in payload
