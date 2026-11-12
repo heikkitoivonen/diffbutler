@@ -131,9 +131,13 @@ async def stop_process_group(pid: int, *, grace_s: float = 2.0) -> None:
 class CapturedProcess:
     """Own a trusted CLI's process group and captured pipes, including spawn races.
 
-    Deliberately detached processes are outside this native CLI supervision model.
-    EOF never releases ownership: stop_and_wait must first stop and reap the group.
+    Deliberately detached processes are outside this native CLI supervision model,
+    but cannot hold a stop open: output still held after the group is stopped is
+    abandoned. EOF never releases ownership: stop_and_wait must first stop the group.
     """
+
+    # After the owned group is stopped, how long to collect remaining output.
+    drain_timeout_s = 5.0
 
     def __init__(self) -> None:
         self.spawn: asyncio.Task[asyncio.subprocess.Process] | None = None
@@ -234,5 +238,19 @@ class CapturedProcess:
                 while chunk := await stream.read(65536):
                     target.extend(chunk)
 
-        await asyncio.gather(drain(process.stdout, self.stdout), drain(process.stderr, self.stderr))
-        await process.wait()
+        try:
+            async with asyncio.timeout(self.drain_timeout_s):
+                await asyncio.gather(
+                    drain(process.stdout, self.stdout), drain(process.stderr, self.stderr)
+                )
+                await process.wait()
+        except TimeoutError:
+            # The owned group is gone, but a process outside it still holds an output
+            # pipe. Waiting would block stop, quit and reset for as long as it lives.
+            logging.getLogger(__name__).warning(
+                "Background agent output is held outside its process group; stopped waiting"
+            )
+            # asyncio has no public close for a subprocess's pipes; closing its
+            # private transport disconnects them so wait() can return.
+            cast(asyncio.SubprocessTransport, vars(process)["_transport"]).close()
+            await process.wait()

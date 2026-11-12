@@ -3,7 +3,9 @@
 import asyncio
 import os
 import shutil
+import signal
 import sys
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 from uuid import UUID
@@ -443,6 +445,44 @@ async def test_native_large_capture_and_cancellation_stop_owned_group(tmp_path: 
         finally:
             await execution.stop_and_wait()
         assert execution.process is not None and execution.process.returncode is not None
+
+
+async def test_stop_does_not_wait_for_output_held_outside_the_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A descendant that leaves the agent's group keeps a copy of its output pipes.
+    holder = tmp_path / "holder.pid"
+    code = (
+        "import os, time\n"
+        "if os.fork() == 0:\n"
+        "    os.setsid()\n"
+        f"    open({str(holder)!r}, 'w').write(str(os.getpid()))\n"
+        "    time.sleep(30)\n"
+        "    os._exit(0)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(30)\n"
+    )
+    monkeypatch.setattr(CapturedProcess, "drain_timeout_s", 0.5)
+    execution = CapturedProcess()
+    task = asyncio.create_task(
+        execution.capture(
+            (sys.executable, "-c", code), cwd=tmp_path, env={"PATH": os.defpath}, input=b""
+        )
+    )
+    try:
+        async with asyncio.timeout(10):
+            while b"ready" not in execution.stdout or not holder.exists():
+                await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        async with asyncio.timeout(8):  # Group grace plus the drain deadline.
+            await execution.stop_and_wait()
+        assert execution.process is not None and execution.process.returncode is not None
+        assert b"ready" in execution.stdout
+    finally:
+        with suppress(ProcessLookupError, ValueError):
+            os.kill(int(holder.read_text()), signal.SIGKILL)
 
 
 @pytest.mark.parametrize("preset", ["codex", "claude"])
