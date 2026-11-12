@@ -239,6 +239,15 @@ def safe(value: str) -> str:
     return "".join(character if character.isprintable() else " " for character in value)
 
 
+def ascii_json(document: str | bytes) -> str:
+    """Re-encode JSON with every non-ASCII character escaped.
+
+    Pydantic escapes only C0 controls, so forge- or agent-controlled C1 controls
+    and bidirectional overrides would otherwise reach the terminal raw.
+    """
+    return json.dumps(json.loads(document), separators=(",", ":"))
+
+
 def print_pr(pr: PullRequest, state: str = "", account: str = "") -> None:
     ref = pr.ref
     typer.echo(
@@ -283,7 +292,7 @@ def ls(
             raise typer.BadParameter(str(exc)) from None
         page = run(browse_configured(config, forge or 1, query, cursor))
         if json_output:
-            typer.echo(TypeAdapter(PRPage).dump_json(page).decode())
+            typer.echo(ascii_json(TypeAdapter(PRPage).dump_json(page)))
         else:
             for pr in page.items:
                 print_pr(pr)
@@ -316,7 +325,7 @@ def follow(
     """Follow an accessible PR without starting an AI review."""
     row = run(follow_configured(config, forge, pr))
     if json_output:
-        typer.echo(row.model_dump_json())
+        typer.echo(ascii_json(row.model_dump_json()))
     else:
         print_row(row)
 
@@ -330,7 +339,7 @@ def review(
 ) -> None:
     """Explicitly run a source-only native review of a synced/followed PR."""
     result = run(review_configured(config, pr, login, reviewer))
-    typer.echo(result.model_dump_json())
+    typer.echo(ascii_json(result.model_dump_json()))
     if result.status == "failed":
         raise typer.Exit(1)
 
@@ -344,7 +353,7 @@ def findings(pr: str, config: ConfigOption = None, login: str | None = None) -> 
         if result is None
         else "\n".join(safe(line) for line in result.markdown.split("\n"))
         if result.markdown is not None
-        else result.model_dump_json(exclude={"stdout", "stderr"})
+        else ascii_json(result.model_dump_json(exclude={"stdout", "stderr"}))
     )
 
 
@@ -514,7 +523,7 @@ def history(
         except ValueError:
             raise typer.BadParameter("--task must be a cycle UUID") from None
         detail = run(detail_configured(config, task_id))
-        typer.echo(detail.model_dump_json())
+        typer.echo(ascii_json(detail.model_dump_json()))
         return
     rows = run(
         history_configured(
@@ -530,7 +539,7 @@ def history(
         )
     )
     if json_output:
-        typer.echo(TypeAdapter(tuple[CycleRecord, ...]).dump_json(rows).decode())
+        typer.echo(ascii_json(TypeAdapter(tuple[CycleRecord, ...]).dump_json(rows)))
     else:
         for row in rows:
             print_pr(

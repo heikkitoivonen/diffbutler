@@ -159,3 +159,39 @@ def test_cleanup_failure_is_visible_without_claiming_deletion(
     output = capsys.readouterr()
     assert "0 succeeded, 1 pending, 1 running, 1 failed" in output.out
     assert "resources retained for retry" in output.err
+
+
+def test_json_output_escapes_terminal_controls_from_forge_and_agent_text(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dataclasses import replace
+    from uuid import uuid4
+
+    from tests.test_sync import ACCOUNT, PR
+
+    from diffbutler.core.dashboard import CycleDetail
+    from diffbutler.core.review import ReviewResult
+    from diffbutler.domain.dashboard import CycleRecord
+
+    hostile = "\x9b2J\x9b31mSPOOF\x9d0;title\x9c‮evil\x1b[2J"
+    task_id = uuid4()
+    record = CycleRecord(
+        task_id, ACCOUNT, replace(PR, title=hostile), 1, "DONE", None, None, None,
+        "not_requested", None, None, (), (), (),
+    )  # fmt: skip
+    result = ReviewResult(
+        run_id=uuid4(), exit_code=0, stdout=None, stderr=None, document=None, markdown=hostile,
+        parse_tier=None, error=None, notes=(), selected_indices=(), min_confidence=0.5,
+        findings_threshold="minor",
+    )  # fmt: skip
+    detail = CycleDetail(cycle=record, results=(result,))
+
+    async def detail_configured(path: object, task: object) -> CycleDetail:
+        assert task == task_id
+        return detail
+
+    monkeypatch.setattr("diffbutler.core.dashboard.detail_configured", detail_configured)
+    main(["history", "--task", str(task_id)])
+    output = capsys.readouterr().out
+    assert output.isascii() and "\x1b" not in output
+    assert CycleDetail.model_validate_json(output) == detail
