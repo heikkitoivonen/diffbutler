@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 15
+      default-days: 8
     groups:
       development-tools:
         dependency-type: development
@@ -14,4 +14,4 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 15
+      default-days: 8

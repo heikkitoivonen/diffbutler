@@ -46,9 +46,9 @@ forge credentials, real GitHub requests, or paid model calls.
 - Add dependencies only when used. Run `uv add package` or `uv add --dev package`,
   review its license, and commit both `pyproject.toml` and `uv.lock`.
 - Use `make upgrade` to refresh pinned versions, then run checks and `make audit`.
-  Routine resolution excludes releases newer than 15 days; urgent security updates
-  can be selected explicitly with uv's `--exclude-newer` override after review.
-  Weekly Dependabot version-update PRs use the same 15-day cooldown for Python
+  Routine resolution applies a cooldown that excludes recent releases; urgent
+  security updates can be selected explicitly with uv's `--exclude-newer` override
+  after review. Weekly Dependabot version-update PRs also use a cooldown for Python
   packages and GitHub Actions. Dependabot security-update PRs bypass its cooldown
   and require separate review before accepting a newer release.
 - Do not commit credentials, private PR content, local databases, or session transcripts.
