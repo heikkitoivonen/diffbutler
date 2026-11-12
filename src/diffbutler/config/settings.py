@@ -2,6 +2,7 @@
 
 import os
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal, Self, cast
 
@@ -68,18 +69,32 @@ class Forge(Section):
         return values
 
 
+def supported_checkout(value: str) -> str:
+    # Fail closed: a redacted, mediated source mode was documented but never implemented.
+    if value == "mediated":
+        raise ValueError(
+            "mediated source preparation is not supported; native reviews always receive "
+            "the full pinned Git checkout, so remove this setting"
+        )
+    return value
+
+
 class Review(Section):
     default_reviewer: str | None = None
     findings_threshold: Literal["blocking", "important", "minor", "nit", "question"] = "minor"
     min_confidence: float = Field(default=0.5, ge=0, le=1)
     # Accepted for compatibility with existing configuration; no longer enforced.
     max_diff_bytes: int | None = Field(default=None, exclude=True)
-    exclude_globs: list[str] = Field(
-        default_factory=lambda: ["**/*.lock", "**/vendor/**", "**/*.min.js", "**/generated/**"]
-    )
+    # Accepted for compatibility; native reviews receive the full pinned checkout.
+    exclude_globs: list[str] | None = Field(default=None, exclude=True)
     mode: Literal["source_only"] = "source_only"
-    checkout: Literal["worktree", "mediated"] = "worktree"
+    checkout: Literal["worktree", "mediated"] = Field(default="worktree", exclude=True)
     prompt: Path | None = None
+
+    @field_validator("checkout")
+    @classmethod
+    def supported_checkout(cls, value: str) -> str:
+        return supported_checkout(value)
 
 
 class Reviewer(Section):
@@ -139,8 +154,19 @@ class Repository(Section):
     path: Path | None = None
     default_reviewer: str | None = None
     prompt: Path | None = None
-    checkout: Literal["worktree", "mediated"] | None = None
+    # Accepted for compatibility; native reviews receive the full pinned checkout.
+    checkout: Literal["worktree", "mediated"] | None = Field(default=None, exclude=True)
     git_transport: Literal["auto", "https", "ssh"] = "auto"
+
+    @field_validator("checkout")
+    @classmethod
+    def supported_checkout(cls, value: str | None) -> str | None:
+        return None if value is None else supported_checkout(value)
+
+
+def repository_keys(repos: Mapping[str, object], repository: str) -> list[str]:
+    """Existing keys naming a repository; keys are matched case-insensitively."""
+    return [key for key in repos if key.lower() == repository.lower()]
 
 
 class Settings(BaseSettings):
@@ -156,6 +182,37 @@ class Settings(BaseSettings):
     ui: UI = Field(default_factory=UI)
     keys: dict[str, list[str]] = Field(default_factory=lambda: {"open_in_browser": ["o", "ctrl+o"]})
     repos: dict[str, Repository] = Field(default_factory=dict)
+
+    @field_validator("repos")
+    @classmethod
+    def canonical_repositories(cls, values: dict[str, Repository]) -> dict[str, Repository]:
+        """Key repositories as stored PR identities are: case-insensitive, lowercase.
+
+        Entries differing only in case are merged; disabling either disables the
+        repository. A remembered git_transport from the lowercase key wins, since
+        earlier releases wrote it there; other settings may not disagree.
+        """
+        merged: dict[str, Repository] = {}
+        for key, repository in values.items():
+            name = key.lower()
+            existing = merged.get(name)
+            if existing is None:
+                merged[name] = repository
+                continue
+            update: dict[str, Any] = {}
+            for field in repository.model_fields_set:
+                value = getattr(repository, field)
+                if field == "enabled":
+                    update[field] = existing.enabled and value
+                elif field not in existing.model_fields_set or getattr(existing, field) == value:
+                    update[field] = value
+                elif field == "git_transport":
+                    if key == name:
+                        update[field] = value
+                else:
+                    raise ValueError(f"repos entries for {name} conflict on {field}")
+            merged[name] = existing.model_copy(update=update)
+        return merged
 
     @property
     def config_file(self) -> Path | None:
@@ -266,15 +323,17 @@ def load_settings(
     repo_values: dict[str, Any] = {}
     repositories = document.get("repos", {})
     if repo is not None and isinstance(repositories, dict):
-        entry = cast(dict[str, Any], repositories).get(repo, {})
-        if isinstance(entry, dict):
-            repo_values = {
-                "review": {
-                    key: value
+        # Repository keys are case-insensitive; conflicting entries fail validation below.
+        selected_values: dict[str, Any] = {}
+        for name, entry in cast(dict[str, Any], repositories).items():
+            if name.lower() == repo.lower() and isinstance(entry, dict):
+                selected_values.update(
+                    (key, value)
                     for key, value in cast(dict[str, Any], entry).items()
                     if key in {"default_reviewer", "prompt", "checkout"}
-                }
-            }
+                )
+        if selected_values:
+            repo_values = {"review": selected_values}
 
     class LoadedSettings(Settings):
         @classmethod

@@ -36,7 +36,7 @@ Fields show what the file contains; an empty field shows its built-in default as
 placeholder. Clearing a field removes the value from the file so the default applies.
 List values such as `ui.columns` or a reviewer's `command` are space-separated and use
 shell-style quoting for items containing spaces; no shell runs. Enter `[]` for an empty
-list, such as `review.exclude_globs = []` to exclude nothing. Checkboxes, and choice lists
+list, such as `forges.repositories = []`. Checkboxes, and choice lists
 without a "not set" option, always hold a value; to remove one from the file so its
 default applies, use `diffbutler config --edit`. Use **Add** and
 **Remove** for entries. A new forge starts with `kind = "github"` and the public
@@ -191,22 +191,24 @@ auto_migrate = true
 
 [review]
 mode = "source_only"
-checkout = "worktree"
 findings_threshold = "minor"
 min_confidence = 0.5
 
 [repos."acme/api"]
 enabled = false
 path = "~/src/acme/api"
-checkout = "mediated"
 ```
 
 These settings configure manual sync, dashboard polling, and explicit native reviews. `enabled` is
 repository AI opt-in metadata, not a trigger to start anything.
 See [native review storage](native-reviews.md) for shared repositories, temporary snapshot
 recovery, and retention. Configuration supports CLI reviewers only. Reviewer IDs must be unique and
-`default_reviewer` must name a configured reviewer. Repo `default_reviewer`, `checkout`,
-and `prompt` override the global review section when that repository is selected.
+`default_reviewer` must name a configured reviewer. Repo `default_reviewer` and `prompt`
+override the global review section when that repository is selected.
+Native reviews always give the agent the full pinned Git checkout, without
+redaction or path exclusion. Legacy `review.exclude_globs` and `checkout = "worktree"`
+settings are accepted but ignored; `checkout = "mediated"` is rejected because that
+mode was never implemented for native reviews.
 Managed storage, repository, and prompt paths expand `~`; relative paths resolve beside the config file.
 Relative SQLite URL paths resolve against the process working directory.
 

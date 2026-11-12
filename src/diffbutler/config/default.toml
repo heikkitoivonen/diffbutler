@@ -27,9 +27,7 @@ auto_migrate = true
 [review]
 findings_threshold = "minor" # blocking | important | minor | nit | question
 min_confidence = 0.5
-exclude_globs = ["**/*.lock", "**/vendor/**", "**/*.min.js", "**/generated/**"]
 mode = "source_only"
-checkout = "worktree" # Native reviews currently use pinned source snapshots.
 # default_reviewer = "codex"
 # prompt = "~/review-instructions.md"
 
@@ -60,7 +58,6 @@ open_in_browser = ["o", "ctrl+o"]
 # git_transport = "auto" # auto | https | ssh; remembers the last successful fetch.
 # default_reviewer = "codex"
 # prompt = "~/review-instructions.md"
-# checkout = "mediated"
 
 # Remove the top-level forges = [] before adding forge accounts:
 # [[forges]]

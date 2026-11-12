@@ -340,3 +340,32 @@ async def test_stalled_access_check_times_out_without_saving(
         await startup_settings(None, directory=tmp_path, ask=ask, progress=progress.append)
     assert "Checking GitHub username and PR access" in progress[-1]
     assert not config_path().exists()
+
+
+@pytest.mark.asyncio
+async def test_mixed_case_remote_reuses_existing_repository_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def public(base_url: str, repository: str) -> bool:
+        return True
+
+    async def validate(base_url: str, repository: str, login: str, token: str | None) -> str:
+        return login
+
+    monkeypatch.setattr("diffbutler.core.setup.repository_is_public", public)
+    monkeypatch.setattr("diffbutler.core.setup.validate_access", validate)
+    await git(tmp_path, "init", "--template=")
+    await git(tmp_path, "remote", "add", "origin", "git@github.com:Acme/API.git")
+    target = tmp_path / "config.toml"
+    target.write_text('[repos."ACME/api"]\nenabled = false\n')
+
+    async def ask(label: str, default: str) -> str:
+        if label == "GitHub username for review requests":
+            return default
+        return await accept_default(label, default)
+
+    settings = await startup_settings(target, directory=tmp_path, ask=ask)
+    assert set(settings.repos) == {"acme/api"}
+    assert settings.repos["acme/api"].enabled is False
+    assert settings.repos["acme/api"].path == tmp_path
+    assert target.read_text().count("[repos.") == 1

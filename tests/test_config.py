@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from diffbutler.config.editor import SECTIONS
 from diffbutler.config.settings import ConfigError, Forge, Settings, config_path, load_settings
 
 
@@ -74,27 +75,33 @@ def test_precedence_and_partial_nested_merge(
 poll_interval_s = 240
 max_concurrent_reviews = 3
 [review]
-checkout = "worktree"
+default_reviewer = "codex"
 min_confidence = 0.7
+[[reviewers]]
+id = "codex"
+command = ["codex"]
+[[reviewers]]
+id = "claude"
+command = ["claude"]
 [repos."acme/api"]
-checkout = "mediated"
+default_reviewer = "claude"
 path = "sources"
 """)
-    assert load_settings(path).review.checkout == "worktree"
-    assert load_settings(path, repo="acme/api").review.checkout == "mediated"
-    monkeypatch.setenv("DIFFBUTLER_REVIEW__CHECKOUT", "worktree")
+    assert load_settings(path).review.default_reviewer == "codex"
+    assert load_settings(path, repo="acme/api").review.default_reviewer == "claude"
+    monkeypatch.setenv("DIFFBUTLER_REVIEW__DEFAULT_REVIEWER", "codex")
     monkeypatch.setenv("DIFFBUTLER_GENERAL__POLL_INTERVAL_S", "300")
     settings = load_settings(path, repo="acme/api")
-    assert settings.review.checkout == "worktree"
+    assert settings.review.default_reviewer == "codex"
     assert settings.general.poll_interval_s == 300
     assert settings.general.max_concurrent_reviews == 3
     assert settings.review.min_confidence == 0.7
     assert settings.repos["acme/api"].path == tmp_path / "sources"
     assert (
         load_settings(
-            path, repo="acme/api", overrides={"review": {"checkout": "mediated"}}
-        ).review.checkout
-        == "mediated"
+            path, repo="acme/api", overrides={"review": {"default_reviewer": "claude"}}
+        ).review.default_reviewer
+        == "claude"
     )
 
 
@@ -146,7 +153,6 @@ def test_documented_config_example_parses(tmp_path: Path) -> None:
     path = tmp_path / "example.toml"
     path.write_text(example)
     settings = load_settings(path, repo="acme/api")
-    assert settings.review.checkout == "mediated"
     assert settings.repos["acme/api"].enabled is False
 
 
@@ -171,3 +177,43 @@ def test_legacy_byte_limits_load_without_affecting_serialized_settings(tmp_path:
     settings = load_settings(path)
     assert "max_diff_bytes" not in settings.review.model_dump()
     assert "max_output_bytes" not in settings.reviewers[0].model_dump()
+
+
+@pytest.mark.parametrize("table", ["[review]", '[repos."acme/api"]'])
+def test_unimplemented_mediated_checkout_is_rejected(tmp_path: Path, table: str) -> None:
+    # Ignoring it would send the full, unredacted checkout the user tried to withhold.
+    path = tmp_path / "config.toml"
+    path.write_text(f'{table}\ncheckout = "mediated"\n')
+    with pytest.raises(ConfigError, match="mediated source preparation is not supported"):
+        load_settings(path, repo="acme/api")
+
+
+def test_legacy_source_settings_load_but_are_hidden_and_ignored(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[review]\ncheckout = "worktree"\nexclude_globs = ["secret/**"]\n'
+        '[repos."acme/api"]\ncheckout = "worktree"\n'
+    )
+    settings = load_settings(path, repo="acme/api")
+    assert {"checkout", "exclude_globs"}.isdisjoint(settings.review.model_dump())
+    assert "checkout" not in settings.repos["acme/api"].model_dump()
+    labels = {spec.label for section in SECTIONS for spec in section.fields}
+    assert {"exclude_globs", "checkout"}.isdisjoint(labels)
+
+
+def test_repository_keys_are_case_insensitive_and_fail_closed(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[repos."Acme/API"]\nenabled = false\npath = "checkout"\ndefault_reviewer = "codex"\n'
+        '[repos."acme/api"]\ngit_transport = "ssh"\n'
+        '[[reviewers]]\nid = "codex"\ncommand = ["codex"]\n'
+    )
+    settings = load_settings(path, repo="acme/api")
+    assert set(settings.repos) == {"acme/api"}
+    repository = settings.repos["acme/api"]
+    assert repository.enabled is False and repository.git_transport == "ssh"
+    assert repository.path == tmp_path / "checkout"
+    assert settings.review.default_reviewer == "codex"
+    path.write_text('[repos."acme/api"]\npath = "a"\n[repos."ACME/api"]\npath = "b"\n')
+    with pytest.raises(ConfigError, match="conflict on path"):
+        load_settings(path)

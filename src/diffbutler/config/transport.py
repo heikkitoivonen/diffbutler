@@ -8,7 +8,7 @@ import tomlkit
 from tomlkit.exceptions import TOMLKitError
 
 from diffbutler.config.file import config_lock, publish_config
-from diffbutler.config.settings import ConfigError
+from diffbutler.config.settings import ConfigError, repository_keys
 
 
 def save_git_transport(
@@ -31,16 +31,27 @@ def save_git_transport(
             if not isinstance(repos, MutableMapping):
                 raise ConfigError("Could not save Git transport: repos must be a table")
             repos = cast(MutableMapping[str, Any], repos)
-            if repository not in repos:
-                repos[repository] = tomlkit.table()
-            entry = repos[repository]
-            if not isinstance(entry, MutableMapping):
-                raise ConfigError("Could not save Git transport: repository must be a table")
-            entry = cast(MutableMapping[str, Any], entry)
-            current = entry.get("git_transport", "auto")
+            keys = repository_keys(repos, repository) or [repository.lower()]
+            entries: list[MutableMapping[str, Any]] = []
+            for key in keys:
+                entry = repos.setdefault(key, tomlkit.table())
+                if not isinstance(entry, MutableMapping):
+                    raise ConfigError("Could not save Git transport: repository must be a table")
+                entries.append(cast(MutableMapping[str, Any], entry))
+            # Case variants of one repository must stay consistent; the lowercase key
+            # wins when they disagree, matching how settings merge them.
+            explicit = [
+                (key, entry) for key, entry in zip(keys, entries, strict=True)
+                if "git_transport" in entry
+            ]  # fmt: skip
+            current = next(
+                (entry["git_transport"] for key, entry in explicit if key == repository.lower()),
+                explicit[0][1]["git_transport"] if explicit else "auto",
+            )
             if current != expected or current == transport:
                 return
-            entry["git_transport"] = transport
+            for entry in [entry for _, entry in explicit] or entries[:1]:
+                entry["git_transport"] = transport
             if not publish_config(selected, original, tomlkit.dumps(document)):
                 raise ConfigError("Configuration changed while saving Git transport")
     except OSError, UnicodeError, TOMLKitError:

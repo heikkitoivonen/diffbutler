@@ -8,7 +8,14 @@ import tomlkit
 from tomlkit.exceptions import TOMLKitError
 
 from diffbutler.config.file import publish_config
-from diffbutler.config.settings import NATIVE_PRESETS, ConfigError, Forge, Reviewer, config_path
+from diffbutler.config.settings import (
+    NATIVE_PRESETS,
+    ConfigError,
+    Forge,
+    Reviewer,
+    config_path,
+    repository_keys,
+)
 
 
 def save_setup(
@@ -48,12 +55,11 @@ def save_setup(
             if not isinstance(repos, MutableMapping):
                 raise ConfigError("Use a [repos] table to save local repository paths")
             repos = cast(MutableMapping[str, Any], repos)
-            if repository not in repos:
-                repos[repository] = {"path": str(repository_path)}
-            else:
-                entry = cast(MutableMapping[str, Any], repos[repository])
-                if "path" not in entry:
-                    entry["path"] = str(repository_path)
+            keys = repository_keys(repos, repository)
+            if not keys:
+                repos[repository.lower()] = {"path": str(repository_path)}
+            elif not any("path" in cast(MutableMapping[str, Any], repos[key]) for key in keys):
+                cast(MutableMapping[str, Any], repos[keys[0]])["path"] = str(repository_path)
         content = tomlkit.dumps(document)
         if original is None:
             for preset in NATIVE_PRESETS:

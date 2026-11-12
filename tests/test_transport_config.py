@@ -59,3 +59,24 @@ def test_invalid_configuration_is_preserved(tmp_path: Path) -> None:
     path.write_text('[repos."acme/api"]\ngit_transport = "ftp"\n')
     with pytest.raises(ConfigError, match="git_transport"):
         load_settings(path)
+
+
+def test_transport_reuses_a_repository_key_written_in_another_case(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[repos."Acme/API"]\nenabled = false\n')
+    save_git_transport(path, "acme/api", "ssh", expected="auto")
+    assert path.read_text() == '[repos."Acme/API"]\nenabled = false\ngit_transport = "ssh"\n'
+    repository = load_settings(path).repos["acme/api"]
+    assert repository.enabled is False and repository.git_transport == "ssh"
+
+
+def test_transport_keeps_case_variant_entries_consistent(tmp_path: Path) -> None:
+    # Earlier releases wrote the lowercase key beside a user's mixed-case table.
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[repos."Acme/API"]\ngit_transport = "https"\n[repos."acme/api"]\ngit_transport = "ssh"\n'
+    )
+    assert load_settings(path).repos["acme/api"].git_transport == "ssh"
+    save_git_transport(path, "acme/api", "https", expected="ssh")
+    assert load_settings(path).repos["acme/api"].git_transport == "https"
+    assert path.read_text().count('git_transport = "https"') == 2

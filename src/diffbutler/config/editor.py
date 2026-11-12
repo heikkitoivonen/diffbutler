@@ -58,10 +58,7 @@ HELP: dict[str, str] = {
     "review.default_reviewer": "Reviewer ID used when none is chosen; must name a reviewer.",
     "review.findings_threshold": "Lowest severity shown as a finding.",
     "review.min_confidence": "Lowest reviewer confidence (0 to 1) shown as a finding.",
-    "review.exclude_globs": "Paths left out of reviews; space-separated, shell-style quoting. "
-    "Enter [] to exclude nothing.",
     "review.mode": "Background reviews only read source.",
-    "review.checkout": "How sources are prepared for review.",
     "review.prompt": "Optional file with extra review instructions.",
     "forges.kind": "Forge type; only GitHub is implemented.",
     "forges.base_url": "API URL, for example https://api.github.com.",
@@ -97,7 +94,6 @@ HELP: dict[str, str] = {
     "repos.path": "Local checkout used as a source for this repository.",
     "repos.default_reviewer": "Reviewer ID for this repository; overrides the review default.",
     "repos.prompt": "Review instructions file for this repository.",
-    "repos.checkout": "Source preparation for this repository; empty uses the review default.",
     "repos.git_transport": "Preferred Git transport; a successful fetch remembers it.",
     "keys.keys": "Keys for this dashboard action, space-separated, for example: o ctrl+o.",
 }

@@ -14,6 +14,7 @@ from tests.test_review_results import captured
 from tests.test_sources import git
 from tests.test_sync import ACCOUNT, REF
 
+from diffbutler.config.settings import Settings
 from diffbutler.core.managed import (
     ManagedReviews,
     owned_directories,
@@ -24,7 +25,7 @@ from diffbutler.core.native import NativeExecution
 from diffbutler.core.review import ReviewService
 from diffbutler.core.sync import DiffButler
 from diffbutler.domain.lifecycle import CleanupStatus
-from diffbutler.domain.review import RunRecord, RunStatus
+from diffbutler.domain.review import ReviewConflict, RunRecord, RunStatus
 from diffbutler.domain.sync import RequestEvent, ReviewActivity
 from diffbutler.reviewers.base import ReviewContext, ReviewOutput
 from diffbutler.store.database import Database
@@ -395,4 +396,24 @@ async def test_cancelling_target_fetch_does_not_wait_for_network(tmp_path: Path)
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        await database.close()
+
+
+@pytest.mark.parametrize("key", ["Acme/API", "acme/API"])
+async def test_mixed_case_repository_opt_out_refuses_review(tmp_path: Path, key: str) -> None:
+    settings, forge = await prepared(tmp_path)
+    document = settings.model_dump(mode="json")
+    document["repos"] = {key: {**document["repos"]["acme/api"], "enabled": False}}
+    settings = Settings.model_validate(document)
+    assert set(settings.repos) == {"acme/api"}
+    database = Database(settings.db.url)
+    await database.initialize()
+    try:
+        queue = SQLiteQueueStore(database)
+        await DiffButler(queue, forge).sync()
+        managed = ManagedReviews(database, settings, await owned_directories(settings))
+        row = await resolve_local(queue, "acme/api#1", None)
+        with pytest.raises(ReviewConflict, match="disabled by review policy"):
+            await managed.review(row)
+    finally:
         await database.close()

@@ -128,7 +128,7 @@ def test_map_entries_can_be_renamed_added_removed_and_edited(tmp_path: Path) -> 
     draft = editor.draft()
     repos = draft.entries["repos"]
     repos[0].name = "acme/web"
-    repos[0].values["checkout"] = "mediated"
+    repos[0].values["prompt"] = "notes.md"
     del repos[1]
     repos.append(Entry({"enabled": None, "git_transport": "ssh"}, name="acme/new"))
     keys = draft.entries["keys"]
@@ -140,7 +140,7 @@ def test_map_entries_can_be_renamed_added_removed_and_edited(tmp_path: Path) -> 
     assert "# local checkout" in content
     settings = load_settings(path)
     assert set(settings.repos) == {"acme/web", "acme/new"}
-    assert settings.repos["acme/web"].checkout == "mediated"
+    assert settings.repos["acme/web"].prompt == tmp_path / "notes.md"
     assert str(settings.repos["acme/web"].path).endswith("src/api")
     assert settings.repos["acme/new"].git_transport == "ssh"
     assert settings.keys == {"open_in_browser": ["o", "ctrl+o"], "settings": ["comma"]}
@@ -271,10 +271,10 @@ def test_environment_overrides_are_detected_for_fields_and_parents() -> None:
 @pytest.mark.parametrize(
     ("section", "label", "text", "value"),
     [
-        ("review", "exclude_globs", "[]", []),
+        ("forges", "repositories", "[]", []),
         ("general", "poll_interval_s", " 90 ", 90),
         ("review", "min_confidence", "0.25", 0.25),
-        ("review", "exclude_globs", "'**/a b/**' *.lock", ["**/a b/**", "*.lock"]),
+        ("ui", "browser_command", "'my browser' --new-tab", ["my browser", "--new-tab"]),
         ("review", "prompt", "~/notes.md", "~/notes.md"),
         ("general", "snapshot_root", "  ", None),
     ],
@@ -296,7 +296,7 @@ def test_text_value_errors_name_the_setting(label: str, text: str, message: str 
     else:
         with pytest.raises(ConfigError, match=f"{label}: enter a {message}"):
             parse_value(spec, text)
-    words = next(spec for spec in SECTION["review"].fields if spec.label == "exclude_globs")
+    words = next(spec for spec in SECTION["ui"].fields if spec.label == "columns")
     with pytest.raises(ConfigError, match="matching quotes"):
         parse_value(words, "'unterminated")
 
@@ -321,13 +321,16 @@ def test_entries_added_to_inline_collections_stay_valid_toml(tmp_path: Path) -> 
 
 
 def test_empty_list_is_saved_instead_of_restoring_the_default(tmp_path: Path) -> None:
-    path = write(tmp_path, "")
+    path = write(
+        tmp_path,
+        '[[forges]]\nkind = "github"\nbase_url = "https://x"\nlogin = "a"\n'
+        'repositories = ["acme/api"]\n',
+    )
     editor = ConfigEditor.open(path)
     draft = editor.draft()
-    spec = next(spec for spec in SECTION["review"].fields if spec.label == "exclude_globs")
-    draft.tables["review"]["exclude_globs"] = parse_value(spec, "[]")
+    spec = next(spec for spec in SECTION["forges"].fields if spec.label == "repositories")
+    draft.entries["forges"][0].values["repositories"] = parse_value(spec, "[]")
     assert editor.save(draft)
-    assert load_settings(path).review.exclude_globs == []
-    assert (
-        format_value(spec, ConfigEditor.open(path).base.tables["review"]["exclude_globs"]) == "[]"
-    )
+    assert load_settings(path).forges[0].repositories == []
+    saved = ConfigEditor.open(path).base.entries["forges"][0].values["repositories"]
+    assert format_value(spec, saved) == "[]"
