@@ -1,6 +1,6 @@
 # Contributing to DiffButler
 
-DiffButler is in alpha development. Read the [README](README.md) and relevant guides in
+DiffButler is in beta development. Read the [README](README.md) and relevant guides in
 [docs/](docs/) before changing the workflow or architecture. Discuss larger changes
 in an issue before implementing them.
 

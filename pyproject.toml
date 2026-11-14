@@ -1,6 +1,6 @@
 [project]
 name = "diffbutler"
-version = "0.6.1"
+version = "0.7.0"
 description = "A terminal dashboard for human-directed AI code reviews."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -8,7 +8,7 @@ license = "MIT"
 license-files = ["LICENSE.txt"]
 keywords = ["code-review", "github", "terminal", "ai"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3 :: Only",
