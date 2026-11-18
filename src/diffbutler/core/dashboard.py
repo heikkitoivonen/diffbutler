@@ -14,7 +14,7 @@ from diffbutler.core.polling import PartialRefresh
 from diffbutler.core.polling import Poller as Poller
 from diffbutler.core.review import ReviewResult, ReviewService
 from diffbutler.core.sync import PullRequestRow, list_queue
-from diffbutler.domain.dashboard import COLUMN_IDS, STATE_LABELS, CycleRecord
+from diffbutler.domain.dashboard import COLUMN_IDS, STATE_LABELS, STATE_SORT_ORDER, CycleRecord
 from diffbutler.domain.review import ReviewConflict, ReviewPolicy
 from diffbutler.forges.base import LASTING_INCOMPLETENESS, ForgeError
 from diffbutler.store.base import ReviewStore
@@ -149,10 +149,14 @@ def sort_rows(rows: tuple[DashboardRow, ...], sort: SortSpec) -> tuple[Dashboard
     present = [row for row in rows if column_value(row, sort.column) is not None]
     missing = [row for row in rows if column_value(row, sort.column) is None]
 
-    def key(row: DashboardRow) -> str | int | float:
+    def key(row: DashboardRow) -> tuple[int, str | int | float]:
         value = column_value(row, sort.column)
         assert value is not None
-        return value
+        if sort.column == "state":
+            # Unrecognized labels rank below known ones, then alphabetically.
+            rank = STATE_SORT_ORDER.index(value) if value in STATE_SORT_ORDER else -1
+            return rank, value
+        return 0, value
 
     ordered = sorted(present, key=key, reverse=sort.descending) + missing
     # Keep post-approval changes last regardless of sort column or direction.

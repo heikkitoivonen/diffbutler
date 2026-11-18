@@ -35,7 +35,7 @@ from diffbutler.core.dashboard import (
     sort_rows,
 )
 from diffbutler.core.sync import DiffButler, PullRequestRow
-from diffbutler.domain.dashboard import COLUMN_IDS
+from diffbutler.domain.dashboard import COLUMN_IDS, STATE_LABELS, STATE_SORT_ORDER
 from diffbutler.domain.forge import Discovery, RequestedPR
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.domain.sync import (
@@ -1264,6 +1264,22 @@ async def test_review_configuration_failure_is_visible_and_logged(
         assert type(error).__name__ in content and "in fail" in content
     finally:
         stop_logging()
+
+
+def test_state_sort_lists_approve_above_author_by_default() -> None:
+    assert set(STATE_LABELS.values()) == set(STATE_SORT_ORDER)
+    states = [state for state in STATE_LABELS if state != "DONE_PLUS"] + ["ZETA", "ALPHA"]
+    rows = tuple(
+        DashboardRow(row=PullRequestRow(account=ACCOUNT, tracked=TrackedPR(PR, state=state)))
+        for state in states
+    )
+
+    def labels(spec: SortSpec) -> list[str | int | float | None]:
+        return [column_value(row, "state") for row in sort_rows(rows, spec)]
+
+    expected = ["running", "queued", "pending", "done", "check", "approve", "author"]
+    assert labels(SortSpec()) == [*expected, "ZETA", "ALPHA"]
+    assert labels(SortSpec(descending=False)) == ["ALPHA", "ZETA", *reversed(expected)]
 
 
 @pytest.mark.parametrize("column", COLUMN_IDS)

@@ -62,6 +62,8 @@ State labels are `pending` (awaiting AI review), `queued`, `running`, `approve`
 changes), `done` (completed cycle), and `done+` (new commits after your approval).
 The `approve` and `check` labels indicate the next human step; they do not trigger
 publication or approval.
+The default state sort lists `running`, `queued`, `pending`, `done`, `check`, `approve`,
+then `author`; `S` reverses it. `done+` rows sort last, as described below.
 A trailing `-` marks a pending forge refresh (for example, `check -`).
 
 Keyboard actions acknowledge work immediately and perform I/O in background workers,

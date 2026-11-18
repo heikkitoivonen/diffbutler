@@ -61,3 +61,6 @@ STATE_LABELS = {
     "DONE": "done",
     "DONE_PLUS": "done+",
 }
+
+# Ascending order of state labels; the default descending sort lists them in reverse.
+STATE_SORT_ORDER = ("author", "approve", "check", "done", "done+", "pending", "queued", "running")
