@@ -490,6 +490,18 @@ def open_pr(pr: str, config: ConfigOption = None, login: str | None = None) -> N
 
 
 @app.command()
+def stats(config: ConfigOption = None, login: str | None = None) -> None:
+    """Show review statistics from locally observed activity; makes no forge requests."""
+    from diffbutler.core.dashboard import statistics_configured
+    from diffbutler.ui.statistics import format_statistics
+
+    stats = run(statistics_configured(config, login))
+    if login is not None and not stats:
+        raise typer.BadParameter(f"No stored forge account has login {login!r}")
+    typer.echo(format_statistics(stats))
+
+
+@app.command()
 def history(
     config: ConfigOption = None,
     repo: str | None = None,

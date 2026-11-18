@@ -1,13 +1,15 @@
 """Atomic local actions and offline history projections."""
 
-from datetime import UTC
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from diffbutler.domain.dashboard import CycleRecord
 from diffbutler.domain.forge import Account
 from diffbutler.domain.review import ReviewConflict
+from diffbutler.domain.stats import PRActivity
+from diffbutler.domain.sync import CommentEvent, ReviewEvent
 from diffbutler.store.database import Database
 from diffbutler.store.models import (
     AIRun,
@@ -15,6 +17,8 @@ from diffbutler.store.models import (
     ForgeAccount,
     ObservedActivity,
     PRMonitor,
+    PullRequest,
+    Repository,
     ReviewSession,
     ReviewTask,
     UIPreference,
@@ -198,6 +202,46 @@ class SQLiteDashboardStore:
                         runs,
                         sessions,
                         receipts,
+                    )
+                )
+            return tuple(result)
+
+    async def review_activity(
+        self,
+    ) -> tuple[tuple[Account, datetime | None, tuple[PRActivity, ...]], ...]:
+        """Each account's tracking start and its retained activity, grouped by PR."""
+        async with self.database.sessions() as db:
+            await db.execute(text("BEGIN"))
+            result: list[tuple[Account, datetime | None, tuple[PRActivity, ...]]] = []
+            identities = await db.scalars(
+                select(ForgeAccount).order_by(ForgeAccount.forge, ForgeAccount.login)
+            )
+            for identity in identities:
+                since = await db.scalar(
+                    select(func.min(ReviewTask.first_seen_at)).where(
+                        ReviewTask.account_id == identity.account_id
+                    )
+                )
+                rows = await db.execute(
+                    select(ObservedActivity.payload_json, PullRequest, Repository)
+                    .join(PullRequest, ObservedActivity.pull_request_id == PullRequest.id)
+                    .join(Repository, PullRequest.repository_id == Repository.id)
+                    .where(ObservedActivity.account_id == identity.account_id)
+                    .order_by(PullRequest.id, ObservedActivity.event_id)
+                )
+                grouped: dict[str, tuple[str, list[ReviewEvent | CommentEvent]]] = {}
+                for payload, pr, repo in rows:
+                    key = f"{repo.forge}:{repo.namespace}/{repo.name}#{pr.number}"
+                    events = grouped.setdefault(key, (pr.author, []))[1]
+                    events.append(EVENT_ADAPTER.validate_json(payload))
+                result.append(
+                    (
+                        Account(identity.forge, identity.login, identity.login),
+                        since.replace(tzinfo=UTC) if since else None,
+                        tuple(
+                            PRActivity(key, author, tuple(events))
+                            for key, (author, events) in grouped.items()
+                        ),
                     )
                 )
             return tuple(result)

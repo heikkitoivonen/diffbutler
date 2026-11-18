@@ -116,6 +116,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `D` | Inspect the last run's pinned diff from the configured local repository |
 | `L` | Inspect captured run output, or its deleted/unavailable indication |
 | `h` | Toggle offline completed-cycle history |
+| `t` | Show review statistics from locally observed activity |
 | `C` | Retry due cleanup jobs, respecting persisted backoff |
 | `A` | Toggle monitoring all open PRs in configured repositories; saved across restarts |
 | `b` | Search accessible open PRs; select one with Enter to follow it |
@@ -322,6 +323,7 @@ diffbutler waiting 'acme/api#1841'
 diffbutler history --repo acme/api --number 1841
 diffbutler history --reason local_approval --since 2026-09-01 --json
 diffbutler history --task CYCLE_UUID
+diffbutler stats
 ```
 
 History reads SQLite without forge credentials or native tools. Each completed cycle
@@ -340,6 +342,29 @@ Migration `0009` adds cycle snapshots, refresh status, forge receipts and UI pre
 The existing database upgrade/backup rules apply. Sort and AI-dispatch pause survive restart.
 All configured column IDs are validated and sortable; unavailable numeric metadata sorts
 last. CI currently displays `unknown` because status/check hydration is not implemented.
+
+## Review statistics
+
+Press `t`, or run `diffbutler stats` (optionally with `--login`), for statistics over the
+last 365, 30, and 7 days. They read only the local database and make no forge requests.
+Each account is shown separately:
+
+- **PRs commented on**: PRs where you submitted a comment or changes-requested review,
+  or wrote a comment. Inline comments count only once their review is submitted.
+- **PRs approved** and **Reviews submitted**: your approvals and all your submitted reviews.
+  GitHub keeps no original type for a dismissed review, so it counts as a submitted review
+  and a round, but neither as commenting nor as an approval.
+- **Review rounds**: each distinct PR commit you reviewed is one round, so several reviews
+  of the same commit count once. **Average rounds per PR** uses rounds in the period;
+  **rounds to approval** counts every round up to your first approval in the period,
+  including earlier ones.
+- **By PR author**: PRs reviewed, reviews, approvals, and average rounds to approval for
+  each author, with the author you review most and the one needing the most rounds.
+
+Statistics cover only PRs that DiffButler tracked, and only activity it observed while
+refreshing them. Your own PRs are excluded. A period starts no earlier than the first PR
+DiffButler tracked for that account, so **Days covered** can be shorter than the period;
+per-day averages divide by the days covered, at least one.
 
 ## Evidence and remaining scope
 

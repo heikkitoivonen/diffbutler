@@ -16,6 +16,7 @@ from diffbutler.core.review import ReviewResult, ReviewService
 from diffbutler.core.sync import PullRequestRow, list_queue
 from diffbutler.domain.dashboard import COLUMN_IDS, STATE_LABELS, STATE_SORT_ORDER, CycleRecord
 from diffbutler.domain.review import ReviewConflict, ReviewPolicy
+from diffbutler.domain.stats import AccountStats, review_statistics
 from diffbutler.forges.base import LASTING_INCOMPLETENESS, ForgeError
 from diffbutler.store.base import ReviewStore
 from diffbutler.store.dashboard import SQLiteDashboardStore
@@ -250,6 +251,20 @@ async def dashboard_rows(
             )
 
         return tuple(row.model_copy(update={"attention": attention(row)}) for row in result)
+
+
+async def statistics_configured(
+    path: Path | None, login: str | None = None, now: datetime | None = None
+) -> tuple[AccountStats, ...]:
+    """Summarize locally observed reviews offline, without forge requests."""
+    async with local_store(path) as (queue, _):
+        accounts = await SQLiteDashboardStore(queue.database).review_activity()
+    moment = now or datetime.now(UTC)
+    return tuple(
+        review_statistics(account, prs, moment, since)
+        for account, since, prs in accounts
+        if login is None or account.login.casefold() == login.casefold()
+    )
 
 
 async def history_configured(path: Path | None, filters: HistoryFilter) -> tuple[CycleRecord, ...]:

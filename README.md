@@ -123,6 +123,7 @@ and read-only review instructions; source sent to the agent may go to its model 
 - `k`: Stop the selected PR's review and reset its local tracking and owned resources.
   It disappears until a forge refresh rediscovers it; review history is retained.
 - `h`: View completed review history.
+- `t`: View review statistics for the last 365, 30, and 7 days.
 - `,`: Edit settings; saved changes apply without restarting.
 - `?`: Show all keyboard shortcuts.
 - `q`: Quit.

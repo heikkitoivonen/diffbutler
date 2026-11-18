@@ -39,6 +39,7 @@ from diffbutler.core.dashboard import (
     save_sort_configured,
     sort_rows,
     state_configured,
+    statistics_configured,
     toggle_monitoring_configured,
 )
 from diffbutler.core.managed import (
@@ -56,6 +57,7 @@ from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
 from diffbutler.reviewers.process import HostBootError
 from diffbutler.sources.git import SourceError
+from diffbutler.ui.statistics import format_statistics
 from diffbutler.ui.tui.app import TerminalApp
 from diffbutler.ui.tui.browse import BrowseScreen
 from diffbutler.ui.tui.browser import open_browser
@@ -238,6 +240,7 @@ class Dashboard(TerminalApp):
         ("m", "mark_approved", "Mark approved"),
         ("k", "reset_pr", "Reset PR"),
         ("h", "view_history", "History"),
+        ("t", "statistics", "Statistics"),
         ("b", "browse_prs", "Browse all PRs"),
         ("A", "toggle_monitoring", "Monitor all PRs"),
         ("ctrl+r", "refresh", "Refresh"),
@@ -918,6 +921,13 @@ class Dashboard(TerminalApp):
             else:
                 self.action_open_in_browser()
 
+    def action_statistics(self) -> None:
+        async def show() -> None:
+            stats = await statistics_configured(self.path)
+            self.push_screen(DetailScreen(format_statistics(stats)))
+
+        self.start(show(), message="Loading statistics…")
+
     def action_open_detail(self) -> None:
         key = self.selected_key()
         if key:
@@ -1087,6 +1097,7 @@ class Dashboard(TerminalApp):
                 "On check+ (merged with findings), c resumes and m completes it as merged.\n"
                 "A toggles monitoring all open PRs in configured repositories.\n"
                 "h browses offline history. C retries due cleanup.\n"
+                "t shows review statistics from locally observed activity.\n"
                 "Ctrl+R refreshes forge evidence.\n"
                 "R asks for a PR link or number to review, then a repository if ambiguous.\n"
                 "s cycles sort columns; S reverses; 1-9 or a column header selects a sort.\n"
