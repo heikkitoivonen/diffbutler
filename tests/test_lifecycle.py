@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 from tests.test_review_claims import seed, service
+from tests.test_review_parsing import finding
 from tests.test_review_results import captured
 from tests.test_sync import ACCOUNT, PR, REF
 
@@ -31,6 +32,7 @@ from diffbutler.store.models import (
     utc_now,
 )
 from diffbutler.store.queue import SQLiteQueueStore
+from diffbutler.store.review import SQLiteReviewStore
 
 pytestmark = pytest.mark.asyncio
 
@@ -103,6 +105,48 @@ async def test_foreground_survives_restart_blocks_background_and_defers_cleanup(
             await restored.release_foreground(lease.token)
     finally:
         await reopened.close()
+
+
+@pytest.mark.parametrize("finish", ["m", "k"])
+async def test_merged_findings_stay_active_until_finished(database: Database, finish: str) -> None:
+    forge, identity = await seed(database)
+    reviews = service(database)
+    run = await reviews.request_review(identity)
+    claim = await reviews.claim_review(run.id)
+    assert claim is not None
+    await reviews.finalize_review(claim.token, captured(finding()))
+    queue = SQLiteQueueStore(database)
+    assert (await queue.snapshot(ACCOUNT)).items[0].state == "FINDINGS_TRIAGE"
+    lifecycle = LifecycleService(SQLiteLifecycleStore(database), Cleaner())
+    forge.prs[REF] = replace(PR, state="merged")
+    for _ in range(2):
+        await DiffButler(queue, forge).sync()
+        item = (await queue.snapshot(ACCOUNT)).items[0]
+        assert item.state == "FINDINGS_TRIAGE_MERGED" and item.task_id == identity.task_id
+        assert not await lifecycle.cleanup_once()
+
+    # Merged PRs cannot be approved, wait for the author, or start another review.
+    with pytest.raises(ReviewConflict, match="open"):
+        await SQLiteDashboardStore(database).choose_state(identity.task_id, waiting=True)
+    with pytest.raises(ReviewConflict, match="open"):
+        await reviews.request_review(replace(identity, reviewer_id="other"))
+    lease = await lifecycle.acquire_foreground(run.session_id)
+    await lifecycle.release_foreground(lease.token)
+
+    if finish == "m":
+        await SQLiteReviewStore(database).mark_approved(identity.task_id)
+    else:
+        await SQLiteDashboardStore(database).reset_task(identity.task_id)
+    async with database.sessions() as db:
+        task = await db.get(ReviewTask, identity.task_id)
+        assert task is not None and task.completed_at is not None and task.state == "DONE"
+        assert task.completion_reason == ("merged" if finish == "m" else "local_reset")
+        assert task.approved_sha is None
+    items = (await queue.snapshot(ACCOUNT)).items
+    assert [item.state for item in items] == (["DONE"] if finish == "m" else [])
+    assert await lifecycle.cleanup_once()
+    result = await reviews.get_result(run.id)
+    assert result is not None and result.document is not None
 
 
 async def test_completion_preserves_worker_claim_until_exit_before_cleanup(

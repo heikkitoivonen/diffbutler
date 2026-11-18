@@ -90,7 +90,9 @@ class SQLiteReviewStore:
         connection = await db.connection()
         await connection.exec_driver_sql("BEGIN IMMEDIATE")
 
-    async def _task(self, db: AsyncSession, task_id: UUID) -> tuple[ReviewTask, PRMonitor]:
+    async def _task(
+        self, db: AsyncSession, task_id: UUID, *, allow_merged_findings: bool = False
+    ) -> tuple[ReviewTask, PRMonitor]:
         task = await db.get(ReviewTask, task_id)
         if task is None or task.completed_at is not None:
             raise ReviewConflict("Review task is missing or completed")
@@ -98,7 +100,10 @@ class SQLiteReviewStore:
         if (
             monitor is None
             or monitor.task_id != task.id
-            or monitor.snapshot_json["state"] != "open"
+            or (
+                monitor.snapshot_json["state"] != "open"
+                and not (allow_merged_findings and task.state == "FINDINGS_TRIAGE_MERGED")
+            )
         ):
             raise ReviewConflict("Review task is no longer current and open")
         return task, monitor
@@ -131,13 +136,14 @@ class SQLiteReviewStore:
     async def mark_approved(self, task_id: UUID) -> None:
         async with self.database.sessions() as db:
             await self._begin(db)
-            task, monitor = await self._task(db, task_id)
+            task, monitor = await self._task(db, task_id, allow_merged_findings=True)
+            merged = task.state == "FINDINGS_TRIAGE_MERGED"
             await transition(db, task, "DONE")
             task.completed_at = utc_now()
-            task.completion_reason = "local_approval"
+            task.completion_reason = "merged" if merged else "local_approval"
             task.completion_source = "local"
             task.completed_head_sha = str(monitor.snapshot_json["head_sha"])
-            task.approved_sha = task.completed_head_sha
+            task.approved_sha = None if merged else task.completed_head_sha
             task.completion_event_watermark = monitor.review_key
             runs = await db.scalars(
                 select(AIRun).where(

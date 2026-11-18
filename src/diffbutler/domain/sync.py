@@ -226,7 +226,11 @@ def reconcile(
         and (previous is None or decisive.key > previous.review_key)
         and (request is None or decisive.created_at > request.created_at)
     )
-    if result.state != "DONE" and (pr.state != "open" or approval):
+    if pr.state == "merged" and result.state in {"FINDINGS_TRIAGE", "FINDINGS_TRIAGE_MERGED"}:
+        # Findings may still need follow-up work after a merge; keep the cycle active.
+        if result.state == "FINDINGS_TRIAGE":
+            result = replace(result, state="FINDINGS_TRIAGE_MERGED", notice="Merged with findings")
+    elif result.state != "DONE" and (pr.state != "open" or approval):
         result = replace(
             result,
             state="DONE",

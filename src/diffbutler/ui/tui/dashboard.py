@@ -544,6 +544,7 @@ class Dashboard(TerminalApp):
             else {
                 "PENDING_AI_REVIEW": "Start AI review",
                 "FINDINGS_TRIAGE": "Discuss findings",
+                "FINDINGS_TRIAGE_MERGED": "Discuss findings",
                 "PENDING_AUTHOR_CHANGES": "Discuss findings",
                 "QUEUED": "Review queued · Ctrl+C to cancel",
                 "AI_RUNNING": "Review running · Ctrl+C to cancel",
@@ -910,7 +911,7 @@ class Dashboard(TerminalApp):
             )
             if state == "PENDING_AI_REVIEW":
                 self.action_run_review()
-            elif state in {"FINDINGS_TRIAGE", "PENDING_AUTHOR_CHANGES"}:
+            elif state in {"FINDINGS_TRIAGE", "FINDINGS_TRIAGE_MERGED", "PENDING_AUTHOR_CHANGES"}:
                 self.action_resume_session()
             elif state in {"QUEUED", "AI_RUNNING"}:
                 self.status("Review in progress; Ctrl+C cancels the selected local run.")
@@ -1083,6 +1084,7 @@ class Dashboard(TerminalApp):
                 "a chooses ready to approve. w chooses waiting for author.\n"
                 "m records your completed approval locally and schedules cleanup.\n"
                 "It does not submit approval.\n"
+                "On check+ (merged with findings), c resumes and m completes it as merged.\n"
                 "A toggles monitoring all open PRs in configured repositories.\n"
                 "h browses offline history. C retries due cleanup.\n"
                 "Ctrl+R refreshes forge evidence.\n"

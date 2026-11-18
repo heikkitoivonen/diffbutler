@@ -97,7 +97,11 @@ class SQLiteLifecycleStore:
             if (
                 monitor is None
                 or monitor.task_id != task.id
-                or monitor.snapshot_json["state"] != "open"
+                # Findings on a merged PR can still be discussed in their session.
+                or (
+                    monitor.snapshot_json["state"] != "open"
+                    and task.state != "FINDINGS_TRIAGE_MERGED"
+                )
             ):
                 raise ReviewConflict("Session task is no longer current and open")
             if not session.backend_session_id:

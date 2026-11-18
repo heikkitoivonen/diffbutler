@@ -185,7 +185,7 @@ async def dashboard_rows(
             if (
                 not row.tracked.explicit_review
                 and view == "triage"
-                and row.tracked.state != "FINDINGS_TRIAGE"
+                and row.tracked.state not in {"FINDINGS_TRIAGE", "FINDINGS_TRIAGE_MERGED"}
             ):
                 continue
             if (
@@ -232,9 +232,11 @@ async def dashboard_rows(
                 "important": weights.important,
                 "minor": 10,
             }.get(row.max_severity, 0)
-            state = {"FINDINGS_TRIAGE": 50, "PENDING_HUMAN_REVIEW": 20}.get(
-                row.row.tracked.state, 0
-            )
+            state = {
+                "FINDINGS_TRIAGE": 50,
+                "FINDINGS_TRIAGE_MERGED": 50,
+                "PENDING_HUMAN_REVIEW": 20,
+            }.get(row.row.tracked.state, 0)
             if row.run_status == "failed":
                 state = 30
             age = max(0, (datetime.now(UTC) - pr.created_at).total_seconds() / 86400)

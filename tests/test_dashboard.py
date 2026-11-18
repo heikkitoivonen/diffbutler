@@ -399,6 +399,29 @@ def test_ambiguous_feedback_does_not_imply_waiting(event: ReviewEvent) -> None:
     assert result.state == "FINDINGS_TRIAGE"
 
 
+@pytest.mark.parametrize("pr_state", ["merged", "closed"])
+@pytest.mark.parametrize(
+    "state",
+    ["PENDING_AI_REVIEW", "PENDING_HUMAN_REVIEW", "PENDING_AUTHOR_CHANGES", "FINDINGS_TRIAGE"],
+)
+def test_only_merged_check_prs_stay_active_as_check_plus(state: str, pr_state: str) -> None:
+    old = TrackedPR(PR, state=state, activity=ReviewActivity(ACCOUNT))
+    ended = replace(PR, state=pr_state)
+    result = reconcile(old, ended, ReviewActivity(ACCOUNT), ())
+    if state != "FINDINGS_TRIAGE" or pr_state != "merged":
+        assert result.state == "DONE" and result.completion_reason == pr_state
+        return
+    assert result.state == "FINDINGS_TRIAGE_MERGED" and result.completion_reason is None
+    assert result.notice == "Merged with findings"
+    row = DashboardRow(row=PullRequestRow(account=ACCOUNT, tracked=result))
+    assert column_value(row, "state") == "check+"
+    again = reconcile(replace(result, notice=""), ended, ReviewActivity(ACCOUNT), ())
+    assert again.state == "FINDINGS_TRIAGE_MERGED" and again.notice == ""
+    # Posting feedback on the merged PR completes the cycle as merged.
+    posted = reconcile(result, ended, ReviewActivity(ACCOUNT, reviews=(feedback(),)), ())
+    assert posted.state == "DONE" and posted.completion_reason == "merged"
+
+
 def test_new_head_request_approval_and_incomplete_refresh_precedence() -> None:
     old = TrackedPR(PR, state="FINDINGS_TRIAGE", activity=ReviewActivity(ACCOUNT))
     event = feedback()
@@ -603,16 +626,26 @@ def test_all_columns_sort_stably_and_missing_findings_stay_last() -> None:
 
 @pytest.mark.serial
 @pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["PENDING_AUTHOR_CHANGES", "FINDINGS_TRIAGE_MERGED"])
 @pytest.mark.parametrize("action", ["space", "c", "button"])
 async def test_author_actions_resume_findings_without_changing_state(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
     monkeypatch: pytest.MonkeyPatch,
     action: str,
+    state: str,
 ) -> None:
     database, queue, _, path = ledger
-    tracked = (await queue.snapshot(ACCOUNT)).items[0]
+    snapshot = await queue.snapshot(ACCOUNT)
+    tracked = snapshot.items[0]
     assert tracked.task_id is not None
-    await SQLiteDashboardStore(database).choose_state(tracked.task_id, waiting=True)
+    if state == "PENDING_AUTHOR_CHANGES":
+        await SQLiteDashboardStore(database).choose_state(tracked.task_id, waiting=True)
+    else:
+        merged = replace(tracked, state=state, pull_request=replace(PR, state="merged"))
+        await queue.apply(ACCOUNT, snapshot.version, (merged,))
+        assert [row.row.tracked.task_id for row in await dashboard_rows(path, "triage")] == [
+            tracked.task_id
+        ]
     resumed: list[DashboardRow] = []
     opened: list[str] = []
 
@@ -636,7 +669,7 @@ async def test_author_actions_resume_findings_without_changing_state(
         )
         assert [row.row.tracked.task_id for row in resumed] == [tracked.task_id]
         assert not opened
-        assert (await queue.snapshot(ACCOUNT)).items[0].state == "PENDING_AUTHOR_CHANGES"
+        assert (await queue.snapshot(ACCOUNT)).items[0].state == state
         assert str(app.query_one(Button).label) == "Discuss findings"
 
 
@@ -1277,7 +1310,7 @@ def test_state_sort_lists_approve_above_author_by_default() -> None:
     def labels(spec: SortSpec) -> list[str | int | float | None]:
         return [column_value(row, "state") for row in sort_rows(rows, spec)]
 
-    expected = ["running", "queued", "pending", "done", "check", "approve", "author"]
+    expected = ["running", "queued", "pending", "done", "check+", "check", "approve", "author"]
     assert labels(SortSpec()) == [*expected, "ZETA", "ALPHA"]
     assert labels(SortSpec(descending=False)) == ["ALPHA", "ZETA", *reversed(expected)]
 

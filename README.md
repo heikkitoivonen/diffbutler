@@ -80,6 +80,8 @@ The dashboard shows active reviews, including followed PRs whose GitHub review
 requests have disappeared after you posted feedback. Waiting-for-author reviews
 stay visible across refreshes and restarts. If an approved PR receives new commits,
 it reappears as `done+` at the end of the queue without starting another AI review.
+If a PR is merged while it shows `check`, it stays on the board as `check+` so you can
+still work through the findings; press `m` when you are done with it.
 Polling spreads API quota evenly until it resets, leaving 10% in reserve: it slows
 when quota is scarce or refreshes are costly and speeds back up when quota recovers.
 
@@ -107,8 +109,8 @@ Select a PR with the arrow keys, then work through the review:
    while retaining review history.
 
 `Space` performs the selected PR's next action: start a review, discuss findings,
-or open the browser. For `check` and `author`, it resumes the saved agent conversation,
-just like `c`. An AI review never counts as your approval. Background analysis
+or open the browser. For `check`, `check+`, and `author`, it resumes the saved agent
+conversation, just like `c`. An AI review never counts as your approval. Background analysis
 uses the agent's [native permission controls](docs/native-reviews.md#native-permissions-and-authentication)
 and read-only review instructions; source sent to the agent may go to its model provider.
 
@@ -145,15 +147,17 @@ How a PR arrives:
 
 How its status changes:
 
-![State diagram: r queues a review, the worker runs it, and the result is approve or check; w, a, and m move a PR between author, approve, and done; Ctrl+C or a failed agent returns it to pending; GitHub commits, your submitted reviews, and closes or merges move it automatically; new commits after approval show done+.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-status.svg)
+![State diagram: r queues a review, the worker runs it, and the result is approve or check; w, a, and m move a PR between author, approve, and done; Ctrl+C or a failed agent returns it to pending; GitHub commits, your submitted reviews, and closes or merges move it automatically; new commits after approval show done+; a check PR that is merged shows check+, and m moves it to done.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-status.svg)
 
 `r`, `a`, `w`, and `m` work from any open status, not only along the arrows shown,
 though `r` refuses while a review is already queued or running. New commits on a
-`done+` PR keep it `done+` rather than returning it to `pending`.
+`done+` PR keep it `done+` rather than returning it to `pending`. On a merged `check+`
+PR, `c` resumes its conversation and `m` completes it as merged; `a`, `w`, and `r`
+refuse it.
 
 How it leaves:
 
-![Flow diagram: m, your approval, or a close or merge moves a PR to done and history; k removes it until a refresh finds it still requested or monitored; becoming an assignee hides it unless include_assigned_prs is set or it was selected with R.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-exit.svg)
+![Flow diagram: m, your approval, or a close or merge moves a PR to done and history, except that a merged check PR stays on the board as check+; k removes it until a refresh finds it still requested or monitored; becoming an assignee hides it unless include_assigned_prs is set or it was selected with R.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-exit.svg)
 
 A PR stays on the board when its review request is withdrawn; press `k` to remove it.
 A PR you only followed stays away after `k` until you follow it again.

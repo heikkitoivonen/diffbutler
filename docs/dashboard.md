@@ -58,12 +58,13 @@ columns = ["number", "title", "author", "state"]
 ```
 
 State labels are `pending` (awaiting AI review), `queued`, `running`, `approve`
-(awaiting human review), `check` (review needs inspection), `author` (awaiting author
-changes), `done` (completed cycle), and `done+` (new commits after your approval).
+(awaiting human review), `check` (review needs inspection), `check+` (merged while it
+showed `check`), `author` (awaiting author changes), `done` (completed cycle), and
+`done+` (new commits after your approval).
 The `approve` and `check` labels indicate the next human step; they do not trigger
 publication or approval.
-The default state sort lists `running`, `queued`, `pending`, `done`, `check`, `approve`,
-then `author`; `S` reverses it. `done+` rows sort last, as described below.
+The default state sort lists `running`, `queued`, `pending`, `done`, `check+`, `check`,
+`approve`, then `author`; `S` reverses it. `done+` rows sort last, as described below.
 A trailing `-` marks a pending forge refresh (for example, `check -`).
 
 Keyboard actions acknowledge work immediately and perform I/O in background workers,
@@ -83,6 +84,14 @@ changes, `o` to read it in the browser, or `a` to choose `approve`. A renewed re
 request returns any open PR to `pending`, including when new commits arrive in the
 same refresh.
 A new approval, closure, or merge completes it.
+
+When a PR is merged while it shows `check`, it becomes `check+` instead of completing, so
+findings that still need follow-up work stay on the board and in the triage view. Its
+saved session and workspace are kept: `c` or `Space` resumes the conversation, and `m`
+completes the cycle with completion reason `merged` and schedules cleanup. `a`, `w`, and
+`r` refuse a merged PR. If a refresh observes a review with comments or requested changes
+that you submitted on its head, the cycle also completes as `merged`. A PR closed
+without merging still completes from any state.
 
 At widths of 80 terminal columns or more, the PR table fits the available width
 and hides its scrollbars; keyboard navigation still reaches every row. Smaller
@@ -233,7 +242,8 @@ comments. Successful polling repeats this reconciliation for followed PRs indepe
 of current request membership. Agent output claiming publication is never evidence.
 Successful agent exits show no status message; nonzero exits remain visible.
 
-- Closure/merge or a newly observed own approval completes the cycle and schedules cleanup.
+- Closure/merge or a newly observed own approval completes the cycle and schedules cleanup,
+  except that a PR merged while it shows `check` becomes `check+`, as described above.
 - A renewed review request returns any open PR to `pending`, taking precedence over
   new commits. Otherwise, new commits after approval start a visible `done+` cycle
   at the end of the queue; other new heads return attention to pending AI review.

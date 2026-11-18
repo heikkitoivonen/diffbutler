@@ -18,3 +18,5 @@ flowchart TD
     done -.->|"new commits after<br/>you approved"| doneplus["done+"]
     done -.->|"review requested again"| pending
     doneplus -->|"r"| queued
+    check -.->|"PR merged"| checkplus["check+"]
+    checkplus -->|"m"| done

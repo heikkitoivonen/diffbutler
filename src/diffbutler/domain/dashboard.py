@@ -57,10 +57,21 @@ STATE_LABELS = {
     "AI_RUNNING": "running",
     "PENDING_HUMAN_REVIEW": "approve",
     "FINDINGS_TRIAGE": "check",
+    "FINDINGS_TRIAGE_MERGED": "check+",
     "PENDING_AUTHOR_CHANGES": "author",
     "DONE": "done",
     "DONE_PLUS": "done+",
 }
 
 # Ascending order of state labels; the default descending sort lists them in reverse.
-STATE_SORT_ORDER = ("author", "approve", "check", "done", "done+", "pending", "queued", "running")
+STATE_SORT_ORDER = (
+    "author",
+    "approve",
+    "check",
+    "check+",
+    "done",
+    "done+",
+    "pending",
+    "queued",
+    "running",
+)
