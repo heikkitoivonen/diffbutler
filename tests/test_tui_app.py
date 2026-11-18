@@ -109,7 +109,10 @@ async def test_screenshot_command_is_available(
         commands = {command.title: command for command in system_commands}
         assert {"Screenshot", "Theme", "Quit", "Keys"} <= commands.keys()
         commands["Screenshot"].callback()
-        await pilot.pause(0.3)
+        # The palette command delivers on a short timer; wait for it under load.
+        async with asyncio.timeout(10):
+            while not deliver.called:
+                await pilot.pause(0.05)
         deliver.assert_called_once_with()
         await app.run_action("screenshot")
         await pilot.pause()
