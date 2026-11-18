@@ -85,7 +85,7 @@ def test_dashboard_uses_account_polling_default(
 @pytest.mark.serial
 @pytest.mark.parametrize("interface", ["dashboard", "handoff"])
 @pytest.mark.asyncio
-async def test_screenshots_are_disabled(
+async def test_screenshot_command_is_available(
     interface: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "config.toml"
@@ -96,21 +96,25 @@ async def test_screenshots_are_disabled(
         else HandoffProbe(tmp_path, ["unused"], tmp_path / "events.jsonl")
     )
 
-    def unexpected_screenshot(*args: object, **kwargs: object) -> None:
-        pytest.fail("Screenshot delivery must not be invoked")
-
     async def no_background_output() -> None:
         """Command tests do not need the handoff experiment's ticker subprocess."""
 
     if isinstance(app, HandoffProbe):
         monkeypatch.setattr(app, "background_output", no_background_output)
-    monkeypatch.setattr(app, "deliver_screenshot", unexpected_screenshot)
+    deliver = Mock()
+    monkeypatch.setattr(app, "deliver_screenshot", deliver)
     async with app.run_test() as pilot:
-        commands = {command.title for command in app.get_system_commands(app.screen)}
-        assert "Screenshot" not in commands
-        assert {"Theme", "Quit", "Keys"} <= commands
+        # Textual leaves the Screen type parameter unspecified in this method.
+        system_commands = app.get_system_commands(app.screen)  # pyright: ignore[reportUnknownMemberType]
+        commands = {command.title: command for command in system_commands}
+        assert {"Screenshot", "Theme", "Quit", "Keys"} <= commands.keys()
+        commands["Screenshot"].callback()
+        await pilot.pause(0.3)
+        deliver.assert_called_once_with()
         await app.run_action("screenshot")
         await pilot.pause()
+    deliver.assert_called_with(None, None)
+    assert deliver.call_count == 2
 
 
 @pytest.mark.serial
