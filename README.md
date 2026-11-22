@@ -120,6 +120,9 @@ and read-only review instructions; source sent to the agent may go to its model 
 - `R`: Find and add a PR by link or number, then review it; choose a repository if
   the number is ambiguous. Explicitly selected PRs bypass queue visibility filters.
 - `Ctrl+R`: Refresh from GitHub.
+- `Ctrl+U`: Check PyPI for a newer DiffButler release. The dashboard also checks at
+  startup and daily, showing `↑` and the version in the title bar; see the
+  [dashboard guide](docs/dashboard.md) to turn this off.
 - `k`: Stop the selected PR's review and reset its local tracking and owned resources.
   It disappears until a forge refresh rediscovers it; review history is retained.
 - `h`: View completed review history.

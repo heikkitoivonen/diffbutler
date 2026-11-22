@@ -12,6 +12,14 @@ a usable color, it uses `ansi-dark`. Use the command palette's Theme command to
 select a different theme for the current session. The palette's Keys
 command opens keyboard help; press Escape to close that panel.
 
+The dashboard asks PyPI for the latest DiffButler release when it starts and every
+24 hours while it runs. A newer release shows as `↑ 0.9.0` at the right of the title
+bar, and the status line announces each newly found version once. The request fetches only the public
+project metadata from `pypi.org`; it sends no configuration, PR, or account data.
+`--offline` skips these automatic checks. Set `check_for_updates = false` in
+`[general]` or `DIFFBUTLER_GENERAL__CHECK_FOR_UPDATES=false` to turn them off.
+`Ctrl+U` checks on request either way and reports the result in the status line.
+
 Press `,` to view and edit all settings while the dashboard runs. Saved changes apply
 without restarting; see [editing settings](configuration.md#editing-settings-in-the-dashboard).
 
@@ -121,6 +129,7 @@ Long lines wrap without a horizontal scrollbar; scroll vertically to read more d
 | `A` | Toggle monitoring all open PRs in configured repositories; saved across restarts |
 | `b` | Search accessible open PRs; select one with Enter to follow it |
 | `ctrl+r` | Refresh forge evidence now |
+| `ctrl+u` | Check PyPI for a newer DiffButler release now |
 | `/` | Filter the local queue by repository, number, title, or author |
 | `f` | Cycle active, requested, following, triage, waiting/posted, and history views |
 | `s` / `S` | Cycle displayed sort columns / reverse direction |

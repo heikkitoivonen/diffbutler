@@ -16,6 +16,7 @@ from textual.containers import VerticalScroll
 from textual.coordinate import Coordinate
 from textual.events import Resize
 from textual.screen import ModalScreen
+from textual.timer import Timer
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
 from diffbutler.config.editor import ConfigEditor
@@ -52,6 +53,7 @@ from diffbutler.core.managed import (
 )
 from diffbutler.core.native import foreground_environment
 from diffbutler.core.sync import PullRequestRow
+from diffbutler.core.updates import CHECK_INTERVAL_S, UpdateCheckError, check_for_update
 from diffbutler.domain.dashboard import CycleRecord
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
@@ -228,6 +230,31 @@ class DetailScreen(ModalScreen[None]):
         yield Footer()
 
 
+class UpdateBadge(Static):
+    """Newer-release notice in the header's right slot, which the dashboard leaves empty."""
+
+    DEFAULT_CSS = """
+    UpdateBadge {
+        dock: right;
+        width: auto;
+        min-width: 10;
+        padding: 0 1;
+        content-align: center middle;
+        text-wrap: nowrap;
+        color: $text-warning;
+        text-style: bold;
+    }
+    """
+
+
+class DashboardHeader(Header):
+    def compose(self) -> ComposeResult:
+        # Textual's header ends with an empty clock-sized space when the clock is off.
+        *widgets, _ = super().compose()
+        yield from widgets
+        yield UpdateBadge("", id="update", markup=False)
+
+
 class Dashboard(TerminalApp):
     TITLE = "DiffButler"
     BINDINGS: ClassVar[list[BindingType]] = [
@@ -244,6 +271,7 @@ class Dashboard(TerminalApp):
         ("b", "browse_prs", "Browse all PRs"),
         ("A", "toggle_monitoring", "Monitor all PRs"),
         ("ctrl+r", "refresh", "Refresh"),
+        ("ctrl+u", "check_for_updates", "Check for updates"),
         ("R", "review_pr", "Review PR…"),
         ("space", "primary_action", "Next action"),
         ("enter", "open_detail", "Detail"),
@@ -299,11 +327,13 @@ class Dashboard(TerminalApp):
         # Set when a reload removed the selected PR and moved the cursor to another row.
         self.moved_selection: str | None = None
         self.loaded_scope: tuple[str, str] | None = None
+        self.update_timer: Timer | None = None
+        self.announced_update: str | None = None
         # Includes bindings Textual adds while constructing the app, such as the palette.
         self.default_bindings: BindingsMap = self._bindings.copy()
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield DashboardHeader()
         yield Static("Local queue", id="status", markup=False)
         yield Input(
             placeholder="Filter by repository, number, title or author", id="filter", compact=True
@@ -352,6 +382,7 @@ class Dashboard(TerminalApp):
         self.ready = True
         await self.reload()
         self.set_interval(1, self.local_tick)
+        self.schedule_update_checks()
         if not self.offline:
             self.run_worker(self.poller.run(), name="forge polling", exit_on_error=False)
         if self.settings.ui.default_filter == "all":
@@ -368,9 +399,12 @@ class Dashboard(TerminalApp):
     def selected(self) -> DashboardRow | None:
         return self.rows.get(self.selected_key() or "")
 
-    def status(self, message: str) -> None:
+    def status(self, message: str) -> bool:
+        """Show a message unless a session or another screen hides the status line."""
         if not self.attached and len(self.screen_stack) == 1:
             self.query_one("#status", Static).update(safe(message))
+            return True
+        return False
 
     def refresh_status_once(self, message: str) -> None:
         if (
@@ -646,6 +680,59 @@ class Dashboard(TerminalApp):
             finally:
                 if not self.attached:
                     await self.reload()
+
+    def schedule_update_checks(self) -> None:
+        """Check at startup and daily while enabled; offline mode checks only on request."""
+        enabled = self.settings.general.check_for_updates and not self.offline
+        if enabled and self.update_timer is None:
+            self.update_timer = self.set_interval(
+                CHECK_INTERVAL_S, lambda: self.start_update_check(manual=False)
+            )
+            self.start_update_check(manual=False)
+        elif not enabled and self.update_timer is not None:
+            self.update_timer.stop()
+            self.update_timer = None
+            self.query_one(UpdateBadge).update("")
+
+    def start_update_check(self, *, manual: bool) -> None:
+        """A manual check replaces a running one; an automatic check defers to it."""
+        if not manual and any(
+            worker.group == "update-check" and not worker.is_finished for worker in self.workers
+        ):
+            return
+        self.run_worker(
+            self.update_check(manual=manual),
+            group="update-check",
+            exclusive=manual,
+            exit_on_error=False,
+        )
+
+    async def update_check(self, *, manual: bool) -> None:
+        try:
+            result = await check_for_update()
+        except UpdateCheckError as exc:
+            logging.getLogger(__name__).warning("Update check failed: %s", exc)
+            if manual:
+                self.status(f"Update check failed: {exc}")
+            return
+        logging.getLogger(__name__).info(
+            "Update check installed=%s latest=%s", result.installed, result.latest
+        )
+        if not manual and self.update_timer is None:
+            return  # Automatic checks were turned off while this one was running.
+        self.query_one(UpdateBadge).update(f"↑ {safe(result.latest)}" if result.available else "")
+        if result.available and (manual or result.latest != self.announced_update):
+            # A hidden status line leaves the notice for the next check to repeat.
+            if self.status(
+                f"DiffButler {result.latest} is available (installed {result.installed})."
+            ):
+                self.announced_update = result.latest
+        elif manual:
+            self.status(f"DiffButler {result.installed} is up to date.")
+
+    def action_check_for_updates(self) -> None:
+        self.status("Checking PyPI for a newer DiffButler…")
+        self.start_update_check(manual=True)
 
     def action_refresh(self) -> None:
         self.start(self.sync(), message="Refreshing GitHub…")
@@ -1070,6 +1157,7 @@ class Dashboard(TerminalApp):
         self.settings = settings
         self.poller.set_minimum(settings.effective_poll_interval_s)
         self.apply_key_bindings()
+        self.schedule_update_checks()
         if self.sort.column not in settings.ui.columns and self.sort.column != "attention":
             self.sort = SortSpec(column=settings.ui.sort_by, descending=settings.ui.sort_desc)
         if not settings.ui.preview_pane:
@@ -1098,7 +1186,7 @@ class Dashboard(TerminalApp):
                 "A toggles monitoring all open PRs in configured repositories.\n"
                 "h browses offline history. C retries due cleanup.\n"
                 "t shows review statistics from locally observed activity.\n"
-                "Ctrl+R refreshes forge evidence.\n"
+                "Ctrl+R refreshes forge evidence. Ctrl+U checks PyPI for a newer release.\n"
                 "R asks for a PR link or number to review, then a repository if ambiguous.\n"
                 "s cycles sort columns; S reverses; 1-9 or a column header selects a sort.\n"
                 "/ filters; f cycles views. Ctrl+C cancels the selected run launched here.\n"

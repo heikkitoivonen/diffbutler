@@ -39,6 +39,7 @@ class General(Section):
     snapshot_root: Path | None = None
     poll_interval_s: int | None = Field(default=None, gt=0)
     max_concurrent_reviews: int = Field(default=2, gt=0)
+    check_for_updates: bool = True
 
 
 def data_path() -> Path:

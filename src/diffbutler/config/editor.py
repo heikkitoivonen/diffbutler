@@ -52,6 +52,8 @@ HELP: dict[str, str] = {
     "general.poll_interval_s": "Seconds between forge refreshes. Empty uses 60 with "
     "authenticated accounts and 600 with any public account; low quota slows polling further.",
     "general.max_concurrent_reviews": "Background AI reviews allowed to run at once.",
+    "general.check_for_updates": "Ask PyPI for a newer DiffButler release when the dashboard "
+    "starts and daily. Ctrl+U checks on demand either way.",
     "db.url": "SQLite database URL. Existing data is not moved; DiffButler uses the new "
     "database from its next operation.",
     "db.auto_migrate": "Back up and migrate an older database schema automatically.",

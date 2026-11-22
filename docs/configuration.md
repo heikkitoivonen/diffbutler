@@ -177,6 +177,7 @@ resolution while retaining local configuration, database, and path checks.
 # Minimum: 60 seconds with authenticated accounts, 600 with any public account.
 # poll_interval_s = 600 # Override the minimum; low quota slows polling.
 max_concurrent_reviews = 2
+check_for_updates = true # Ask PyPI for a newer release at dashboard startup and daily.
 # Shared Git objects persist across reviews; active session commits remain pinned.
 # repository_root = "~/.local/share/diffbutler/repos"
 # repository_retention_days = 30
@@ -217,6 +218,7 @@ Environment variables use `DIFFBUTLER_` and `__` between nested keys:
 ```sh
 DIFFBUTLER_GENERAL__POLL_INTERVAL_S=300 uv run diffbutler doctor
 DIFFBUTLER_DB__AUTO_MIGRATE=false uv run diffbutler doctor
+DIFFBUTLER_GENERAL__CHECK_FOR_UPDATES=false uv run diffbutler dashboard
 uv run diffbutler doctor --db-url sqlite+aiosqlite:////tmp/diffbutler.db
 ```
 

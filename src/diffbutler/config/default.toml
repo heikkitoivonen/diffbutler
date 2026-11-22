@@ -7,6 +7,7 @@ reviewers = []
 # Minimum: 60 seconds with authenticated accounts, 600 with any public account.
 # poll_interval_s = 600 # Override the minimum; low quota slows polling.
 max_concurrent_reviews = 2
+check_for_updates = true # Ask PyPI for a newer release at startup and daily.
 # Omit workspace_root to follow $XDG_DATA_HOME/diffbutler/reviews
 # (default ~/.local/share/diffbutler/reviews).
 # workspace_root = "~/diffbutler-reviews"
