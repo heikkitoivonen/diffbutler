@@ -22,11 +22,11 @@ project metadata from `pypi.org`; it sends no configuration, PR, or account data
 
 The dashboard rings the terminal bell when a PR in the current view enters `check`
 or `check+`. Set `bell_on` in `[ui]` to the states that should ring, from `pending`,
-`approve`, `check`, and `check+`; `bell_on = []` turns the bell off. With environment
-variables, use JSON: `DIFFBUTLER_UI__BELL_ON='["pending", "check"]'`. Adding `pending`
-rings for new review requests. A refresh rings once however many PRs changed.
-PRs shown when the dashboard starts or when you change the view or filter do not
-ring, and the history view never does. A state you choose yourself does not ring
+`approve`, `check`, and `check+`; `bell_on = []` turns the bell off. In Settings
+(`,`), edit `bell_on` on the Interface tab: enter states separated by spaces, or `[]`
+for no bell. Adding `pending` rings for new review requests. A refresh rings once
+however many PRs changed. PRs shown when the dashboard starts or when you change the
+view or filter do not ring, and the history view never does. A state you choose yourself does not ring
 either: `a` choosing `approve`, `Ctrl+C` returning a PR to `pending`, or `b` and `R`
 adding a PR as `pending`. While an agent session or another screen covers the
 dashboard, it rings when you return. Your terminal decides whether the bell makes a

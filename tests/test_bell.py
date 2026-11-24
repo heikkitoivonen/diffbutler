@@ -226,15 +226,35 @@ async def test_states_chosen_in_the_dashboard_stay_silent(
         assert len(rung) == 1
 
 
-def test_bell_on_validates_states(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bell_on_validates_states(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     assert load_settings(path, missing_ok=True).ui.bell_on == ["check", "check+"]
     path.write_text('[ui]\nbell_on = ["queued"]\n')
     with pytest.raises(ConfigError, match=r"ui\.bell_on.*valid states: pending, approve"):
         load_settings(path)
-    path.write_text('[ui]\nbell_on = ["approve"]\n')
-    monkeypatch.setenv("DIFFBUTLER_UI__BELL_ON", "[]")
-    assert load_settings(path).ui.bell_on == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("pending check check+", ["pending", "check", "check+"]), ("[]", [])],
+)
+def test_bell_on_is_edited_in_settings(tmp_path: Path, text: str, expected: list[str]) -> None:
+    from diffbutler.config.editor import SECTION, ConfigEditor, parse_value
+
+    path = tmp_path / "config.toml"
+    path.write_text("")
+    spec = next(spec for spec in SECTION["ui"].fields if spec.label == "bell_on")
+    assert spec.kind == "words" and "pending approve check check+" in spec.help
+    editor = ConfigEditor.open(path)
+    draft = editor.draft()
+    draft.tables["ui"]["bell_on"] = parse_value(spec, text)
+    assert editor.save(draft)
+    assert load_settings(path).ui.bell_on == expected
+    draft = ConfigEditor.open(path).draft()
+    draft.tables["ui"]["bell_on"] = parse_value(spec, "pending queued")
+    with pytest.raises(ConfigError, match="Unknown state"):
+        ConfigEditor.open(path).save(draft)
+    assert load_settings(path).ui.bell_on == expected
 
 
 @pytest.mark.serial
