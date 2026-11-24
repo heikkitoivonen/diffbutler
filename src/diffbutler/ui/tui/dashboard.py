@@ -54,7 +54,7 @@ from diffbutler.core.managed import (
 from diffbutler.core.native import foreground_environment
 from diffbutler.core.sync import PullRequestRow
 from diffbutler.core.updates import CHECK_INTERVAL_S, UpdateCheckError, check_for_update
-from diffbutler.domain.dashboard import CycleRecord
+from diffbutler.domain.dashboard import STATE_LABELS, CycleRecord
 from diffbutler.domain.review import ReviewConflict
 from diffbutler.forges.base import ForgeError
 from diffbutler.reviewers.process import HostBootError
@@ -329,6 +329,13 @@ class Dashboard(TerminalApp):
         self.loaded_scope: tuple[str, str] | None = None
         self.update_timer: Timer | None = None
         self.announced_update: str | None = None
+        # State labels of the last queue load, used to ring on entering a ui.bell_on state.
+        self.bell_scope: tuple[str, str] | None = None
+        self.bell_states: dict[str, str] = {}
+        # A state chosen here, with the queue read count once the choice was saved:
+        # reaching it does not ring, and the first later read settles it.
+        self.chosen_states: dict[str, tuple[str, int | None]] = {}
+        self.queue_reads = 0
         # Includes bindings Textual adds while constructing the app, such as the palette.
         self.default_bindings: BindingsMap = self._bindings.copy()
 
@@ -434,6 +441,7 @@ class Dashboard(TerminalApp):
             text = self.query_one(Input).value
             view = self.view
             sort = self.sort
+            started: int | None = None  # This queue read's number; history is not a queue.
             if view == "history":
                 cycles = await history_configured(self.path, HistoryFilter())
                 self.history = {
@@ -461,6 +469,8 @@ class Dashboard(TerminalApp):
                 columns = ["PR", "Cycle", "Completion", "Cleanup"]
                 column_ids = ["title", "cycle", "completion", "cleanup"]
             else:
+                self.queue_reads += 1
+                started = self.queue_reads
                 rows = sort_rows(await dashboard_rows(self.path, view, text), sort)
                 for row in rows:
                     if row.run_status in {"queued", "running"}:
@@ -494,6 +504,10 @@ class Dashboard(TerminalApp):
                 or text != self.query_one(Input).value
             ):
                 return
+            if started is not None:
+                self.ring_on_state_changes((view, text), started)
+            else:
+                self.bell_scope = None  # Leaving history is a view change.
             table = self.query_one(DataTable[Text])
             wide = self.size.width >= 80
             table.styles.overflow_x = "hidden" if wide else "auto"
@@ -549,6 +563,33 @@ class Dashboard(TerminalApp):
                 " · AI paused" if self.ai_paused else ""
             )
             await self.preview()
+
+    def ring_on_state_changes(self, scope: tuple[str, str], started: int) -> None:
+        """Ring once when a row of the same view and filter enters a ui.bell_on state.
+
+        A first load, a changed view or filter, and a state chosen here stay silent.
+        """
+        # Saved states only: a review requested here shows as queued before it is saved.
+        states = {
+            key: STATE_LABELS.get(row.row.tracked.state, "") for key, row in self.rows.items()
+        }
+        ring = False
+        for key, label in states.items():
+            if key in self.chosen_states:
+                chosen, saved = self.chosen_states[key]
+                if label == chosen or (saved is not None and started > saved):
+                    del self.chosen_states[key]
+                if label == chosen:
+                    continue
+            if (
+                scope == self.bell_scope
+                and label != self.bell_states.get(key)
+                and label in self.settings.ui.bell_on
+            ):
+                ring = True
+        if ring:
+            self.bell()
+        self.bell_scope, self.bell_states = scope, states
 
     def cell(self, row: DashboardRow, column: str) -> str:
         value = column_value(row, column)
@@ -772,9 +813,27 @@ class Dashboard(TerminalApp):
             status = await approved_configured(self.path, pr.url, row.row.account.login)
             self.status(f"Completion recorded locally · cleanup: {status}")
         else:
-            await state_configured(
+            operation = state_configured(
                 self.path, pr.url, row.row.account.login, waiting=choice == "waiting"
             )
+            if choice == "ready":
+                await self.choose_state(str(row.row.tracked.task_id), "approve", operation)
+            else:
+                await operation
+
+    async def choose_state(self, key: str, label: str, operation: Awaitable[object]) -> None:
+        """Run an action moving a PR to label; reaching it does not ring."""
+        self.chosen_states[key] = (label, None)
+        try:
+            await operation
+        except BaseException:
+            self.chosen_states.pop(key, None)
+            raise
+        self.chosen_states[key] = (label, self.queue_reads)
+
+    def chosen_saved(self, key: str, label: str) -> None:
+        """Record a state the user just gave a PR; the next queue read does not ring for it."""
+        self.chosen_states[key] = (label, self.queue_reads)
 
     def selection_confirmed(self) -> bool:
         """Hold the first state key after a refresh moved the cursor off a removed PR."""
@@ -836,6 +895,7 @@ class Dashboard(TerminalApp):
 
         def chosen(row: PullRequestRow | None) -> None:
             if row is not None:
+                self.chosen_saved(str(row.tracked.task_id), "pending")
                 self.start(self.review_target(row), message="Preparing selected PR…")
 
         self.push_screen(ReviewPrompt(self.path), chosen)
@@ -911,7 +971,7 @@ class Dashboard(TerminalApp):
             return
 
         async def cancel() -> None:
-            await cancel_task_configured(self.path, UUID(key))
+            await self.choose_state(key, "pending", cancel_task_configured(self.path, UUID(key)))
             task = self.review_tasks.get(key)
             if task:
                 task.cancel()
@@ -1048,6 +1108,7 @@ class Dashboard(TerminalApp):
     def action_browse_prs(self) -> None:
         async def followed(task_id: str | None) -> None:
             if task_id is not None:
+                self.chosen_saved(task_id, "pending")
                 self.view = "active"
                 self.query_one(Input).value = ""
                 await self.reload()

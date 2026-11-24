@@ -39,6 +39,7 @@ columns = ["number", "title", "author", "state"]
 sort_by = "state"
 sort_desc = true
 preview_pane = true
+bell_on = ["check", "check+"] # Ring on entering: pending | approve | check | check+; [] is silent.
 default_filter = "active"
 # browser_command = ["firefox", "--new-tab"]
 

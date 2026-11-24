@@ -63,6 +63,9 @@ STATE_LABELS = {
     "DONE_PLUS": "done+",
 }
 
+# State labels that ui.bell_on may name.
+BELL_STATES = ("pending", "approve", "check", "check+")
+
 # Ascending order of state labels; the default descending sort lists them in reverse.
 STATE_SORT_ORDER = (
     "author",

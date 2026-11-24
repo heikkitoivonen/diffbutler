@@ -53,7 +53,7 @@ see the current values. For forges and reviewers, any change to that list in the
 counts as a conflict with your edits to it. If the file cannot be loaded, fix it with `diffbutler config --edit`.
 
 Saved settings apply without restarting. The dashboard immediately uses new columns,
-preview pane, browser command, key bindings, reviewer choices, and poll interval. Other operations read the configuration when they start, so the next sync,
+preview pane, bell states, browser command, key bindings, reviewer choices, and poll interval. Other operations read the configuration when they start, so the next sync,
 review, or cleanup uses the new values; a review already running keeps its settings.
 `ui.default_filter` selects the view at the next start. `ui.sort_by` and `ui.sort_desc`
 set the sort used at the next start when no sort was chosen in the dashboard; removing
@@ -331,7 +331,9 @@ History, accessible-PR search, monitoring, and saved review state are preserved.
 `ui.columns` and `ui.sort_by` accept the registered IDs listed in SPEC §10.2;
 unknown IDs fail validation. `ui.sort_by` defaults to `state`, the fourth default
 column. `ui.browser_command` accepts an argv list, for example `["firefox", "--new-tab"]`;
-the UI appends the PR URL without a shell. The dashboard
+the UI appends the PR URL without a shell. `ui.bell_on` lists the states that ring
+the terminal bell, from `pending`, `approve`, `check`, and `check+` (default
+`["check", "check+"]`; `[]` for none); see the [dashboard guide](dashboard.md). The dashboard
 persists interactive sort and AI-dispatch pause choices in SQLite. It supports active,
 requested, following, triage, posted/waiting, and history presets; `all` opens accessible
 PR search. The future snoozed preset is not yet a separate dashboard view.

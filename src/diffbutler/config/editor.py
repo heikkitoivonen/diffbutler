@@ -35,7 +35,7 @@ from diffbutler.config.settings import (
     config_path,
     validate_document,
 )
-from diffbutler.domain.dashboard import COLUMN_IDS
+from diffbutler.domain.dashboard import BELL_STATES, COLUMN_IDS
 
 type Value = bool | int | float | str | list[str] | None
 FieldKind = Literal["bool", "choice", "int", "float", "text", "words"]
@@ -87,6 +87,9 @@ HELP: dict[str, str] = {
     "ui.sort_by": "Default sort column; a sort chosen in the dashboard takes precedence.",
     "ui.sort_desc": "Sort in descending order by default.",
     "ui.preview_pane": "Show details of the selected PR below the queue.",
+    "ui.bell_on": "Ring the terminal bell when a PR enters these states, space-separated: "
+    + " ".join(BELL_STATES)
+    + ". Enter [] for no bell.",
     "ui.default_filter": "View shown when the dashboard starts.",
     "ui.attention.blocking": "Attention score added for blocking findings.",
     "ui.attention.important": "Attention score added for important findings.",

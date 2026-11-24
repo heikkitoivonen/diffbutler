@@ -133,6 +133,15 @@ class UI(Section):
             raise ValueError("Unknown column; valid columns: " + ", ".join(COLUMN_IDS))
         return self
 
+    @field_validator("bell_on")
+    @classmethod
+    def known_bell_states(cls, values: list[str]) -> list[str]:
+        from diffbutler.domain.dashboard import BELL_STATES
+
+        if any(value not in BELL_STATES for value in values):
+            raise ValueError("Unknown state; valid states: " + ", ".join(BELL_STATES))
+        return values
+
     columns: list[str] = Field(
         default_factory=lambda: [
             "number",
@@ -144,6 +153,7 @@ class UI(Section):
     sort_by: str = "state"
     sort_desc: bool = True
     preview_pane: bool = True
+    bell_on: list[str] = Field(default_factory=lambda: ["check", "check+"])
     default_filter: Literal[
         "active", "requested", "following", "all", "triage", "posted", "snoozed", "history"
     ] = "active"
