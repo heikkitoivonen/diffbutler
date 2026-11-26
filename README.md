@@ -139,7 +139,9 @@ requests. Use `R` to select one explicitly, or set `include_own_prs = true` in `
 to show them all, such as PRs an agent created using your account.
 PRs assigned to you are also hidden by default, even when
 you are requested directly or through a team. Set `include_assigned_prs = true` in
-`[ui]` to include them, or select one with `R`.
+`[ui]` to include them, or select one with `R`. Draft PRs are hidden until they are
+marked ready for review; set `include_draft_prs = true` in `[ui]` to include them, or
+select one with `R`.
 
 ### How PRs move through the board
 
@@ -147,7 +149,7 @@ Solid arrows are actions you take; dashed arrows happen automatically.
 
 How a PR arrives:
 
-![Flow diagram: review requests and all-PR monitoring reach the board through polling, browsing adds followed PRs, and your own or assigned PRs are hidden unless enabled; R adds a PR directly and starts a review. New PRs start as pending unless already approved, closed, or merged.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-arrival.svg)
+![Flow diagram: review requests and all-PR monitoring reach the board through polling, browsing adds followed PRs, and your own, assigned, or draft PRs are hidden unless enabled; R adds a PR directly and starts a review. New PRs start as pending unless already approved, closed, or merged.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-arrival.svg)
 
 How its status changes:
 
@@ -161,7 +163,7 @@ refuse it.
 
 How it leaves:
 
-![Flow diagram: m, your approval, or a close or merge moves a PR to done and history, except that a merged check PR stays on the board as check+; k removes it until a refresh finds it still requested or monitored; becoming an assignee hides it unless include_assigned_prs is set or it was selected with R.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-exit.svg)
+![Flow diagram: m, your approval, or a close or merge moves a PR to done and history, except that a merged check PR stays on the board as check+; k removes it until a refresh finds it still requested or monitored; becoming an assignee hides it unless include_assigned_prs is set or it was selected with R; converting it to draft hides it unless include_draft_prs is set or it was selected with R, until it is marked ready for review.](https://raw.githubusercontent.com/heikkitoivonen/diffbutler/main/docs/diagrams/pr-exit.svg)
 
 A PR stays on the board when its review request is withdrawn; press `k` to remove it.
 A PR you only followed stays away after `k` until you follow it again.

@@ -6,6 +6,7 @@ import sys
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from itertools import product
 from pathlib import Path
 from uuid import UUID
 
@@ -118,15 +119,19 @@ async def test_k_resets_only_selected_pr_and_refresh_rediscovers_it(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sources", [("user:reader",), ("team:acme/reviewers",), ()])
-@pytest.mark.parametrize("assigned", [False, True])
+@pytest.mark.parametrize("kind", ["own", "assigned", "draft"])
 async def test_own_pr_visibility_and_config_override(
     ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
     sources: tuple[str, ...],
-    assigned: bool,
+    kind: str,
 ) -> None:
     _, queue, forge, path = ledger
-    setting = "include_assigned_prs" if assigned else "include_own_prs"
-    own = replace(PR, assignees=("someone", "ReAdEr")) if assigned else replace(PR, author="ReAdEr")
+    setting = f"include_{kind}_prs"
+    own = {
+        "own": replace(PR, author="ReAdEr"),
+        "assigned": replace(PR, assignees=("someone", "ReAdEr")),
+        "draft": replace(PR, is_draft=True),
+    }[kind]
     forge.prs[REF] = own
     forge.discovery = Discovery((RequestedPR(own, sources),), True)
     service = DiffButler(queue, forge, monitor_repositories=("acme/api",))
@@ -163,17 +168,40 @@ async def test_assignment_refresh_and_independent_visibility_overrides(
         await service.sync()
         assert bool(await dashboard_rows(path)) is visible
 
-    pr = replace(PR, author="reader", assignees=("reader",))
+    pr = replace(PR, author="reader", assignees=("reader",), is_draft=True)
     forge.prs[REF] = pr
     forge.discovery = Discovery((RequestedPR(pr, ("user:reader",)),), True)
     await service.sync()
     config = path.read_text()
-    for own, assigned in ((True, False), (False, True), (True, True)):
+    for own, assigned, draft in product((False, True), repeat=3):
         path.write_text(
             config + f"\n[ui]\ninclude_own_prs = {str(own).lower()}\n"
             f"include_assigned_prs = {str(assigned).lower()}\n"
+            f"include_draft_prs = {str(draft).lower()}\n"
         )
-        assert bool(await dashboard_rows(path)) is (own and assigned)
+        visible = own and assigned and draft
+        assert bool(await dashboard_rows(path)) is visible
+        assert bool(await local_queue(path, "active", None)) is visible
+
+
+@pytest.mark.asyncio
+async def test_draft_refresh_and_explicit_selection(
+    ledger: tuple[Database, SQLiteQueueStore, FakeForge, Path],
+) -> None:
+    _, queue, forge, path = ledger
+    service = DiffButler(queue, forge)
+    # Converting to draft hides a saved PR; marking it ready brings it back.
+    for draft, visible in ((True, False), (False, True), (True, False)):
+        pr = replace(PR, is_draft=draft)
+        forge.prs[REF] = pr
+        forge.discovery = Discovery((RequestedPR(pr, ("user:reader",)),), True)
+        await service.sync()
+        assert bool(await dashboard_rows(path)) is visible
+        assert bool(await local_queue(path, "requested", None)) is visible
+    assert (await queue.snapshot(ACCOUNT)).items[0].sources == ("user:reader",)
+
+    await service.follow_pr(REF, for_review=True)
+    assert len(await dashboard_rows(path)) == 1
 
 
 @pytest.mark.serial

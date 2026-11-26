@@ -328,6 +328,13 @@ with `R`. Assignees are saved
 on forge refresh; older cached PRs need a successful refresh before this filter applies.
 History, accessible-PR search, monitoring, and saved review state are preserved.
 
+`ui.include_draft_prs` defaults to `false`, hiding draft PRs from the same local queue
+views, whether they arrive by direct or team review request, all-PR monitoring, or
+following. Set it to `true` or use `DIFFBUTLER_UI__INCLUDE_DRAFT_PRS=true` to include
+them. Draft status is saved on each successful forge refresh, so a PR converted to draft is hidden
+and reappears once it is marked ready for review. This setting is independent of the
+other two. History, accessible-PR search, monitoring, and saved review state are preserved.
+
 `ui.columns` and `ui.sort_by` accept the registered IDs listed in SPEC §10.2;
 unknown IDs fail validation. `ui.sort_by` defaults to `state`, the fourth default
 column. `ui.browser_command` accepts an argv list, for example `["firefox", "--new-tab"]`;

@@ -3,8 +3,8 @@ flowchart LR
     all["A: monitor all open PRs"] --> poll
     poll["Polling GitHub<br/>(repository filters apply)"] -.-> filter
     follow["b: browse and follow"] --> filter
-    filter{"Your own PR,<br/>or assigned to you?"}
-    filter -.->|"no, or include_own_prs /<br/>include_assigned_prs set"| board
+    filter{"Your own PR, assigned<br/>to you, or a draft?"}
+    filter -.->|"no, or include_own_prs /<br/>include_assigned_prs /<br/>include_draft_prs set"| board
     filter -.->|"yes"| hidden["Hidden"]
     find["R: find by link or number"] -->|"bypasses filters,<br/>starts a review"| board
     board["On the board as pending,<br/>unless already approved,<br/>closed, or merged"]

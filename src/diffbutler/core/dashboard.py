@@ -176,6 +176,7 @@ async def dashboard_rows(
             view=selected,
             include_own_prs=settings.ui.include_own_prs,
             include_assigned_prs=settings.ui.include_assigned_prs,
+            include_draft_prs=settings.ui.include_draft_prs,
         )
         store = SQLiteReviewStore(queue.database)
         reviews = ReviewService(store, ReviewPolicy(frozenset()))

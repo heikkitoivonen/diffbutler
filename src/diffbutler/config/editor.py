@@ -81,6 +81,7 @@ HELP: dict[str, str] = {
     "reviewers.stdin": "Send the prompt on standard input.",
     "ui.include_own_prs": "Show PRs authored by your account in the queue.",
     "ui.include_assigned_prs": "Show PRs assigned to your account in the queue.",
+    "ui.include_draft_prs": "Show draft PRs in the queue.",
     "ui.browser_command": "Browser command and arguments; the PR URL is appended. "
     "Empty uses the system browser.",
     "ui.columns": "Queue columns, space-separated: " + " ".join(COLUMN_IDS) + ".",

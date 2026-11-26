@@ -66,6 +66,11 @@ selected with `R`. Otherwise, both settings must be enabled
 for PRs you authored and are assigned to. Existing saved PRs gain assignee data on
 the next successful forge refresh; history and accessible-PR search are unaffected.
 
+Draft PRs are hidden by default too, whether requested, monitored, or followed. Set
+`include_draft_prs = true` in `[ui]` to include them. A PR converted to draft leaves
+the queue views on the next refresh and returns when it is marked ready for review;
+selecting it with `R` shows it while it is active.
+
 The default columns are PR, Title, Author, and State.
 The selected PR's repository, AI status, findings count, and age appear in the preview
 and full details. Age is the time since the PR was created, shown in hours. Headers use

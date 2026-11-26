@@ -8,3 +8,5 @@ flowchart LR
     board -->|"k"| reset["Removed,<br/>history kept"]
     reset -.->|"next refresh, if still<br/>requested or A is on"| back["Back as pending"]
     board -.->|"you are assigned,<br/>unless selected with R<br/>or include_assigned_prs<br/>is set"| hidden["Hidden"]
+    board -.->|"converted to draft,<br/>unless selected with R<br/>or include_draft_prs<br/>is set"| draft["Hidden while<br/>a draft"]
+    draft -.->|"marked ready<br/>for review"| board

@@ -35,6 +35,7 @@ mode = "source_only"
 [ui]
 include_own_prs = false # Set true to review PRs authored by your account.
 include_assigned_prs = false # Set true to review PRs assigned to your account.
+include_draft_prs = false # Set true to review draft PRs.
 columns = ["number", "title", "author", "state"]
 sort_by = "state"
 sort_desc = true
